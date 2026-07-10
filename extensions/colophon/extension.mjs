@@ -1,10 +1,10 @@
-// Extension: design-system
+// Extension: colophon
 // A live, editable, in-repo design system that renders in the Copilot canvas and
 // that Copilot consults before doing any UI work.
 //
 // Pieces:
-//   • Canvas "design-system"  — renders/edits .agents/design/ (falls back to a starter)
-//   • Tool  "design_system"   — hands the agent the system as text (and can seed a repo)
+//   • Canvas "colophon"  — renders/edits .agents/design/ (falls back to a starter)
+//   • Tool  "colophon"   — hands the agent the system as text (and can seed a repo)
 //   • Hooks                   — announce the system + inject it when a prompt is UI-related
 //
 // Static UI (styles.css, client.js) is served from disk by a per-instance loopback
@@ -187,7 +187,7 @@ async function startServer(instanceId, workdir) {
 
 // ---- canvas ----------------------------------------------------------------
 const canvas = createCanvas({
-  id: "design-system",
+  id: "colophon",
   displayName: "Colophon",
   description: "View, edit, and live-preview this repo's design system (.agents/design/): brand, color, type, spacing, components.",
   inputSchema: { type: "object", properties: { workingDirectory: { type: "string", description: "Repo/working directory whose .agents/design/ to load" } }, additionalProperties: true },
@@ -204,7 +204,7 @@ const canvas = createCanvas({
     }
     const design = await loadDesign(entry.workdir);
     return {
-      title: `Design System — ${design.tokens?.brand?.name || "starter"}`,
+      title: `Colophon — ${design.tokens?.brand?.name || "starter"}`,
       status: design.source === "repo" ? ".agents/design/" : "starter (unsaved)",
       url: entry.url,
     };
@@ -271,7 +271,7 @@ const canvas = createCanvas({
 
 // ---- tool: hand the design system to the agent as text ---------------------
 const designTool = {
-  name: "design_system",
+  name: "colophon",
   description:
     "Read this repo's design system (brand, color, typography, spacing, radii, component patterns, principles, anti-references) so new or changed UI matches the house style. Call this BEFORE writing any UI, CSS, or components. Set init=true to scaffold .agents/design/ from the starter if the repo has none.",
   inputSchema: {
@@ -298,7 +298,7 @@ const designTool = {
         return {
           source: "scan",
           dir: design.dir,
-          instructions: `No ${DESIGN_SUBPATH}/ yet. Proposed the following from existing UI (${evidence.fileCount} files scanned). Open the Design System canvas to review, refine, and save it.`,
+          instructions: `No ${DESIGN_SUBPATH}/ yet. Proposed the following from existing UI (${evidence.fileCount} files scanned). Open the Colophon canvas to review, refine, and save it.`,
           evidence,
           designSystem: buildSummary({ source: "scan", tokens }),
         };

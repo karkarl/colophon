@@ -1,0 +1,16 @@
+{
+  "name": "colophon",
+  "description": "Living design systems for Copilot. Keeps a repo's design system in .agents/design/ as the source of truth, renders/edits it in a canvas, and makes Copilot generate UI from its tokens, components, and principles.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Karen",
+    "url": "https://github.com/karkarl"
+  },
+  "homepage": "https://github.com/karkarl/colophon",
+  "repository": "https://github.com/karkarl/colophon",
+  "license": "MIT",
+  "keywords": ["design-system", "design", "ui", "tokens", "frontend", "canvas", "skill"],
+  "category": "design",
+  "skills": "skills/",
+  "extensions": "extensions/"
+}

@@ -2,14 +2,20 @@
 
 > *A colophon is the note at the back of a book naming its typefaces, materials, and makers. This is that — for your app's UI.*
 
-An **experimental** Copilot CLI canvas extension that turns a repo's design system
-into a live, editable canvas — and makes Copilot reference it whenever it builds or
-fixes UI. Inspired by Anthropic's `frontend-design` skill and
+An **experimental** GitHub Copilot **plugin** that turns a repo's design system
+into a live, editable canvas — and makes Copilot generate UI from it whenever it
+builds or fixes UI. Inspired by Anthropic's `frontend-design` skill and
 [pbakaus/impeccable](https://github.com/pbakaus/impeccable).
 
 The distinguishing idea: the design system is a **shared, human-readable artifact in
 the repo** that designers and developers refine together, and that the agent reads
 automatically.
+
+Colophon ships two halves in one plugin:
+- a **skill** (`skills/colophon/`) that tells Copilot to treat `.agents/design/` as
+  the source of truth and build UI from its tokens, components, and principles; and
+- a **canvas extension** (`extensions/colophon/`) that renders and edits the system
+  live, and exposes a `colophon` tool + hooks so the agent always has it in context.
 
 ## How it works
 
@@ -45,8 +51,10 @@ Starter/scratch write straight to `.agents/design/`; import/scan load an **unsav
 review bar (**Save to repo** / **Discard**). Any first save also scaffolds `components.jsx` +
 `principles.md`.
 
-### 3. Copilot references it automatically (the "skill" half)
-- **`design_system` tool** — the agent calls it to get the system as text before UI work.
+### 3. Copilot references it automatically (the skill + tool + hooks)
+- **`colophon` skill** — instructs the agent, on any UI work, to read `.agents/design/`
+  and generate UI from its tokens, components, and principles (not ad-hoc styles).
+- **`colophon` tool** — the agent calls it to get the system as text before UI work.
   `init=true` scaffolds `.agents/design/` from the starter; `scan=true` proposes one from the
   repo's existing UI when none exists yet.
 - **Hooks** — `onSessionStart` announces the system exists; `onUserPromptSubmitted` detects
@@ -59,16 +67,20 @@ review bar (**Save to repo** / **Discard**). Any first save also scaffolds `comp
 - `scan` — scan existing UI and return a proposed system (text + evidence); writes nothing.
 - `refresh` — tell the open canvas to reload from disk.
 
-## Files
+## Repo layout
 ```
-extension.mjs   wiring: canvas + tool + hooks + loopback server + file IO
-designio.mjs    locate / load / scaffold / save .agents/design/ ; token → CSS vars
-context.mjs     UI-intent detection + the summary/context text Copilot receives
-sources.mjs     seed generators: scratch skeleton, token importer, codebase scanner
-renderer.mjs    tiny iframe shell
-client.js       the in-canvas inspector app (onboarding, render, edit, live previews)
-styles.css      canvas chrome + the ds-* component runtime (from tokens)
-sample/         bundled starter design system
+plugin.json                       plugin manifest (skills + extensions)
+.github/plugin/marketplace.json   makes this repo its own plugin marketplace
+skills/colophon/SKILL.md          the "build UI from .agents/design/" skill
+extensions/colophon/              the canvas extension:
+  extension.mjs   wiring: canvas + tool + hooks + loopback server + file IO
+  designio.mjs    locate / load / scaffold / save .agents/design/ ; token → CSS vars
+  context.mjs     UI-intent detection + the summary/context text Copilot receives
+  sources.mjs     seed generators: scratch skeleton, token importer, codebase scanner
+  renderer.mjs    tiny iframe shell
+  client.js       the in-canvas inspector app (onboarding, render, edit, live previews)
+  styles.css      canvas chrome + the ds-* component runtime (from tokens)
+  sample/         bundled starter design system
 ```
 
 ## Notes & limitations (experimental)
@@ -80,16 +92,26 @@ sample/         bundled starter design system
 
 ## Install
 
-Colophon is a user-scoped Copilot CLI canvas extension. Install it into
-`~/.copilot/extensions/colophon/` (or `$COPILOT_HOME/extensions/colophon/`):
+Colophon is a Copilot plugin **and** its own marketplace, so there are a few ways in.
 
+**As a plugin (recommended — gets the skill + canvas together):**
 ```bash
-git clone https://github.com/karkarl/colophon.git ~/.copilot/extensions/colophon
+copilot plugin install karkarl/colophon
 ```
+Or register the marketplace, then install by name:
+```bash
+copilot plugin marketplace add karkarl/colophon
+copilot plugin install colophon@colophon
+```
+You can also declare it in `~/.copilot/settings.json` (all repos) or a repo's
+`.github/copilot/settings.json` (whole team) via the `enabledPlugins` field.
 
-Then reload extensions in Copilot CLI (or restart it). `copilot-extension.json` marks the
-folder as a Copilot extension. You can also install it from the command palette
-("Install extension from gist…") or via the `install_extension` tool pointed at this repo.
+**Just the canvas extension (no plugin):** the extension lives in
+`extensions/colophon/`. Install that subdirectory into
+`~/.copilot/extensions/colophon/`, or point the `install_extension` tool at
+`https://github.com/karkarl/colophon/tree/main/extensions/colophon`.
+
+After installing, reload Copilot (or restart it) and open the **Colophon** canvas.
 
 ## License
 

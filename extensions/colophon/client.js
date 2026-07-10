@@ -193,7 +193,7 @@ async function renderComponents(t, src) {
       comps = factory(window.React);
     } catch (e) {
       buildErr = String(e && e.message ? e.message : e);
-      try { console.error("[design-system] component preview build failed:", e); } catch { /* noop */ }
+      try { console.error("[colophon] component preview build failed:", e); } catch { /* noop */ }
     }
   }
 

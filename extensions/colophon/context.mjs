@@ -109,10 +109,10 @@ export function sessionStartContext(design) {
     return [
       `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
       `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
-      `You can open the "Design System" canvas to view/edit it, or call the design_system tool for a text summary.`,
+      `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
     ].join(" ");
   }
-  return `A "Design System" canvas is available (via the design-system extension). This repo has no ${DESIGN_SUBPATH}/ yet; if the user does UI work, offer to seed one with the design_system tool or the canvas "init" action.`;
+  return `A "Colophon" canvas is available (via the colophon plugin). This repo has no ${DESIGN_SUBPATH}/ yet; if the user does UI work, offer to seed one with the colophon tool or the canvas "init" action.`;
 }
 
 export function promptContext(design) {
@@ -122,7 +122,7 @@ export function promptContext(design) {
     : `The user's request looks UI-related. There's no ${DESIGN_SUBPATH}/ in this repo yet, but a starter design system is available.`;
   return [
     head,
-    "Consult it before writing UI: use the design_system tool (or read the files) and honor its color, typography, spacing, radius tokens, component patterns, principles, and anti-references.",
+    "Consult it before writing UI: use the colophon tool (or read the files) and honor its color, typography, spacing, radius tokens, component patterns, principles, and anti-references.",
     "Here is the current design system for quick reference:",
     "",
     buildSummary(design),

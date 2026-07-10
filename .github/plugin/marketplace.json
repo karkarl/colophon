@@ -1,0 +1,19 @@
+{
+  "name": "colophon",
+  "owner": {
+    "name": "Karen",
+    "url": "https://github.com/karkarl"
+  },
+  "metadata": {
+    "description": "Colophon — living, in-repo design systems for GitHub Copilot.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "colophon",
+      "description": "Keeps a repo's design system in .agents/design/ as the source of truth, renders/edits it in a Copilot canvas, and makes Copilot generate UI from its tokens, components, and principles.",
+      "version": "0.1.0",
+      "source": "."
+    }
+  ]
+}
