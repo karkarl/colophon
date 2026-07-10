@@ -1,0 +1,90 @@
+{
+  "$schema": "https://agents.design/schema/v1",
+  "meta": {
+    "version": 1,
+    "updatedBy": "starter",
+    "note": "Edit this in the Design System canvas or directly. Devs + designers share this file."
+  },
+  "brand": {
+    "name": "Northlight",
+    "tagline": "Field notes for people who build in the open.",
+    "description": "Northlight is a writing and publishing tool for engineers who document their work in public — a calm, editorial space for long-form field notes, changelogs, and technical essays. It favors readable typography and a quiet, unhurried interface over dashboard clutter.",
+    "surface": "product",
+    "voice": "Plain-spoken, exact, quietly confident. Short sentences. No hype words.",
+    "personality": ["editorial", "precise", "warm", "unhurried"],
+    "antiReferences": [
+      "generic SaaS landing pages",
+      "purple-to-blue gradients",
+      "Inter for everything",
+      "cards nested inside cards"
+    ]
+  },
+  "colors": [
+    { "name": "ink",      "value": "#1c1a17", "usage": "Primary text, headings" },
+    { "name": "paper",    "value": "#f7f4ee", "usage": "App / page background" },
+    { "name": "surface",  "value": "#ffffff", "usage": "Raised surfaces, inputs" },
+    { "name": "muted",    "value": "#6b6459", "usage": "Secondary text, captions" },
+    { "name": "line",     "value": "#e4ddd0", "usage": "Borders, dividers" },
+    { "name": "accent",   "value": "#b5502a", "usage": "Primary actions, links, focus" },
+    { "name": "accentInk","value": "#fbf7f0", "usage": "Text on accent" },
+    { "name": "positive", "value": "#3f6b4c", "usage": "Success states" },
+    { "name": "warning",  "value": "#a8791f", "usage": "Warnings" },
+    { "name": "critical", "value": "#8f2f2a", "usage": "Errors, destructive" }
+  ],
+  "typography": {
+    "display": {
+      "family": "\"Fraunces\", \"Iowan Old Style\", Georgia, serif",
+      "weights": [400, 600],
+      "usage": "Headlines, hero, section titles. Used with restraint."
+    },
+    "body": {
+      "family": "\"Söhne\", \"Inter\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+      "weights": [400, 500],
+      "usage": "Body copy, UI labels, buttons"
+    },
+    "mono": {
+      "family": "\"Berkeley Mono\", \"SFMono-Regular\", Consolas, monospace",
+      "weights": [400],
+      "usage": "Code, data, timestamps"
+    },
+    "scale": [
+      { "name": "display", "size": "44px", "lineHeight": "48px", "weight": 600, "role": "display", "tracking": "-0.02em" },
+      { "name": "title",   "size": "28px", "lineHeight": "34px", "weight": 600, "role": "display", "tracking": "-0.01em" },
+      { "name": "heading", "size": "20px", "lineHeight": "26px", "weight": 600, "role": "body" },
+      { "name": "body",    "size": "16px", "lineHeight": "25px", "weight": 400, "role": "body" },
+      { "name": "small",   "size": "14px", "lineHeight": "20px", "weight": 400, "role": "body" },
+      { "name": "caption", "size": "12px", "lineHeight": "16px", "weight": 500, "role": "mono", "tracking": "0.04em" }
+    ]
+  },
+  "spacing": {
+    "unit": 4,
+    "scale": [
+      { "name": "1", "value": "4px" },
+      { "name": "2", "value": "8px" },
+      { "name": "3", "value": "12px" },
+      { "name": "4", "value": "16px" },
+      { "name": "5", "value": "24px" },
+      { "name": "6", "value": "32px" },
+      { "name": "7", "value": "48px" },
+      { "name": "8", "value": "64px" }
+    ]
+  },
+  "radii": [
+    { "name": "sm", "value": "4px" },
+    { "name": "md", "value": "8px" },
+    { "name": "lg", "value": "14px" },
+    { "name": "pill", "value": "999px" }
+  ],
+  "shadows": [
+    { "name": "sm", "value": "0 1px 2px rgba(28,26,23,0.06)" },
+    { "name": "md", "value": "0 4px 16px rgba(28,26,23,0.08)" },
+    { "name": "lg", "value": "0 12px 40px rgba(28,26,23,0.12)" }
+  ],
+  "principles": [
+    "Hierarchy over decoration — size, weight, and space do the work before color does.",
+    "One accent. Reach for `accent` sparingly so it always means \"act here\".",
+    "Never gray text on a colored background. Tint neutrals toward the brand, never pure #000/#888.",
+    "Motion is a cue, not a garnish: 120-200ms ease-out, no bounce/elastic.",
+    "Prefer one confident element over three tentative ones."
+  ]
+}

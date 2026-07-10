@@ -1,0 +1,345 @@
+// Extension: design-system
+// A live, editable, in-repo design system that renders in the Copilot canvas and
+// that Copilot consults before doing any UI work.
+//
+// Pieces:
+//   • Canvas "design-system"  — renders/edits .agents/design/ (falls back to a starter)
+//   • Tool  "design_system"   — hands the agent the system as text (and can seed a repo)
+//   • Hooks                   — announce the system + inject it when a prompt is UI-related
+//
+// Static UI (styles.css, client.js) is served from disk by a per-instance loopback
+// server. Design I/O and the "skill" text live in designio.mjs / context.mjs.
+
+import { createServer } from "node:http";
+import { promises as fs, watch as fsWatch } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
+import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, DESIGN_SUBPATH } from "./designio.mjs";
+import { buildSummary, looksLikeUiWork, sessionStartContext, promptContext } from "./context.mjs";
+import { scratchTokens, normalizeTokens, scanCodebase } from "./sources.mjs";
+import { renderShell } from "./renderer.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+let sessionRef = null;
+
+// Best-known repo/working directory. Hooks and canvas-open both report it; we keep
+// the most recent so the tool and server load the right .agents/design/.
+let currentWorkdir = process.cwd();
+function setWorkdir(dir) { if (dir && typeof dir === "string") currentWorkdir = dir; }
+
+function log(message, level = "info") {
+  try { sessionRef?.log?.(message, { level }); } catch { /* pre-join */ }
+}
+
+// Best-effort package name (used to name a scanned design system).
+async function pkgNameFor(workdir) {
+  try {
+    const pkg = JSON.parse(await fs.readFile(path.join(workdir, "package.json"), "utf8"));
+    return pkg?.name || null;
+  } catch { return null; }
+}
+
+// ---- per-instance loopback servers ----------------------------------------
+const servers = new Map(); // instanceId -> { server, url, workdir, sse:Set, watcher }
+
+const STATIC = {
+  "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
+  "/client.js": { file: "client.js", type: "text/javascript; charset=utf-8" },
+};
+
+async function readBody(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw ? JSON.parse(raw) : {};
+}
+
+function sendJson(res, status, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(body) });
+  res.end(body);
+}
+
+function broadcast(entry, event) {
+  for (const res of entry.sse) {
+    try { res.write(`event: ${event}\ndata: {}\n\n`); } catch { /* client gone */ }
+  }
+}
+
+function watchDesign(entry) {
+  const dir = designDirFor(entry.workdir);
+  if (!dir) return;
+  try {
+    entry.watcher = fsWatch(dir, { persistent: false }, () => {
+      clearTimeout(entry._debounce);
+      entry._debounce = setTimeout(() => broadcast(entry, "changed"), 150);
+    });
+  } catch { /* dir may not exist yet; re-armed after init/save */ }
+}
+
+async function handle(entry, req, res) {
+  const url = new URL(req.url, "http://127.0.0.1");
+  const pathname = url.pathname;
+
+  if (pathname === "/" || pathname === "/index.html") {
+    const html = renderShell();
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    return res.end(html);
+  }
+
+  const stat = STATIC[pathname];
+  if (stat) {
+    try {
+      const buf = await fs.readFile(path.join(HERE, stat.file));
+      res.writeHead(200, { "content-type": stat.type, "cache-control": "no-store" });
+      return res.end(buf);
+    } catch { res.writeHead(404); return res.end("not found"); }
+  }
+
+  if (pathname === "/api/design") {
+    const design = await loadDesign(entry.workdir);
+    return sendJson(res, 200, { design, cssVars: tokensToCssVars(design.tokens) });
+  }
+
+  if (pathname === "/api/save" && req.method === "POST") {
+    try {
+      const { tokens } = await readBody(req);
+      const out = await saveTokens(entry.workdir, tokens);
+      if (!entry.watcher) watchDesign(entry); // arm now that the dir exists
+      log(`Saved design tokens to ${out.dir}`);
+      return sendJson(res, 200, { ok: true, dir: out.dir });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/init" && req.method === "POST") {
+    try {
+      const body = await readBody(req).catch(() => ({}));
+      const mode = body?.mode === "scratch" ? "scratch" : "starter";
+      const opts = mode === "scratch" ? { tokens: scratchTokens({ name: body?.name, tagline: body?.tagline, description: body?.description }) } : {};
+      const out = await initDesign(entry.workdir, opts);
+      if (!entry.watcher) watchDesign(entry);
+      log(`Seeded design system (${mode}) at ${out.dir} (wrote: ${out.written.join(", ") || "nothing"})`);
+      return sendJson(res, 200, { ok: true, mode, ...out });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  // Scan the codebase for existing design signals — returns a proposal, writes nothing.
+  if (pathname === "/api/scan" && req.method === "POST") {
+    try {
+      const pkgName = await pkgNameFor(entry.workdir);
+      const { tokens, evidence } = await scanCodebase(entry.workdir, { pkgName });
+      log(`Scanned ${evidence.fileCount} files; proposing a design system from existing UI.`);
+      return sendJson(res, 200, { ok: true, tokens, evidence, cssVars: tokensToCssVars(tokens) });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  // Import tokens from a repo-relative .json path or pasted JSON — returns a proposal, writes nothing.
+  if (pathname === "/api/import" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      let raw = null, sourceName = body?.sourceName;
+      if (body?.path) {
+        const abs = path.isAbsolute(body.path) ? body.path : path.join(entry.workdir, body.path);
+        raw = JSON.parse(await fs.readFile(abs, "utf8"));
+        sourceName = sourceName || path.basename(body.path);
+      } else if (typeof body?.json === "string" && body.json.trim()) {
+        raw = JSON.parse(body.json);
+        sourceName = sourceName || "pasted tokens";
+      } else if (body?.json && typeof body.json === "object") {
+        raw = body.json;
+      } else {
+        throw new Error("Provide a { path } to a .json file or { json } token text.");
+      }
+      const { tokens, warnings } = normalizeTokens(raw, { sourceName });
+      log(`Imported tokens from ${sourceName || "input"}${warnings.length ? ` (${warnings.length} warning(s))` : ""}.`);
+      return sendJson(res, 200, { ok: true, tokens, warnings, cssVars: tokensToCssVars(tokens) });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/events") {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+    res.write("event: ready\ndata: {}\n\n");
+    entry.sse.add(res);
+    req.on("close", () => entry.sse.delete(res));
+    return;
+  }
+
+  res.writeHead(404);
+  res.end("not found");
+}
+
+async function startServer(instanceId, workdir) {
+  const entry = { workdir, sse: new Set(), watcher: null };
+  const server = createServer((req, res) => {
+    handle(entry, req, res).catch((err) => {
+      log(`request error: ${err.message || err}`, "error");
+      try { res.writeHead(500); res.end("error"); } catch { /* noop */ }
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  entry.server = server;
+  entry.url = `http://127.0.0.1:${server.address().port}/`;
+  watchDesign(entry);
+  return entry;
+}
+
+// ---- canvas ----------------------------------------------------------------
+const canvas = createCanvas({
+  id: "design-system",
+  displayName: "Colophon",
+  description: "View, edit, and live-preview this repo's design system (.agents/design/): brand, color, type, spacing, components.",
+  inputSchema: { type: "object", properties: { workingDirectory: { type: "string", description: "Repo/working directory whose .agents/design/ to load" } }, additionalProperties: true },
+
+  open: async (ctx) => {
+    const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || currentWorkdir;
+    setWorkdir(workdir);
+    let entry = servers.get(ctx.instanceId);
+    if (!entry) {
+      entry = await startServer(ctx.instanceId, workdir);
+      servers.set(ctx.instanceId, entry);
+    } else if (workdir && entry.workdir !== workdir) {
+      entry.workdir = workdir; // rehydrate against a new repo
+    }
+    const design = await loadDesign(entry.workdir);
+    return {
+      title: `Design System — ${design.tokens?.brand?.name || "starter"}`,
+      status: design.source === "repo" ? ".agents/design/" : "starter (unsaved)",
+      url: entry.url,
+    };
+  },
+
+  actions: [
+    {
+      name: "read",
+      description: "Return the current design system as a text summary the agent can follow.",
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || currentWorkdir;
+        const design = await loadDesign(workdir);
+        return { source: design.source, summary: buildSummary(design) };
+      },
+    },
+    {
+      name: "init",
+      description: "Scaffold .agents/design/ in the repo (non-destructive). mode 'starter' (default) copies the bundled starter; 'scratch' writes a neutral skeleton to refine.",
+      inputSchema: { type: "object", properties: { mode: { type: "string", enum: ["starter", "scratch"] }, name: { type: "string" }, tagline: { type: "string" }, description: { type: "string", description: "One-paragraph description of the app/project for codegen context." }, workingDirectory: { type: "string" } }, additionalProperties: false },
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || currentWorkdir;
+        const mode = ctx.input?.mode === "scratch" ? "scratch" : "starter";
+        try {
+          const opts = mode === "scratch" ? { tokens: scratchTokens({ name: ctx.input?.name, tagline: ctx.input?.tagline, description: ctx.input?.description }) } : {};
+          const out = await initDesign(workdir, opts);
+          const entry = servers.get(ctx.instanceId);
+          if (entry) { entry.workdir = workdir; if (!entry.watcher) watchDesign(entry); broadcast(entry, "changed"); }
+          return { ok: true, mode, ...out };
+        } catch (err) { throw new CanvasError("init_failed", String(err.message || err)); }
+      },
+    },
+    {
+      name: "scan",
+      description: "Scan the repo's existing UI (CSS/JSX/styles) and return a proposed design system as text + evidence. Writes nothing; open the canvas to review and save.",
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || currentWorkdir;
+        try {
+          const pkgName = await pkgNameFor(workdir);
+          const { tokens, evidence } = await scanCodebase(workdir, { pkgName });
+          return { ok: true, evidence, proposal: buildSummary({ source: "scan", tokens }) };
+        } catch (err) { throw new CanvasError("scan_failed", String(err.message || err)); }
+      },
+    },
+    {
+      name: "refresh",
+      description: "Tell the open canvas to reload the design system from disk.",
+      handler: async (ctx) => {
+        const entry = servers.get(ctx.instanceId);
+        if (entry) broadcast(entry, "changed");
+        return { ok: true };
+      },
+    },
+  ],
+
+  onClose: async (ctx) => {
+    const entry = servers.get(ctx.instanceId);
+    if (!entry) return;
+    servers.delete(ctx.instanceId);
+    try { entry.watcher?.close?.(); } catch { /* noop */ }
+    for (const res of entry.sse) { try { res.end(); } catch { /* noop */ } }
+    await new Promise((r) => entry.server.close(() => r()));
+  },
+});
+
+// ---- tool: hand the design system to the agent as text ---------------------
+const designTool = {
+  name: "design_system",
+  description:
+    "Read this repo's design system (brand, color, typography, spacing, radii, component patterns, principles, anti-references) so new or changed UI matches the house style. Call this BEFORE writing any UI, CSS, or components. Set init=true to scaffold .agents/design/ from the starter if the repo has none.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      init: { type: "boolean", description: "Scaffold .agents/design/ from the starter (non-destructive) before returning." },
+      scan: { type: "boolean", description: "If the repo has no .agents/design/, scan its existing UI and return a proposed design system (writes nothing)." },
+      workingDirectory: { type: "string", description: "Repo/working directory to read (defaults to the current one)." },
+    },
+    additionalProperties: false,
+  },
+  handler: async (input) => {
+    const workdir = input?.workingDirectory || currentWorkdir;
+    let seeded = null;
+    if (input?.init) {
+      try { seeded = await initDesign(workdir); } catch (err) { seeded = { error: String(err.message || err) }; }
+    }
+    const design = await loadDesign(workdir);
+    // No repo system yet + scan requested: propose one from existing UI instead of the starter.
+    if (design.source !== "repo" && input?.scan && !input?.init) {
+      try {
+        const pkgName = await pkgNameFor(workdir);
+        const { tokens, evidence } = await scanCodebase(workdir, { pkgName });
+        return {
+          source: "scan",
+          dir: design.dir,
+          instructions: `No ${DESIGN_SUBPATH}/ yet. Proposed the following from existing UI (${evidence.fileCount} files scanned). Open the Design System canvas to review, refine, and save it.`,
+          evidence,
+          designSystem: buildSummary({ source: "scan", tokens }),
+        };
+      } catch (err) { seeded = { error: String(err.message || err) }; }
+    }
+    const summary = buildSummary(design);
+    const header = design.source === "repo"
+      ? `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.`
+      : `No ${DESIGN_SUBPATH}/ in this repo yet; this is the bundled starter. ${input?.init ? "" : "Pass init=true to seed it, or scan=true to propose one from existing UI."}`;
+    return {
+      source: design.source,
+      dir: design.dir,
+      seeded,
+      componentsPath: design.source === "repo" ? path.join(design.dir, "components.jsx") : null,
+      instructions: header,
+      designSystem: summary,
+    };
+  },
+};
+
+// ---- hooks: the "skill" that pulls the system into UI work -----------------
+const hooks = {
+  onSessionStart: async (input) => {
+    setWorkdir(input?.workingDirectory);
+    try {
+      const design = await loadDesign(currentWorkdir);
+      return { additionalContext: sessionStartContext(design) };
+    } catch { return {}; }
+  },
+  onUserPromptSubmitted: async (input) => {
+    setWorkdir(input?.workingDirectory);
+    if (!looksLikeUiWork(input?.prompt)) return {};
+    try {
+      const design = await loadDesign(currentWorkdir);
+      return { additionalContext: promptContext(design) };
+    } catch { return {}; }
+  },
+};
+
+sessionRef = await joinSession({
+  canvases: [canvas],
+  tools: [designTool],
+  hooks,
+});

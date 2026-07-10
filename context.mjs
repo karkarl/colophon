@@ -1,0 +1,130 @@
+// context.mjs — the "skill" half: detect UI work and give Copilot the design system.
+//
+// buildSummary()      -> compact text of the design system (used by the tool + hooks)
+// looksLikeUiWork()   -> heuristic: is this prompt about building/changing UI?
+// sessionStartContext -> one-time announcement the design system exists
+// promptContext()     -> per-turn nudge to consult it before writing UI
+
+import { colorList, DESIGN_SUBPATH } from "./designio.mjs";
+
+const UI_TERMS = [
+  "ui", "ux", "page", "screen", "view", "component", "layout", "design",
+  "style", "styling", "css", "tailwind", "theme", "color", "colour", "palette",
+  "font", "typography", "button", "form", "input", "modal", "dialog", "card",
+  "nav", "navbar", "sidebar", "header", "footer", "hero", "landing", "dashboard",
+  "responsive", "spacing", "icon", "brand", "frontend", "front-end", "react",
+  "vue", "svelte", "html", "figma", "accessib", "a11y", "dark mode", "menu",
+  "table", "chart", "badge", "tooltip", "toast", "banner", "widget", "onboarding",
+];
+
+const BUILD_TERMS = [
+  "build", "create", "add", "make", "implement", "design", "redesign", "restyle",
+  "fix", "improve", "polish", "update", "change", "refactor", "tweak", "render",
+  "prototype", "mock", "wire", "lay out", "revamp",
+];
+
+export function looksLikeUiWork(prompt) {
+  if (!prompt || typeof prompt !== "string") return false;
+  const p = prompt.toLowerCase();
+  const hasUi = UI_TERMS.some((t) => p.includes(t));
+  if (!hasUi) return false;
+  // A bare mention of "color" in an unrelated sentence shouldn't trigger, but
+  // any build/change verb alongside a UI term is a strong signal.
+  const hasBuild = BUILD_TERMS.some((t) => p.includes(t));
+  return hasBuild || /\b(ui|ux|frontend|front-end|design system|landing page|dashboard)\b/.test(p);
+}
+
+function firstLine(s, max = 400) {
+  if (!s) return "";
+  const line = String(s).replace(/\s+/g, " ").trim();
+  return line.length > max ? line.slice(0, max) + "…" : line;
+}
+
+// Compact, model-friendly rendering of the design system.
+export function buildSummary(design) {
+  const t = design.tokens || {};
+  const brand = t.brand || {};
+  const colors = colorList(t);
+  const ty = t.typography || {};
+  const lines = [];
+
+  lines.push(`# Design system: ${brand.name || "(unnamed)"}`);
+  if (brand.tagline) lines.push(brand.tagline);
+  if (brand.description) lines.push(`About: ${brand.description}`);
+  const sourceLine = design.source === "repo"
+    ? `Source: ${DESIGN_SUBPATH}/ (in this repo)`
+    : design.source === "scan"
+      ? `Source: proposed from scanning this repo's existing UI — not saved yet. Review in the Design System canvas, then save to ${DESIGN_SUBPATH}/.`
+      : design.source === "import"
+        ? `Source: proposed from imported tokens — not saved yet. Review in the Design System canvas, then save to ${DESIGN_SUBPATH}/.`
+        : `Source: bundled starter (no ${DESIGN_SUBPATH}/ in this repo yet — call the "init" action to seed it)`;
+  lines.push(sourceLine);
+  lines.push("");
+
+  if (brand.voice) lines.push(`Voice: ${brand.voice}`);
+  if (Array.isArray(brand.personality) && brand.personality.length) lines.push(`Personality: ${brand.personality.join(", ")}`);
+  if (Array.isArray(brand.antiReferences) && brand.antiReferences.length) lines.push(`Avoid (anti-references): ${brand.antiReferences.join("; ")}`);
+  lines.push("");
+
+  if (colors.length) {
+    lines.push("Colors:");
+    for (const c of colors) lines.push(`  - ${c.name}: ${c.value}${c.usage ? ` — ${c.usage}` : ""}`);
+    lines.push("");
+  }
+
+  const faces = ["display", "body", "mono"].filter((k) => ty[k]?.family);
+  if (faces.length) {
+    lines.push("Typography:");
+    for (const k of faces) lines.push(`  - ${k}: ${ty[k].family}${ty[k].usage ? ` — ${ty[k].usage}` : ""}`);
+    if (Array.isArray(ty.scale) && ty.scale.length) {
+      lines.push(`  - scale: ${ty.scale.map((s) => `${s.name} ${s.size}/${s.lineHeight}`).join(", ")}`);
+    }
+    lines.push("");
+  }
+
+  const sp = t.spacing?.scale || [];
+  if (sp.length) lines.push(`Spacing scale: ${sp.map((s) => `${s.name}=${s.value}`).join(", ")}`);
+  if (Array.isArray(t.radii) && t.radii.length) lines.push(`Radii: ${t.radii.map((r) => `${r.name}=${r.value}`).join(", ")}`);
+  if (sp.length || (t.radii || []).length) lines.push("");
+
+  if (Array.isArray(t.principles) && t.principles.length) {
+    lines.push("Principles:");
+    for (const p of t.principles) lines.push(`  - ${p}`);
+    lines.push("");
+  }
+
+  if (design.componentsSource) {
+    lines.push(`Component patterns are documented in ${DESIGN_SUBPATH}/components.jsx — match those patterns and class/token names.`);
+  }
+  if (design.principlesMarkdown) {
+    lines.push(`Prose guidance: ${DESIGN_SUBPATH}/principles.md — ${firstLine(design.principlesMarkdown.replace(/^#.*$/m, ""))}`);
+  }
+
+  return lines.join("\n").trim();
+}
+
+export function sessionStartContext(design) {
+  const brand = design.tokens?.brand || {};
+  if (design.source === "repo") {
+    return [
+      `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
+      `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
+      `You can open the "Design System" canvas to view/edit it, or call the design_system tool for a text summary.`,
+    ].join(" ");
+  }
+  return `A "Design System" canvas is available (via the design-system extension). This repo has no ${DESIGN_SUBPATH}/ yet; if the user does UI work, offer to seed one with the design_system tool or the canvas "init" action.`;
+}
+
+export function promptContext(design) {
+  const brand = design.tokens?.brand || {};
+  const head = design.source === "repo"
+    ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/.`
+    : `The user's request looks UI-related. There's no ${DESIGN_SUBPATH}/ in this repo yet, but a starter design system is available.`;
+  return [
+    head,
+    "Consult it before writing UI: use the design_system tool (or read the files) and honor its color, typography, spacing, radius tokens, component patterns, principles, and anti-references.",
+    "Here is the current design system for quick reference:",
+    "",
+    buildSummary(design),
+  ].join("\n");
+}
