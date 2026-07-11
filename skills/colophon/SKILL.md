@@ -81,6 +81,11 @@ with no design system, **offer to seed one** first, then build against it:
   it visually (start fresh, import `.json` tokens, or scan the codebase).
 - Once `.agents/design/` exists, proceed with Steps 1–3.
 
+Seeding also adds an idempotent pointer block to the repo-root **`AGENTS.md`** (the
+cross-agent convention), so any agent — not just Copilot with this skill — is told to
+read `.agents/design/` before UI work. It's non-destructive: it never overwrites the
+user's other `AGENTS.md` content.
+
 The design system is a shared, human-readable artifact that designers and
 developers refine together in the repo and in the Colophon canvas. Your role is to
 keep every UI change faithful to it.

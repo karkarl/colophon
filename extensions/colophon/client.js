@@ -233,7 +233,8 @@ function onboarding() {
   const wrap = el("section", { class: "onboard" });
   wrap.append(el("div", { class: "onboard-head" },
     el("h2", {}, "Set up a design system"),
-    el("div", { class: "muted" }, "This repo has no ", el("span", { class: "mono" }, ".agents/design/"), " yet. Choose how to start — you can refine everything in the canvas afterward.")));
+    el("div", { class: "muted" }, "This repo has no ", el("span", { class: "mono" }, ".agents/design/"), " yet. Choose how to start — you can refine everything in the canvas afterward."),
+    el("div", { class: "muted", style: "margin-top:4px" }, "Seeding also adds an ", el("span", { class: "mono" }, "AGENTS.md"), " pointer so every agent reads the system before UI work.")));
 
   const cards = el("div", { class: "onboard-cards" });
 

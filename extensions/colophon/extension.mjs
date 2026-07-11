@@ -108,8 +108,8 @@ async function handle(entry, req, res) {
       const { tokens } = await readBody(req);
       const out = await saveTokens(entry.workdir, tokens);
       if (!entry.watcher) watchDesign(entry); // arm now that the dir exists
-      log(`Saved design tokens to ${out.dir}`);
-      return sendJson(res, 200, { ok: true, dir: out.dir });
+      log(`Saved design tokens to ${out.dir}${out.agents?.file ? `; AGENTS.md pointer ${out.agents.action}` : ""}`);
+      return sendJson(res, 200, { ok: true, dir: out.dir, agents: out.agents });
     } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
   }
 
@@ -120,7 +120,7 @@ async function handle(entry, req, res) {
       const opts = mode === "scratch" ? { tokens: scratchTokens({ name: body?.name, tagline: body?.tagline, description: body?.description }) } : {};
       const out = await initDesign(entry.workdir, opts);
       if (!entry.watcher) watchDesign(entry);
-      log(`Seeded design system (${mode}) at ${out.dir} (wrote: ${out.written.join(", ") || "nothing"})`);
+      log(`Seeded design system (${mode}) at ${out.dir} (wrote: ${out.written.join(", ") || "nothing"})${out.agents?.file ? `; AGENTS.md ${out.agents.action}` : ""}`);
       return sendJson(res, 200, { ok: true, mode, ...out });
     } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
   }
@@ -273,7 +273,7 @@ const canvas = createCanvas({
 const designTool = {
   name: "colophon",
   description:
-    "Read this repo's design system (brand, color, typography, spacing, radii, component patterns, principles, anti-references) so new or changed UI matches the house style. Call this BEFORE writing any UI, CSS, or components. Set init=true to scaffold .agents/design/ from the starter if the repo has none.",
+    "Read this repo's design system (brand, color, typography, spacing, radii, component patterns, principles, anti-references) so new or changed UI matches the house style. Call this BEFORE writing any UI, CSS, or components. Set init=true to scaffold .agents/design/ from the starter (and add an AGENTS.md pointer so every agent loads it) if the repo has none.",
   inputSchema: {
     type: "object",
     properties: {
@@ -305,8 +305,11 @@ const designTool = {
       } catch (err) { seeded = { error: String(err.message || err) }; }
     }
     const summary = buildSummary(design);
+    const seededNote = seeded && !seeded.error && seeded.agents?.file
+      ? ` Added an AGENTS.md pointer (${seeded.agents.action}) so any agent loads this system before UI work.`
+      : "";
     const header = design.source === "repo"
-      ? `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.`
+      ? `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.${seededNote}`
       : `No ${DESIGN_SUBPATH}/ in this repo yet; this is the bundled starter. ${input?.init ? "" : "Pass init=true to seed it, or scan=true to propose one from existing UI."}`;
     return {
       source: design.source,
