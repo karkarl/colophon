@@ -16,6 +16,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_DIR = path.join(HERE, "sample");
 export const DESIGN_SUBPATH = ".agents/design";
 
+// AGENTS.md is the emerging cross-agent convention ("README for agents"): a file
+// agents load by default. The design system in .agents/design/ is only picked up
+// when something already-loaded points to it, so seeding drops an idempotent
+// pointer here — this is what makes the system reach agents beyond Copilot.
+export const AGENTS_FILE = "AGENTS.md";
+const BLOCK_START = "<!-- colophon:start -->";
+const BLOCK_END = "<!-- colophon:end -->";
+
 export function designDirFor(workspacePath) {
   if (!workspacePath) return null;
   return path.join(workspacePath, DESIGN_SUBPATH);
@@ -113,7 +121,8 @@ export async function initDesign(workspacePath, { force = false, tokens = null }
     await fs.copyFile(path.join(SAMPLE_DIR, name), dest);
     written.push(name);
   }
-  return { dir, written, skipped };
+  const agents = await ensureAgentsPointer(workspacePath);
+  return { dir, written, skipped, agents };
 }
 
 // Persist edited tokens back to design.json (repo if present, else scaffold first).
@@ -128,7 +137,65 @@ export async function saveTokens(workspacePath, tokens) {
   };
   await fs.writeFile(path.join(dir, "design.json"), JSON.stringify(next, null, 2) + "\n", "utf8");
   const scaffolded = await ensureSiblings(dir);
-  return { dir, tokens: next, scaffolded };
+  const agents = await ensureAgentsPointer(workspacePath);
+  return { dir, tokens: next, scaffolded, agents };
+}
+
+// The managed AGENTS.md block. Kept independent of the specific tokens so it's a
+// stable pointer (re-seeding never rewrites it), and so editing the design system
+// doesn't churn AGENTS.md — the block just says "read .agents/design/".
+function agentsBlock() {
+  return [
+    BLOCK_START,
+    "## Design system",
+    "",
+    "This repository has a living design system at [`.agents/design/`](.agents/design/).",
+    "**Read it before creating or changing any UI** — pages, components, layouts, CSS, or themes:",
+    "",
+    "- `.agents/design/design.json` — design tokens: brand, colors, typography, spacing, radii, shadows, principles.",
+    "- `.agents/design/components.jsx` — the component patterns to reuse (structure, variants, states).",
+    "- `.agents/design/principles.md` — voice, information hierarchy, and do/don't guidance.",
+    "",
+    "Generate UI from these tokens and patterns: use token names (e.g. `accent`, `ink`, spacing step " +
+      "`4`, radius `md`), not raw hex or ad-hoc px; reuse the documented components instead of inventing " +
+      "new ones; honor the brand voice; and avoid the system's listed anti-references. If you need a value " +
+      "the system doesn't cover, add it to `.agents/design/` rather than hard-coding a one-off.",
+    "",
+    "<sub>Managed by [Colophon](https://github.com/karkarl/colophon) — edit `.agents/design/` to change the " +
+      "system; this block only points to it.</sub>",
+    BLOCK_END,
+    "",
+  ].join("\n");
+}
+
+// Ensure the repo root AGENTS.md contains Colophon's pointer block (idempotent):
+//   - no file            -> create it with the block
+//   - file, no block     -> append the block, preserving existing content
+//   - file, block exists -> replace the block in place (no-op if unchanged)
+// Never clobbers the user's other content. Returns the action taken.
+export async function ensureAgentsPointer(workspacePath) {
+  if (!workspacePath) return { file: null, action: "skipped" };
+  const file = path.join(workspacePath, AGENTS_FILE);
+  const block = agentsBlock();
+  const existing = await readIfPresent(file);
+
+  if (existing == null) {
+    await fs.writeFile(file, block, "utf8");
+    return { file, action: "created" };
+  }
+
+  const startIdx = existing.indexOf(BLOCK_START);
+  const endIdx = existing.indexOf(BLOCK_END);
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    const next = existing.slice(0, startIdx) + block.trimEnd() + existing.slice(endIdx + BLOCK_END.length);
+    if (next === existing) return { file, action: "unchanged" };
+    await fs.writeFile(file, next, "utf8");
+    return { file, action: "updated" };
+  }
+
+  const sep = existing.endsWith("\n\n") ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
+  await fs.writeFile(file, existing + sep + block, "utf8");
+  return { file, action: "updated" };
 }
 
 // ---- token helpers ---------------------------------------------------------

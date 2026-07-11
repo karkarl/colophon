@@ -49,7 +49,17 @@ When there's no `.agents/design/`, choose how to start; refine everything in the
 
 Starter/scratch write straight to `.agents/design/`; import/scan load an **unsaved proposal** with a
 review bar (**Save to repo** / **Discard**). Any first save also scaffolds `components.jsx` +
-`principles.md`.
+`principles.md`, and drops an idempotent **`AGENTS.md` pointer** at the repo root (see below).
+
+### 2c. Seeding also writes an `AGENTS.md` pointer
+The skill only reaches Copilot when the plugin is loaded — and a design system in `.agents/design/`
+is otherwise invisible to agents unless a file they *already* read points to it. `AGENTS.md` is the
+emerging cross-agent "README for agents" that tools load by default, so whenever Colophon seeds a repo
+(`init`, or the first Save from import/scan) it adds a small **managed block** to the repo-root
+`AGENTS.md` telling any agent to read `.agents/design/` before UI work. It's idempotent and
+non-destructive: it creates `AGENTS.md` if absent, appends the block if the file exists, and updates
+the block in place otherwise — never touching your other content. The block is delimited by
+`<!-- colophon:start -->` / `<!-- colophon:end -->`.
 
 ### 3. Copilot references it automatically (the skill + tool + hooks)
 - **`colophon` skill** — instructs the agent, on any UI work, to read `.agents/design/`
@@ -74,7 +84,7 @@ plugin.json                       plugin manifest (skills + extensions)
 skills/colophon/SKILL.md          the "build UI from .agents/design/" skill
 extensions/colophon/              the canvas extension:
   extension.mjs   wiring: canvas + tool + hooks + loopback server + file IO
-  designio.mjs    locate / load / scaffold / save .agents/design/ ; token → CSS vars
+  designio.mjs    locate / load / scaffold / save .agents/design/ ; AGENTS.md pointer ; token → CSS vars
   context.mjs     UI-intent detection + the summary/context text Copilot receives
   sources.mjs     seed generators: scratch skeleton, token importer, codebase scanner
   renderer.mjs    tiny iframe shell
