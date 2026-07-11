@@ -305,8 +305,9 @@ const designTool = {
       } catch (err) { seeded = { error: String(err.message || err) }; }
     }
     const summary = buildSummary(design);
-    const seededNote = seeded && !seeded.error && seeded.agents?.file
-      ? ` Added an AGENTS.md pointer (${seeded.agents.action}) so any agent loads this system before UI work.`
+    const pointerAdded = seeded && !seeded.error && ["created", "updated", "unchanged"].includes(seeded.agents?.action);
+    const seededNote = pointerAdded
+      ? " Ensured an AGENTS.md pointer so any agent loads this system before UI work."
       : "";
     const header = design.source === "repo"
       ? `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.${seededNote}`

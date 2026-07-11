@@ -141,10 +141,12 @@ export async function saveTokens(workspacePath, tokens) {
   return { dir, tokens: next, scaffolded, agents };
 }
 
-// The managed AGENTS.md block. Kept independent of the specific tokens so it's a
-// stable pointer (re-seeding never rewrites it), and so editing the design system
-// doesn't churn AGENTS.md — the block just says "read .agents/design/".
-function agentsBlock() {
+// The managed AGENTS.md block, from the start marker to the end marker inclusive
+// (no surrounding blank lines — the newlines around it are managed separately so it
+// sits cleanly wherever it lands). Kept independent of the specific tokens so
+// re-seeding never rewrites it and editing the design system never churns it. The
+// `eol` is applied so the block matches the host file's line-ending style.
+function agentsBlock(eol = "\n") {
   return [
     BLOCK_START,
     "## Design system",
@@ -164,38 +166,80 @@ function agentsBlock() {
     "<sub>Managed by [Colophon](https://github.com/karkarl/colophon) — edit `.agents/design/` to change the " +
       "system; this block only points to it.</sub>",
     BLOCK_END,
-    "",
-  ].join("\n");
+  ].join(eol);
 }
 
-// Ensure the repo root AGENTS.md contains Colophon's pointer block (idempotent):
-//   - no file            -> create it with the block
-//   - file, no block     -> append the block, preserving existing content
-//   - file, block exists -> replace the block in place (no-op if unchanged)
-// Never clobbers the user's other content. Returns the action taken.
+// Match a whole well-formed managed block, EOL-agnostic and anchored to line
+// starts — so the markers must *begin a line* (an inline mention of the marker
+// strings in prose is not treated as a block). Non-greedy so a START pairs with
+// the nearest following END; global so we can find and dedupe multiple blocks.
+const BLOCK_RE = /^[ \t]*<!-- colophon:start -->[\s\S]*?<!-- colophon:end -->[ \t]*$/gm;
+
+// Write atomically (temp + rename) and never through a symlink: a repo that ships
+// AGENTS.md as a symlink can't redirect the write elsewhere, and a crash mid-write
+// can't truncate the file. Returns false (skipped) when the path is a symlink.
+async function writeFileSafely(file, content) {
+  try {
+    const st = await fs.lstat(file);
+    if (st.isSymbolicLink()) return false;
+  } catch { /* ENOENT — file doesn't exist yet, which is fine */ }
+  const tmp = `${file}.colophon-tmp`;
+  await fs.writeFile(tmp, content, "utf8");
+  await fs.rename(tmp, file);
+  return true;
+}
+
+// Ensure the repo-root AGENTS.md contains Colophon's pointer block. Idempotent,
+// non-destructive, and best-effort — it never throws, reporting the outcome via
+// `action` instead so a failure here can't break the caller's token save:
+//   - no file                 -> create it with the block            ("created")
+//   - file, block present      -> replace in place, dedupe extras     ("updated"/"unchanged")
+//   - file, no block           -> append the block, preserve content  ("updated")
+//   - file, stray/partial marker but no valid block -> leave it alone ("skipped-malformed")
+//   - symlink / write error    -> leave it alone      ("skipped-symlink"/"failed")
+// Handles CRLF/LF, orphaned or duplicated markers, and symlinked targets.
 export async function ensureAgentsPointer(workspacePath) {
   if (!workspacePath) return { file: null, action: "skipped" };
   const file = path.join(workspacePath, AGENTS_FILE);
-  const block = agentsBlock();
-  const existing = await readIfPresent(file);
+  try {
+    const existing = await readIfPresent(file);
 
-  if (existing == null) {
-    await fs.writeFile(file, block, "utf8");
-    return { file, action: "created" };
-  }
+    if (existing == null) {
+      const ok = await writeFileSafely(file, agentsBlock("\n") + "\n");
+      return { file, action: ok ? "created" : "skipped-symlink" };
+    }
 
-  const startIdx = existing.indexOf(BLOCK_START);
-  const endIdx = existing.indexOf(BLOCK_END);
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const next = existing.slice(0, startIdx) + block.trimEnd() + existing.slice(endIdx + BLOCK_END.length);
+    const eol = existing.includes("\r\n") ? "\r\n" : "\n";
+    const canonical = agentsBlock(eol);
+    const matches = [...existing.matchAll(BLOCK_RE)];
+
+    let next;
+    if (matches.length) {
+      // Replace the first well-formed block with the canonical one; drop duplicates.
+      let out = "";
+      let cursor = 0;
+      matches.forEach((m, i) => {
+        out += existing.slice(cursor, m.index);
+        if (i === 0) out += canonical;
+        cursor = m.index + m[0].length;
+      });
+      next = out + existing.slice(cursor);
+    } else if (existing.includes(BLOCK_START) || existing.includes(BLOCK_END)) {
+      // A stray/partial marker exists but no valid block: appending would risk
+      // pairing our new END with the stray START and swallowing content between.
+      // Leave it for a human rather than mutate blindly.
+      return { file, action: "skipped-malformed" };
+    } else {
+      const sep = existing === "" ? "" : existing.endsWith(eol + eol) ? "" : existing.endsWith(eol) ? eol : eol + eol;
+      next = existing + sep + canonical + eol;
+    }
+
     if (next === existing) return { file, action: "unchanged" };
-    await fs.writeFile(file, next, "utf8");
-    return { file, action: "updated" };
+    const ok = await writeFileSafely(file, next);
+    return { file, action: ok ? "updated" : "skipped-symlink" };
+  } catch (err) {
+    return { file, action: "failed", error: String(err?.message || err) };
   }
-
-  const sep = existing.endsWith("\n\n") ? "" : existing.endsWith("\n") ? "\n" : "\n\n";
-  await fs.writeFile(file, existing + sep + block, "utf8");
-  return { file, action: "updated" };
 }
 
 // ---- token helpers ---------------------------------------------------------
