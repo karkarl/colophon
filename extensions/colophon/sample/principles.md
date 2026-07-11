@@ -3,6 +3,14 @@
 > This is the prose companion to `design.json`. Designers write here; developers
 > and Copilot read here. Keep it short enough that people actually read it.
 
+<!-- colophon:note -->
+> **View it live:** this design system (`.agents/design/`) renders as an editable
+> board — palette, type scale, spacing, and live component previews — in the
+> **Colophon** canvas in the GitHub Copilot app. Install the plugin with
+> `copilot plugin install karkarl/colophon`, then open the Colophon canvas to edit
+> tokens and preview components. Editing these files by hand works just as well.
+<!-- colophon:note -->
+
 ## The one-line brief
 Field notes for people who build in the open. It should feel like a well-set
 editorial tool — calm, exact, a little warm — not a dashboard template.
