@@ -16,6 +16,11 @@ export function scratchTokens({ name = "Untitled", tagline = "", description = "
   return {
     $schema: "https://agents.design/schema/v1",
     meta: { version: 1, updatedBy: "scratch", note: "Fresh skeleton — replace these with your real brand." },
+    // How agents should treat these files. "canonical" (default) = source of truth,
+    // build UI from them. Switch to "derived" for a native app (e.g. WinUI/XAML,
+    // SwiftUI) where these files only mirror a canonical UI that wins on conflict;
+    // then fill canonicalSource + maintainer.
+    authority: { model: "canonical", canonicalSource: "", maintainer: "", syncNote: "" },
     brand: { name, tagline, description, surface: "product", voice: "", personality: [], antiReferences: [] },
     colors: [
       { name: "ink", value: "#141414", usage: "Primary text, headings" },
@@ -240,7 +245,24 @@ export async function scanCodebase(workdir, { pkgName } = {}) {
   const colors = proposedColors.length ? assignSemanticNames(proposedColors) : scratchTokens().colors;
 
   const tokens = scratchTokens({ name: pkgName || path.basename(workdir) });
-  tokens.meta = { version: 1, updatedBy: "scan", note: `Scanned ${scanned} files in ${path.basename(workdir)} — a proposal to refine, not gospel.` };
+  // A repo with candidate files but effectively no web styling signal (few/no
+  // colors, css vars, or font declarations) is usually a native app (WinUI/XAML,
+  // SwiftUI, etc.) whose real UI lives outside anything the scanner can read. In
+  // that case the scanned tokens can only ever *mirror* the native surfaces, so we
+  // propose a "derived" authority — agents match these files but native UI wins.
+  const styleSignals = varColors.length + litColors.length + fontDecls.size + radii.size + shadows.size;
+  const looksNative = scanned === 0 || styleSignals < 3;
+  if (looksNative) {
+    tokens.meta = { version: 1, updatedBy: "scan", note: `Scanned ${scanned} file(s) in ${path.basename(workdir)} but found little web styling — this looks like a native app. Proposed as a derived reference; refine against the real UI.` };
+    tokens.authority = {
+      model: "derived",
+      canonicalSource: "the app's native UI (no web/CSS sources were found to scan)",
+      maintainer: "",
+      syncNote: "These files mirror the native UI. When they differ, the native UI wins; re-sync after native UI changes.",
+    };
+  } else {
+    tokens.meta = { version: 1, updatedBy: "scan", note: `Scanned ${scanned} files in ${path.basename(workdir)} — a proposal to refine, not gospel.` };
+  }
   tokens.colors = colors;
 
   // Fonts
@@ -264,6 +286,7 @@ export async function scanCodebase(workdir, { pkgName } = {}) {
 
   const evidence = {
     scannedFiles: scanned,
+    fileCount: scanned,
     totalCandidateFiles: files.length,
     uniqueColors: hexes.size + rgbish.size,
     cssVariables: cssVars.size,
@@ -271,6 +294,7 @@ export async function scanCodebase(workdir, { pkgName } = {}) {
     topColors: litColors.slice(0, 10),
     fonts,
     hasTailwind: files.some((f) => /tailwind\.config\./.test(f)),
+    looksNative,
   };
   return { tokens, evidence };
 }

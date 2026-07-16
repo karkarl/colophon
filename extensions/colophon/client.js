@@ -57,6 +57,39 @@ function markDirty() {
 
 /* ---------- section renderers ---------- */
 
+function renderAuthority(t) {
+  const a = (t.authority && typeof t.authority === "object") ? t.authority : (t.authority = { model: "canonical" });
+  if (a.model !== "derived") a.model = a.model === "derived" ? "derived" : "canonical";
+
+  const derivedFields = el("div", { class: "authority-derived", style: a.model === "derived" ? "" : "display:none" });
+  const srcIn = el("input", { type: "text", value: a.canonicalSource || "", placeholder: "e.g. Native WinUI 3 XAML/C# and observed product behavior",
+    oninput: (e) => { a.canonicalSource = e.target.value; markDirty(); } });
+  const maintIn = el("input", { type: "text", value: a.maintainer || "", placeholder: "who re-syncs after native UI changes",
+    oninput: (e) => { a.maintainer = e.target.value; markDirty(); } });
+  derivedFields.append(
+    el("div", { class: "editable", style: "margin-top:8px" }, el("label", {}, "Canonical source (wins on conflict)"), srcIn),
+    el("div", { class: "editable", style: "margin-top:8px" }, el("label", {}, "Maintainer (re-sync owner)"), maintIn),
+  );
+
+  const sel = el("select", { class: "authority-select",
+    onchange: (e) => { a.model = e.target.value; derivedFields.style.display = e.target.value === "derived" ? "" : "none"; hint.textContent = hintText(e.target.value); markDirty(); } });
+  sel.append(el("option", { value: "canonical" }, "canonical — these files are the source of truth"));
+  sel.append(el("option", { value: "derived" }, "derived — mirrors a canonical (native) UI that wins"));
+  sel.value = a.model;
+
+  const hintText = (m) => m === "derived"
+    ? "Agents match these files but treat the canonical source as authoritative — when they differ, the canonical UI wins."
+    : "Agents generate UI from these files and add missing values here.";
+  const hint = el("div", { class: "muted", style: "margin-top:4px" }, hintText(a.model));
+
+  return el("div", { class: "authority", style: "margin-top:14px" },
+    el("label", {}, "Authority"),
+    sel,
+    hint,
+    derivedFields,
+  );
+}
+
 function renderBrand(t) {
   const b = t.brand || {};
   const nameIn = el("input", { type: "text", value: b.name || "", oninput: (e) => { b.name = e.target.value; markDirty(); $("#brand-name").textContent = e.target.value; } });
@@ -79,6 +112,7 @@ function renderBrand(t) {
       el("div", { class: "editable" }, el("label", {}, "Tagline"), tagIn),
     ),
     el("div", { class: "editable", style: "margin-top:12px" }, el("label", {}, "Description (app / project context for codegen)"), descIn),
+    renderAuthority(t),
   );
 }
 
@@ -286,6 +320,10 @@ function proposalBar() {
     const ev = p.evidence;
     bar.append(el("div", { class: "muted", style: "margin-top:6px" },
       `Scanned ${ev.fileCount} files · ${(ev.topColors || []).length} colors · ${(ev.fonts || []).length} font(s)${ev.hasTailwind ? " · Tailwind detected" : ""}`));
+  }
+  if (state.tokens?.authority?.model === "derived") {
+    bar.append(el("div", { class: "muted", style: "margin-top:6px" },
+      "Proposed as a ", el("strong", {}, "derived"), " reference — little/no web styling was found, so this looks like a native app. Agents will mirror these files but treat the native UI as authoritative. Set the canonical source & maintainer in Brand → Authority before saving."));
   }
   if ((p.warnings || []).length) {
     bar.append(el("ul", { class: "warnlist" }, ...p.warnings.map((w) => el("li", {}, w))));

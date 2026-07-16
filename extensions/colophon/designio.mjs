@@ -144,15 +144,30 @@ export async function saveTokens(workspacePath, tokens) {
 // The managed AGENTS.md block, from the start marker to the end marker inclusive
 // (no surrounding blank lines — the newlines around it are managed separately so it
 // sits cleanly wherever it lands). Kept independent of the specific tokens so
-// re-seeding never rewrites it and editing the design system never churns it. The
-// `eol` is applied so the block matches the host file's line-ending style.
-function agentsBlock(eol = "\n") {
-  return [
+// re-seeding never rewrites it and editing the design system never churns it — the
+// only thing that varies is the `authority` framing (canonical vs derived), because
+// that changes what agents are being *told to do* with the files. The `eol` is
+// applied so the block matches the host file's line-ending style.
+function agentsBlock(eol = "\n", authority = { model: "canonical" }) {
+  const derived = authority?.model === "derived";
+  const canonicalSource = authority?.canonicalSource || "the app's canonical UI surface";
+  const lead = derived
+    ? [
+        "This repository keeps a **derived** design reference at [`.agents/design/`](.agents/design/) — " +
+          "a non-shipping mirror of " + canonicalSource + ". **Read it before creating or changing any " +
+          "UI** and match its tokens and patterns for consistency, but treat it as a reference, not a " +
+          "parallel product authority: when these files and " + canonicalSource + " differ, " +
+          canonicalSource + " wins.",
+      ]
+    : [
+        "This repository has a living design system at [`.agents/design/`](.agents/design/).",
+        "**Read it before creating or changing any UI** — pages, components, layouts, CSS, or themes:",
+      ];
+  const lines = [
     BLOCK_START,
     "## Design system",
     "",
-    "This repository has a living design system at [`.agents/design/`](.agents/design/).",
-    "**Read it before creating or changing any UI** — pages, components, layouts, CSS, or themes:",
+    ...lead,
     "",
     "- `.agents/design/design.json` — design tokens: brand, colors, typography, spacing, radii, shadows, principles.",
     "- `.agents/design/components.jsx` — the component patterns to reuse (structure, variants, states).",
@@ -162,11 +177,20 @@ function agentsBlock(eol = "\n") {
       "`4`, radius `md`), not raw hex or ad-hoc px; reuse the documented components instead of inventing " +
       "new ones; honor the brand voice; and avoid the system's listed anti-references. If you need a value " +
       "the system doesn't cover, add it to `.agents/design/` rather than hard-coding a one-off.",
+  ];
+  if (derived && authority?.maintainer) {
+    lines.push(
+      "",
+      "When the canonical UI changes, reflect it back into `.agents/design/` (owner: " + authority.maintainer + ").",
+    );
+  }
+  lines.push(
     "",
     "<sub>Managed by [Colophon](https://github.com/karkarl/colophon) — edit `.agents/design/` to change the " +
       "system; this block only points to it.</sub>",
     BLOCK_END,
-  ].join(eol);
+  );
+  return lines.join(eol);
 }
 
 // Match a whole well-formed managed block, EOL-agnostic and anchored to line
@@ -189,6 +213,20 @@ async function writeFileSafely(file, content) {
   return true;
 }
 
+// Best-effort read of the design system's authority model from the on-disk
+// design.json, so the AGENTS.md pointer frames the files correctly (canonical vs
+// derived). Falls back to canonical if the file is missing or unparseable.
+async function authorityFor(workspacePath) {
+  const dir = designDirFor(workspacePath);
+  if (!dir) return readAuthority(null);
+  const raw = await readIfPresent(path.join(dir, "design.json"));
+  try {
+    return readAuthority(raw ? JSON.parse(raw) : null);
+  } catch {
+    return readAuthority(null);
+  }
+}
+
 // Ensure the repo-root AGENTS.md contains Colophon's pointer block. Idempotent,
 // non-destructive, and best-effort — it never throws, reporting the outcome via
 // `action` instead so a failure here can't break the caller's token save:
@@ -197,30 +235,32 @@ async function writeFileSafely(file, content) {
 //   - file, no block           -> append the block, preserve content  ("updated")
 //   - file, stray/partial marker but no valid block -> leave it alone ("skipped-malformed")
 //   - symlink / write error    -> leave it alone      ("skipped-symlink"/"failed")
-// Handles CRLF/LF, orphaned or duplicated markers, and symlinked targets.
+// Handles CRLF/LF, orphaned or duplicated markers, and symlinked targets. The block
+// text reflects the system's authority model (canonical vs derived).
 export async function ensureAgentsPointer(workspacePath) {
   if (!workspacePath) return { file: null, action: "skipped" };
   const file = path.join(workspacePath, AGENTS_FILE);
+  const authority = await authorityFor(workspacePath);
   try {
     const existing = await readIfPresent(file);
 
     if (existing == null) {
-      const ok = await writeFileSafely(file, agentsBlock("\n") + "\n");
+      const ok = await writeFileSafely(file, agentsBlock("\n", authority) + "\n");
       return { file, action: ok ? "created" : "skipped-symlink" };
     }
 
     const eol = existing.includes("\r\n") ? "\r\n" : "\n";
-    const canonical = agentsBlock(eol);
+    const block = agentsBlock(eol, authority);
     const matches = [...existing.matchAll(BLOCK_RE)];
 
     let next;
     if (matches.length) {
-      // Replace the first well-formed block with the canonical one; drop duplicates.
+      // Replace the first well-formed block with the fresh one; drop duplicates.
       let out = "";
       let cursor = 0;
       matches.forEach((m, i) => {
         out += existing.slice(cursor, m.index);
-        if (i === 0) out += canonical;
+        if (i === 0) out += block;
         cursor = m.index + m[0].length;
       });
       next = out + existing.slice(cursor);
@@ -231,7 +271,7 @@ export async function ensureAgentsPointer(workspacePath) {
       return { file, action: "skipped-malformed" };
     } else {
       const sep = existing === "" ? "" : existing.endsWith(eol + eol) ? "" : existing.endsWith(eol) ? eol : eol + eol;
-      next = existing + sep + canonical + eol;
+      next = existing + sep + block + eol;
     }
 
     if (next === existing) return { file, action: "unchanged" };
@@ -243,6 +283,28 @@ export async function ensureAgentsPointer(workspacePath) {
 }
 
 // ---- token helpers ---------------------------------------------------------
+
+// The design system's *authority model* — does it lead the UI or trail it?
+//   - "canonical" (default): these files are the source of truth; UI is generated
+//     from them. Correct for web/JSX-first repos where tokens compile to CSS vars.
+//   - "derived": these files are a non-shipping visual mirror of some other
+//     canonical surface (e.g. a native WinUI 3 XAML/C# app). Agents should match
+//     them for consistency but must not treat them as a parallel product
+//     authority — when they differ from the canonical source, the canonical wins.
+// Anything other than "derived" (or a missing block) normalizes to "canonical" so
+// existing systems keep behaving exactly as before.
+export function readAuthority(tokens) {
+  const a = (tokens && typeof tokens.authority === "object" && tokens.authority) || {};
+  const model = a.model === "derived" ? "derived" : "canonical";
+  const str = (v) => (typeof v === "string" ? v.trim() : "");
+  return {
+    model,
+    isDerived: model === "derived",
+    canonicalSource: str(a.canonicalSource),
+    maintainer: str(a.maintainer),
+    syncNote: str(a.syncNote),
+  };
+}
 
 export function colorList(tokens) {
   const c = tokens?.colors;

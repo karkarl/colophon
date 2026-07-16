@@ -5,7 +5,7 @@
 // sessionStartContext -> one-time announcement the design system exists
 // promptContext()     -> per-turn nudge to consult it before writing UI
 
-import { colorList, DESIGN_SUBPATH } from "./designio.mjs";
+import { colorList, readAuthority, DESIGN_SUBPATH } from "./designio.mjs";
 
 const UI_TERMS = [
   "ui", "ux", "page", "screen", "view", "component", "layout", "design",
@@ -59,6 +59,17 @@ export function buildSummary(design) {
         ? `Source: proposed from imported tokens — not saved yet. Review in the Design System canvas, then save to ${DESIGN_SUBPATH}/.`
         : `Source: bundled starter (no ${DESIGN_SUBPATH}/ in this repo yet — call the "init" action to seed it)`;
   lines.push(sourceLine);
+
+  const authority = readAuthority(t);
+  if (authority.isDerived) {
+    const canonical = authority.canonicalSource || "the app's canonical (e.g. native) UI";
+    lines.push(
+      `Authority: DERIVED — these files are a non-shipping visual reference that mirrors ${canonical}. ` +
+      `Match them for consistency, but do not treat them as a parallel product authority: when they and ${canonical} differ, ${canonical} wins.`
+    );
+    if (authority.syncNote) lines.push(`Sync: ${authority.syncNote}`);
+    if (authority.maintainer) lines.push(`Reflect canonical UI changes back into ${DESIGN_SUBPATH}/ (owner: ${authority.maintainer}).`);
+  }
   lines.push("");
 
   if (brand.voice) lines.push(`Voice: ${brand.voice}`);
@@ -105,7 +116,16 @@ export function buildSummary(design) {
 
 export function sessionStartContext(design) {
   const brand = design.tokens?.brand || {};
+  const authority = readAuthority(design.tokens);
   if (design.source === "repo") {
+    if (authority.isDerived) {
+      const canonical = authority.canonicalSource || "the app's canonical (native) UI";
+      return [
+        `This repository keeps a DERIVED design reference at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}) that mirrors ${canonical}.`,
+        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and match their tokens and patterns — but treat them as a reference, not a source of truth: when they differ from ${canonical}, ${canonical} wins.${authority.maintainer ? ` Reflect canonical UI changes back into ${DESIGN_SUBPATH}/ (owner: ${authority.maintainer}).` : ""}`,
+        `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
+      ].join(" ");
+    }
     return [
       `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
       `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
@@ -117,9 +137,12 @@ export function sessionStartContext(design) {
 
 export function promptContext(design) {
   const brand = design.tokens?.brand || {};
-  const head = design.source === "repo"
-    ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/.`
-    : `The user's request looks UI-related. There's no ${DESIGN_SUBPATH}/ in this repo yet, but a starter design system is available.`;
+  const authority = readAuthority(design.tokens);
+  const head = design.source !== "repo"
+    ? `The user's request looks UI-related. There's no ${DESIGN_SUBPATH}/ in this repo yet, but a starter design system is available.`
+    : authority.isDerived
+      ? `The user's request looks UI-related and this repo has a DERIVED design reference (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/ that mirrors ${authority.canonicalSource || "the app's canonical (native) UI"} — match it, but the canonical UI wins on conflict.`
+      : `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/.`;
   return [
     head,
     "Consult it before writing UI: use the colophon tool (or read the files) and honor its color, typography, spacing, radius tokens, component patterns, principles, and anti-references.",

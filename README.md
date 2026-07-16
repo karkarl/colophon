@@ -13,7 +13,7 @@ automatically.
 
 Colophon ships two halves in one plugin:
 - a **skill** (`skills/colophon/`) that tells Copilot to treat `.agents/design/` as
-  the source of truth and build UI from its tokens, components, and principles; and
+  the design source and build UI from its tokens, components, and principles; and
 - a **canvas extension** (`extensions/colophon/`) that renders and edits the system
   live, and exposes a `colophon` tool + hooks so the agent always has it in context.
 
@@ -22,11 +22,25 @@ Colophon ships two halves in one plugin:
 ### 1. The design system lives in the repo: `.agents/design/`
 | File | What it is |
 | --- | --- |
-| `design.json` | Tokens: brand, colors, typography, spacing, radii, shadows, principles |
+| `design.json` | Tokens: authority, brand, colors, typography, spacing, radii, shadows, principles |
 | `components.jsx` | "Pseudocode React" — the component patterns your team has agreed on |
 | `principles.md` | Prose voice / information hierarchy / do & don't |
 
 These are plain files. Commit them, review them in PRs, edit them by hand or in the canvas.
+
+#### Canonical vs derived — who wins on a conflict?
+
+`design.json` carries an `authority.model` so the system says how much weight it
+carries, and Copilot adapts:
+
+| `authority.model` | Meaning | Copilot behavior |
+| --- | --- | --- |
+| `canonical` (default) | These files **are** the source of truth. The web/JSX case — tokens compile to the CSS vars the app ships. | Generates UI from them; adds missing values here. |
+| `derived` | These files are a **non-shipping mirror** of a canonical surface (`authority.canonicalSource`) — e.g. a native WinUI 3 XAML/C# or SwiftUI app. | Matches them for consistency, but **the canonical (native) UI wins on conflict**; changes flow native → files, and `authority.maintainer` owns the re-sync. |
+
+Absent or unknown ⇒ `canonical`, so existing systems are unchanged. Scanning a repo
+with no web styling (a native/XAML app) proposes a `derived` system automatically.
+The skill, the injected context, and the `AGENTS.md` pointer all reflect the model.
 
 ### 2. The canvas renders + edits it
 Open the **Design System** canvas to see the system rendered live:

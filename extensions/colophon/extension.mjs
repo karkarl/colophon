@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, DESIGN_SUBPATH } from "./designio.mjs";
+import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, readAuthority, DESIGN_SUBPATH } from "./designio.mjs";
 import { buildSummary, looksLikeUiWork, sessionStartContext, promptContext } from "./context.mjs";
 import { scratchTokens, normalizeTokens, scanCodebase } from "./sources.mjs";
 import { renderShell } from "./renderer.mjs";
@@ -305,12 +305,16 @@ const designTool = {
       } catch (err) { seeded = { error: String(err.message || err) }; }
     }
     const summary = buildSummary(design);
+    const authority = readAuthority(design.tokens);
     const pointerAdded = seeded && !seeded.error && ["created", "updated", "unchanged"].includes(seeded.agents?.action);
     const seededNote = pointerAdded
       ? " Ensured an AGENTS.md pointer so any agent loads this system before UI work."
       : "";
+    const repoHeader = authority.isDerived
+      ? `Design system loaded from ${DESIGN_SUBPATH}/ — a DERIVED reference mirroring ${authority.canonicalSource || "the app's canonical (native) UI"}. Match it, but the canonical UI wins on conflict.${seededNote}`
+      : `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.${seededNote}`;
     const header = design.source === "repo"
-      ? `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.${seededNote}`
+      ? repoHeader
       : `No ${DESIGN_SUBPATH}/ in this repo yet; this is the bundled starter. ${input?.init ? "" : "Pass init=true to seed it, or scan=true to propose one from existing UI."}`;
     return {
       source: design.source,

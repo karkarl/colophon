@@ -5,6 +5,12 @@
     "updatedBy": "starter",
     "note": "Edit this in the Design System canvas or directly. Devs + designers share this file."
   },
+  "authority": {
+    "model": "canonical",
+    "canonicalSource": "",
+    "maintainer": "",
+    "syncNote": "These files are the source of truth for this repo's UI — build from them, and add to them when a value is missing."
+  },
   "brand": {
     "name": "Northlight",
     "tagline": "Field notes for people who build in the open.",
