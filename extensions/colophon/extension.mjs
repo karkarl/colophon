@@ -24,10 +24,16 @@ import { renderShell } from "./renderer.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 let sessionRef = null;
 
-// Best-known repo/working directory. Hooks and canvas-open both report it; we keep
-// the most recent so the tool and server load the right .agents/design/.
-let currentWorkdir = process.cwd();
-function setWorkdir(dir) { if (dir && typeof dir === "string") currentWorkdir = dir; }
+// The repo whose .agents/design/ we load. Learned strictly from per-invocation,
+// session-scoped signals: hook inputs (BaseHookInput.workingDirectory is always the
+// session's repo) and canvas ctx.session.workingDirectory. We must NEVER anchor to
+// process.cwd() (the Copilot home dir) or sessionRef.workspacePath (the CLI's
+// session-state dir) — neither is the repo, and reusing a value from another
+// session/invocation would leak one repo's design system into another. Starts null;
+// when null, loadDesign(null) resolves to the bundled sample (a safe default that is
+// never another repo's system).
+let sessionWorkdir = null;
+function setWorkdir(dir) { if (dir && typeof dir === "string") sessionWorkdir = dir; }
 
 function log(message, level = "info") {
   try { sessionRef?.log?.(message, { level }); } catch { /* pre-join */ }
@@ -193,7 +199,7 @@ const canvas = createCanvas({
   inputSchema: { type: "object", properties: { workingDirectory: { type: "string", description: "Repo/working directory whose .agents/design/ to load" } }, additionalProperties: true },
 
   open: async (ctx) => {
-    const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || currentWorkdir;
+    const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
     setWorkdir(workdir);
     let entry = servers.get(ctx.instanceId);
     if (!entry) {
@@ -215,7 +221,8 @@ const canvas = createCanvas({
       name: "read",
       description: "Return the current design system as a text summary the agent can follow.",
       handler: async (ctx) => {
-        const workdir = ctx.input?.workingDirectory || currentWorkdir;
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
         const design = await loadDesign(workdir);
         return { source: design.source, summary: buildSummary(design) };
       },
@@ -225,7 +232,8 @@ const canvas = createCanvas({
       description: "Scaffold .agents/design/ in the repo (non-destructive). mode 'starter' (default) copies the bundled starter; 'scratch' writes a neutral skeleton to refine.",
       inputSchema: { type: "object", properties: { mode: { type: "string", enum: ["starter", "scratch"] }, name: { type: "string" }, tagline: { type: "string" }, description: { type: "string", description: "One-paragraph description of the app/project for codegen context." }, workingDirectory: { type: "string" } }, additionalProperties: false },
       handler: async (ctx) => {
-        const workdir = ctx.input?.workingDirectory || currentWorkdir;
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
         const mode = ctx.input?.mode === "scratch" ? "scratch" : "starter";
         try {
           const opts = mode === "scratch" ? { tokens: scratchTokens({ name: ctx.input?.name, tagline: ctx.input?.tagline, description: ctx.input?.description }) } : {};
@@ -240,7 +248,8 @@ const canvas = createCanvas({
       name: "scan",
       description: "Scan the repo's existing UI (CSS/JSX/styles) and return a proposed design system as text + evidence. Writes nothing; open the canvas to review and save.",
       handler: async (ctx) => {
-        const workdir = ctx.input?.workingDirectory || currentWorkdir;
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
         try {
           const pkgName = await pkgNameFor(workdir);
           const { tokens, evidence } = await scanCodebase(workdir, { pkgName });
@@ -279,12 +288,17 @@ const designTool = {
     properties: {
       init: { type: "boolean", description: "Scaffold .agents/design/ from the starter (non-destructive) before returning." },
       scan: { type: "boolean", description: "If the repo has no .agents/design/, scan its existing UI and return a proposed design system (writes nothing)." },
-      workingDirectory: { type: "string", description: "Repo/working directory to read (defaults to the current one)." },
+      workingDirectory: { type: "string", description: "Repo/working directory to read. Defaults to this session's repo (set from hook context); pass it explicitly to target a different repo." },
     },
     additionalProperties: false,
   },
   handler: async (input) => {
-    const workdir = input?.workingDirectory || currentWorkdir;
+    // The tool receives no session context, so it can't read ctx.session here. It
+    // relies on sessionWorkdir, which onSessionStart / onUserPromptSubmitted set from
+    // the hook's authoritative workingDirectory before the agent can call this tool.
+    // If neither is available, workdir stays null and loadDesign falls back to the
+    // bundled sample — never another repo's design system.
+    const workdir = input?.workingDirectory || sessionWorkdir;
     let seeded = null;
     if (input?.init) {
       try { seeded = await initDesign(workdir); } catch (err) { seeded = { error: String(err.message || err) }; }
@@ -332,7 +346,7 @@ const hooks = {
   onSessionStart: async (input) => {
     setWorkdir(input?.workingDirectory);
     try {
-      const design = await loadDesign(currentWorkdir);
+      const design = await loadDesign(input?.workingDirectory || sessionWorkdir);
       return { additionalContext: sessionStartContext(design) };
     } catch { return {}; }
   },
@@ -340,7 +354,7 @@ const hooks = {
     setWorkdir(input?.workingDirectory);
     if (!looksLikeUiWork(input?.prompt)) return {};
     try {
-      const design = await loadDesign(currentWorkdir);
+      const design = await loadDesign(input?.workingDirectory || sessionWorkdir);
       return { additionalContext: promptContext(design) };
     } catch { return {}; }
   },
