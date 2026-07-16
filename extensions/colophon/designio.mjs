@@ -148,16 +148,16 @@ export async function saveTokens(workspacePath, tokens) {
 // only thing that varies is the `authority` framing (canonical vs derived), because
 // that changes what agents are being *told to do* with the files. The `eol` is
 // applied so the block matches the host file's line-ending style.
-function agentsBlock(eol = "\n", authority = { model: "canonical" }) {
-  const derived = authority?.model === "derived";
-  const canonicalSource = authority?.canonicalSource || "the app's canonical UI surface";
-  const lead = derived
+function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portOverrides: [] }) {
+  const hasPort = !!authority?.hasPort;
+  const lead = hasPort
     ? [
-        "This repository keeps a **derived** design reference at [`.agents/design/`](.agents/design/) — " +
-          "a non-shipping mirror of " + canonicalSource + ". **Read it before creating or changing any " +
-          "UI** and match its tokens and patterns for consistency, but treat it as a reference, not a " +
-          "parallel product authority: when these files and " + canonicalSource + " differ, " +
-          canonicalSource + " wins.",
+        "This repository has a living design system at [`.agents/design/`](.agents/design/). " +
+          "These files are the **source of truth for design** — tokens, component intent, and " +
+          "principles — and are framework-agnostic. `components.jsx` shows design intent for preview; " +
+          "it is **not** shipping code.",
+        "**Read it before creating or changing any UI.** To ship, port the design into this app's " +
+          "implementation using the port target(s) below — don't copy `components.jsx` verbatim.",
       ]
     : [
         "This repository has a living design system at [`.agents/design/`](.agents/design/).",
@@ -178,10 +178,12 @@ function agentsBlock(eol = "\n", authority = { model: "canonical" }) {
       "new ones; honor the brand voice; and avoid the system's listed anti-references. If you need a value " +
       "the system doesn't cover, add it to `.agents/design/` rather than hard-coding a one-off.",
   ];
-  if (derived && authority?.maintainer) {
+  if (hasPort) {
     lines.push(
       "",
-      "When the canonical UI changes, reflect it back into `.agents/design/` (owner: " + authority.maintainer + ").",
+      "**Port targets** — how a design becomes shipping code here (design stays the source of truth; " +
+        "these say what each surface ships as and which reference/skill to port it with):",
+      ...portLines(authority, { bullet: "- " }),
     );
   }
   lines.push(
@@ -214,8 +216,8 @@ async function writeFileSafely(file, content) {
 }
 
 // Best-effort read of the design system's authority model from the on-disk
-// design.json, so the AGENTS.md pointer frames the files correctly (canonical vs
-// derived). Falls back to canonical if the file is missing or unparseable.
+// design.json, so the AGENTS.md pointer frames the files correctly (design source
+// of truth + any port targets). Falls back to design-only if missing/unparseable.
 async function authorityFor(workspacePath) {
   const dir = designDirFor(workspacePath);
   if (!dir) return readAuthority(null);
@@ -236,7 +238,7 @@ async function authorityFor(workspacePath) {
 //   - file, stray/partial marker but no valid block -> leave it alone ("skipped-malformed")
 //   - symlink / write error    -> leave it alone      ("skipped-symlink"/"failed")
 // Handles CRLF/LF, orphaned or duplicated markers, and symlinked targets. The block
-// text reflects the system's authority model (canonical vs derived).
+// text reflects the system's authority model (design source of truth + port targets).
 export async function ensureAgentsPointer(workspacePath) {
   if (!workspacePath) return { file: null, action: "skipped" };
   const file = path.join(workspacePath, AGENTS_FILE);
@@ -284,26 +286,77 @@ export async function ensureAgentsPointer(workspacePath) {
 
 // ---- token helpers ---------------------------------------------------------
 
-// The design system's *authority model* — does it lead the UI or trail it?
-//   - "canonical" (default): these files are the source of truth; UI is generated
-//     from them. Correct for web/JSX-first repos where tokens compile to CSS vars.
-//   - "derived": these files are a non-shipping visual mirror of some other
-//     canonical surface (e.g. a native WinUI 3 XAML/C# app). Agents should match
-//     them for consistency but must not treat them as a parallel product
-//     authority — when they differ from the canonical source, the canonical wins.
-// Anything other than "derived" (or a missing block) normalizes to "canonical" so
-// existing systems keep behaving exactly as before.
+// The design system's *authority model*. Two orthogonal axes:
+//
+//   1. Design authority — the files in .agents/design/ are the source of truth for
+//      DESIGN (tokens, component intent, principles). They are framework-agnostic:
+//      the React in components.jsx is a canvas rendering convenience, NOT shipping
+//      code. `designSource` defaults to "self" (these files).
+//
+//   2. Implementation / port authority — how a design becomes shipping code, which
+//      is framework-specific and can vary per surface. A `port` target names:
+//        - authoritySource: what the surface actually ships as / wins for
+//          implementation (e.g. "Native WinUI 3 / C#", "React web", "SwiftUI").
+//        - syncSource: the reference/skill an agent uses to port design → that
+//          implementation (e.g. github.com/microsoft/win-dev-skills).
+//        - helperAgent: an optional skill/agent that performs the port (may be
+//          absent — e.g. Reactor has none yet).
+//      `port` is the app-wide default; `portOverrides` override it per area or per
+//      component (e.g. a React-style chat surface targeting Reactor).
+//
+// No port/overrides ⇒ the files are both the design and the implementation source
+// of truth (web/JSX repos) — the original behavior. Everything normalizes so a
+// missing/partial block is safe.
+function normPortTarget(p) {
+  if (!p || typeof p !== "object") return null;
+  const str = (v) => (typeof v === "string" ? v.trim() : "");
+  const authoritySource = str(p.authoritySource);
+  const syncSource = str(p.syncSource);
+  const helperAgent = str(p.helperAgent);
+  if (!authoritySource && !syncSource && !helperAgent) return null;
+  return { authoritySource, syncSource, helperAgent };
+}
+
 export function readAuthority(tokens) {
   const a = (tokens && typeof tokens.authority === "object" && tokens.authority) || {};
-  const model = a.model === "derived" ? "derived" : "canonical";
   const str = (v) => (typeof v === "string" ? v.trim() : "");
+  const designSource = str(a.designSource) || "self";
+
+  const port = normPortTarget(a.port);
+  const portOverrides = (Array.isArray(a.portOverrides) ? a.portOverrides : [])
+    .map((o) => {
+      const base = normPortTarget(o) || { authoritySource: "", syncSource: "", helperAgent: "" };
+      const components = Array.isArray(o.components) ? o.components.map(str).filter(Boolean) : [];
+      return { area: str(o.area), components, ...base };
+    })
+    .filter((o) => o.area || o.components.length || o.authoritySource || o.syncSource || o.helperAgent);
+
   return {
-    model,
-    isDerived: model === "derived",
-    canonicalSource: str(a.canonicalSource),
-    maintainer: str(a.maintainer),
-    syncNote: str(a.syncNote),
+    designSource,
+    designIsSelf: designSource === "self" || designSource === "",
+    hasPort: !!port || portOverrides.length > 0,
+    port,
+    portOverrides,
   };
+}
+
+// Human-readable lines describing the port targets, reused by the summary, the
+// AGENTS.md pointer, and the injected context. `bullet` prefixes list items.
+export function portLines(authority, { bullet = "- " } = {}) {
+  const lines = [];
+  const fmt = (t) => {
+    const ships = t.authoritySource || "(unspecified)";
+    const via = t.syncSource ? ` — port via ${t.syncSource}` : " — no sync source set";
+    const helper = t.helperAgent ? ` (helper agent: ${t.helperAgent})` : (t.syncSource ? " (no helper agent yet)" : "");
+    return `ships as ${ships}${via}${helper}`;
+  };
+  if (authority.port) lines.push(`${bullet}Default: ${fmt(authority.port)}`);
+  for (const o of authority.portOverrides) {
+    const scope = [o.area && `area "${o.area}"`, o.components.length && `components ${o.components.join(", ")}`]
+      .filter(Boolean).join(", ") || "override";
+    lines.push(`${bullet}${scope}: ${fmt(o)}`);
+  }
+  return lines;
 }
 
 export function colorList(tokens) {

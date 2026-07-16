@@ -310,8 +310,8 @@ const designTool = {
     const seededNote = pointerAdded
       ? " Ensured an AGENTS.md pointer so any agent loads this system before UI work."
       : "";
-    const repoHeader = authority.isDerived
-      ? `Design system loaded from ${DESIGN_SUBPATH}/ — a DERIVED reference mirroring ${authority.canonicalSource || "the app's canonical (native) UI"}. Match it, but the canonical UI wins on conflict.${seededNote}`
+    const repoHeader = authority.hasPort
+      ? `Design system loaded from ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's implementation via the configured port target(s); don't ship components.jsx verbatim.${seededNote}`
       : `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.${seededNote}`;
     const header = design.source === "repo"
       ? repoHeader

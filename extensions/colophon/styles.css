@@ -107,14 +107,15 @@ section.block > h2 {
 /* Authority (canonical vs derived) */
 .authority { display: grid; gap: 4px; }
 .authority > label { font-size: 11px; color: var(--text-color-muted, #656d76); }
-.authority-select {
-  font: inherit; padding: 6px 8px; border-radius: 6px;
-  border: 1px solid var(--border-color-default, #d0d7de);
-  background: var(--background-color-default, #fff); color: inherit; max-width: 100%;
-}
-.authority-derived {
+.authority-toggle { font-size: 12px; color: inherit; cursor: pointer; }
+.authority-toggle input { margin-right: 6px; vertical-align: middle; }
+.authority-port {
   border-left: 2px solid var(--color-accent, #b5502a);
-  padding-left: 10px; margin-top: 8px;
+  padding-left: 10px; margin-top: 8px; display: grid; gap: 8px;
+}
+.authority-override {
+  border: 1px solid var(--border-color-default, #d0d7de);
+  border-radius: 8px; padding: 10px; margin-top: 8px; display: grid; gap: 8px;
 }
 
 /* Colors grid */

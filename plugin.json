@@ -1,6 +1,6 @@
 {
   "name": "colophon",
-  "description": "Living design systems for Copilot. Keeps a repo's design system in .agents/design/ as a shared, versioned design source, renders/edits it in a canvas, and makes Copilot generate UI from its tokens, components, and principles — as the source of truth for web repos, or a derived reference that mirrors a native (e.g. WinUI/XAML) UI.",
+  "description": "Living design systems for Copilot. Keeps a repo's design system in .agents/design/ as a shared, versioned design source, renders/edits it in a canvas, and makes Copilot generate UI from its tokens, components, and principles — the source of truth for design, with configurable per-area port targets that say what each surface ships as (e.g. React web, native WinUI/XAML, SwiftUI) and which reference/skill ports the design into it.",
   "version": "0.1.0",
   "author": {
     "name": "Karen",

@@ -5,7 +5,7 @@
 // sessionStartContext -> one-time announcement the design system exists
 // promptContext()     -> per-turn nudge to consult it before writing UI
 
-import { colorList, readAuthority, DESIGN_SUBPATH } from "./designio.mjs";
+import { colorList, readAuthority, portLines, DESIGN_SUBPATH } from "./designio.mjs";
 
 const UI_TERMS = [
   "ui", "ux", "page", "screen", "view", "component", "layout", "design",
@@ -61,14 +61,13 @@ export function buildSummary(design) {
   lines.push(sourceLine);
 
   const authority = readAuthority(t);
-  if (authority.isDerived) {
-    const canonical = authority.canonicalSource || "the app's canonical (e.g. native) UI";
+  if (authority.hasPort) {
     lines.push(
-      `Authority: DERIVED — these files are a non-shipping visual reference that mirrors ${canonical}. ` +
-      `Match them for consistency, but do not treat them as a parallel product authority: when they and ${canonical} differ, ${canonical} wins.`
+      "Authority: these files are the source of truth for DESIGN (tokens, component intent, principles) " +
+      "and are framework-agnostic — components.jsx is design intent for preview, not shipping code. " +
+      "To ship, port the design into this app's implementation via the port target(s) below:"
     );
-    if (authority.syncNote) lines.push(`Sync: ${authority.syncNote}`);
-    if (authority.maintainer) lines.push(`Reflect canonical UI changes back into ${DESIGN_SUBPATH}/ (owner: ${authority.maintainer}).`);
+    for (const l of portLines(authority, { bullet: "  - " })) lines.push(l);
   }
   lines.push("");
 
@@ -118,11 +117,11 @@ export function sessionStartContext(design) {
   const brand = design.tokens?.brand || {};
   const authority = readAuthority(design.tokens);
   if (design.source === "repo") {
-    if (authority.isDerived) {
-      const canonical = authority.canonicalSource || "the app's canonical (native) UI";
+    if (authority.hasPort) {
+      const targets = portLines(authority, { bullet: "" }).join("; ");
       return [
-        `This repository keeps a DERIVED design reference at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}) that mirrors ${canonical}.`,
-        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and match their tokens and patterns — but treat them as a reference, not a source of truth: when they differ from ${canonical}, ${canonical} wins.${authority.maintainer ? ` Reflect canonical UI changes back into ${DESIGN_SUBPATH}/ (owner: ${authority.maintainer}).` : ""}`,
+        `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}). These files are the source of truth for DESIGN and are framework-agnostic — components.jsx is design intent for preview, not shipping code.`,
+        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow their tokens and patterns. To ship, port the design into this app's implementation using the port target(s): ${targets}.`,
         `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
       ].join(" ");
     }
@@ -140,8 +139,8 @@ export function promptContext(design) {
   const authority = readAuthority(design.tokens);
   const head = design.source !== "repo"
     ? `The user's request looks UI-related. There's no ${DESIGN_SUBPATH}/ in this repo yet, but a starter design system is available.`
-    : authority.isDerived
-      ? `The user's request looks UI-related and this repo has a DERIVED design reference (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/ that mirrors ${authority.canonicalSource || "the app's canonical (native) UI"} — match it, but the canonical UI wins on conflict.`
+    : authority.hasPort
+      ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's implementation via the configured port target(s).`
       : `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/.`;
   return [
     head,

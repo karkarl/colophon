@@ -57,37 +57,68 @@ function markDirty() {
 
 /* ---------- section renderers ---------- */
 
+function portFields(obj, { withScope = false } = {}) {
+  const rows = [];
+  if (withScope) {
+    const areaIn = el("input", { type: "text", value: obj.area || "", placeholder: "e.g. chat",
+      oninput: (e) => { obj.area = e.target.value; markDirty(); } });
+    const compIn = el("input", { type: "text", value: (obj.components || []).join(", "), placeholder: "e.g. ChatBubble, ChatComposer",
+      oninput: (e) => { obj.components = e.target.value.split(",").map((s) => s.trim()).filter(Boolean); markDirty(); } });
+    rows.push(
+      el("div", { class: "editable" }, el("label", {}, "Area"), areaIn),
+      el("div", { class: "editable" }, el("label", {}, "Components (comma-separated)"), compIn),
+    );
+  }
+  const shipsIn = el("input", { type: "text", value: obj.authoritySource || "", placeholder: "ships as — e.g. Native WinUI 3 / C#",
+    oninput: (e) => { obj.authoritySource = e.target.value; markDirty(); } });
+  const syncIn = el("input", { type: "text", value: obj.syncSource || "", placeholder: "sync source — e.g. https://github.com/microsoft/win-dev-skills",
+    oninput: (e) => { obj.syncSource = e.target.value; markDirty(); } });
+  const helperIn = el("input", { type: "text", value: obj.helperAgent || "", placeholder: "helper agent (optional) — e.g. win-dev-skills",
+    oninput: (e) => { obj.helperAgent = e.target.value; markDirty(); } });
+  rows.push(
+    el("div", { class: "editable" }, el("label", {}, "Authority source (ships as)"), shipsIn),
+    el("div", { class: "editable" }, el("label", {}, "Sync source (port reference/skill)"), syncIn),
+    el("div", { class: "editable" }, el("label", {}, "Helper agent (optional)"), helperIn),
+  );
+  return rows;
+}
+
 function renderAuthority(t) {
-  const a = (t.authority && typeof t.authority === "object") ? t.authority : (t.authority = { model: "canonical" });
-  if (a.model !== "derived") a.model = a.model === "derived" ? "derived" : "canonical";
+  const a = (t.authority && typeof t.authority === "object") ? t.authority : (t.authority = {});
+  if (typeof a.designSource !== "string" || !a.designSource) a.designSource = "self";
+  if (!Array.isArray(a.portOverrides)) a.portOverrides = [];
 
-  const derivedFields = el("div", { class: "authority-derived", style: a.model === "derived" ? "" : "display:none" });
-  const srcIn = el("input", { type: "text", value: a.canonicalSource || "", placeholder: "e.g. Native WinUI 3 XAML/C# and observed product behavior",
-    oninput: (e) => { a.canonicalSource = e.target.value; markDirty(); } });
-  const maintIn = el("input", { type: "text", value: a.maintainer || "", placeholder: "who re-syncs after native UI changes",
-    oninput: (e) => { a.maintainer = e.target.value; markDirty(); } });
-  derivedFields.append(
-    el("div", { class: "editable", style: "margin-top:8px" }, el("label", {}, "Canonical source (wins on conflict)"), srcIn),
-    el("div", { class: "editable", style: "margin-top:8px" }, el("label", {}, "Maintainer (re-sync owner)"), maintIn),
-  );
+  const wrap = el("div", { class: "authority", style: "margin-top:14px" }, el("label", {}, "Authority — design vs. port"));
+  wrap.append(el("div", { class: "muted", style: "margin-top:4px" },
+    "These files are the source of truth for design (framework-agnostic). Port targets say what each surface ships as and which reference/skill to port the design with — leave empty for web/JSX repos where these files are also the implementation."));
 
-  const sel = el("select", { class: "authority-select",
-    onchange: (e) => { a.model = e.target.value; derivedFields.style.display = e.target.value === "derived" ? "" : "none"; hint.textContent = hintText(e.target.value); markDirty(); } });
-  sel.append(el("option", { value: "canonical" }, "canonical — these files are the source of truth"));
-  sel.append(el("option", { value: "derived" }, "derived — mirrors a canonical (native) UI that wins"));
-  sel.value = a.model;
+  // Default port target (app-wide).
+  const hasPort = !!a.port && typeof a.port === "object";
+  const defBody = el("div", { class: "authority-port", style: hasPort ? "" : "display:none" });
+  if (hasPort) defBody.append(...portFields(a.port));
+  const defToggle = el("label", { class: "authority-toggle", style: "margin-top:10px;display:block" },
+    el("input", { type: "checkbox", checked: hasPort ? "checked" : undefined,
+      onchange: (e) => {
+        if (e.target.checked) { a.port = a.port || { authoritySource: "", syncSource: "", helperAgent: "" }; }
+        else { a.port = null; }
+        markDirty(); render();
+      } }),
+    " This app has a default port target (ships as native/other, not the JSX itself)");
+  wrap.append(defToggle, defBody);
 
-  const hintText = (m) => m === "derived"
-    ? "Agents match these files but treat the canonical source as authoritative — when they differ, the canonical UI wins."
-    : "Agents generate UI from these files and add missing values here.";
-  const hint = el("div", { class: "muted", style: "margin-top:4px" }, hintText(a.model));
+  // Per-area overrides.
+  wrap.append(el("div", { class: "muted", style: "margin-top:12px;font-weight:600" }, "Per-area overrides"));
+  a.portOverrides.forEach((o, i) => {
+    const card = el("div", { class: "authority-override" }, ...portFields(o, { withScope: true }));
+    card.append(el("button", { class: "btn", style: "margin-top:8px",
+      onclick: () => { a.portOverrides.splice(i, 1); markDirty(); render(); } }, "Remove override"));
+    wrap.append(card);
+  });
+  wrap.append(el("button", { class: "btn", style: "margin-top:8px",
+    onclick: () => { a.portOverrides.push({ area: "", components: [], authoritySource: "", syncSource: "", helperAgent: "" }); markDirty(); render(); } },
+    "Add area override"));
 
-  return el("div", { class: "authority", style: "margin-top:14px" },
-    el("label", {}, "Authority"),
-    sel,
-    hint,
-    derivedFields,
-  );
+  return wrap;
 }
 
 function renderBrand(t) {
@@ -321,9 +352,11 @@ function proposalBar() {
     bar.append(el("div", { class: "muted", style: "margin-top:6px" },
       `Scanned ${ev.fileCount} files · ${(ev.topColors || []).length} colors · ${(ev.fonts || []).length} font(s)${ev.hasTailwind ? " · Tailwind detected" : ""}`));
   }
-  if (state.tokens?.authority?.model === "derived") {
+  if (state.tokens?.authority?.port || (state.tokens?.authority?.portOverrides || []).length) {
     bar.append(el("div", { class: "muted", style: "margin-top:6px" },
-      "Proposed as a ", el("strong", {}, "derived"), " reference — little/no web styling was found, so this looks like a native app. Agents will mirror these files but treat the native UI as authoritative. Set the canonical source & maintainer in Brand → Authority before saving."));
+      "Little/no web styling was found, so this looks like a native app. These tokens are a design starting point — set the ",
+      el("strong", {}, "port target"),
+      " (what it ships as + the sync source/skill to port with) in Brand → Authority before saving."));
   }
   if ((p.warnings || []).length) {
     bar.append(el("ul", { class: "warnlist" }, ...p.warnings.map((w) => el("li", {}, w))));

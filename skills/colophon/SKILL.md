@@ -6,9 +6,9 @@ description: >-
   Colophon makes the repo's own design system at `.agents/design/` the shared
   reference: read it first and generate UI from its color, typography, spacing,
   radius tokens, component patterns, voice, and anti-references instead of
-  inventing new styles. Check `authority.model` — `canonical` files are the source
-  of truth; `derived` files mirror a canonical (e.g. native) UI that wins on
-  conflict. If no design system exists yet, offer to seed one.
+  inventing new styles. The design files are the source of truth for *design*;
+  read `authority` to see what each surface ships as and which reference/skill to
+  port the design with. If no design system exists yet, offer to seed one.
 ---
 
 # Colophon — build UI from the repo's design system
@@ -18,25 +18,33 @@ reference for how UI in that repo should look and feel. Your job when doing any 
 work is to read it first and produce UI that conforms to it — reusing the team's
 tokens and component patterns rather than improvising one-off values.
 
-## Know the authority model first
+## Design leads, the implementation ships — read `authority` first
 
-`design.json` carries an `authority.model` that tells you *how much* weight these
-files carry. Check it before you rely on them:
+The design files are **always the source of truth for design** — tokens, component
+intent, and principles — and are framework-agnostic. `components.jsx` is design
+intent for preview, **not** shipping code. What varies is how a design becomes
+shipping code, recorded in `design.json`'s `authority` block:
 
-- **`canonical`** (the default, and the case when the field is absent) — these
-  files **are** the source of truth. Web/JSX-first repos work this way: the tokens
-  compile to the CSS variables the app actually ships. Generate UI from them, and
-  if you need a value they don't cover, add it here.
-- **`derived`** — these files are a **non-shipping visual mirror** of some other
-  canonical surface named in `authority.canonicalSource` (e.g. a native WinUI 3
-  XAML/C# or SwiftUI app). Match them for consistency, but **do not treat them as
-  a parallel product authority**: when the files and the canonical source differ,
-  the **canonical source wins**. After you change the canonical (native) UI,
-  reflect the change back into `.agents/design/` (see `authority.maintainer`), and
-  say so in your PR. Don't silently "fix" native code to match a derived token.
+- **`authority.designSource`** — who owns the *design* (default `"self"` = these files).
+- **`authority.port`** — the app-wide default **port target**:
+  - `authoritySource` — what the surface actually ships as (e.g. `Native WinUI 3 / C#`, `SwiftUI (iOS)`, `React web`).
+  - `syncSource` — the reference/skill you use to port design → that implementation (e.g. `https://github.com/microsoft/win-dev-skills`).
+  - `helperAgent` — an optional skill/agent that performs the port (may be empty — e.g. Reactor has none yet).
+- **`authority.portOverrides[]`** — per-area / per-component overrides (each with
+  `area`, `components[]`, and the same three port fields). Example: a React-style
+  **chat** surface targeting [Reactor](https://github.com/microsoft/microsoft-ui-reactor).
 
-Everything below applies to both modes; the only difference is who wins on a
-conflict, and where a genuinely new value should ultimately live.
+**When there's a port target:** follow the design tokens/patterns, then port the
+design into the app's implementation using the matching `syncSource` (and
+`helperAgent` if present). Don't ship `components.jsx` verbatim, and don't treat the
+JSX as a parallel product authority — it's design intent.
+
+**When there's no port target** (no `port`/overrides — the web/JSX case): the files
+are both the design and the implementation source of truth. Generate UI directly
+from them, and if you need a value they don't cover, add it here.
+
+Everything below applies either way; the only difference is whether there's a port
+step to the app's implementation, and which reference/skill performs it.
 
 ## When this applies
 
@@ -57,17 +65,17 @@ Resolve the repo's design system, in this order:
    brand, colors, typography, spacing, radii, component patterns, principles, and
    anti-references — already condensed for you.
 2. **Otherwise, read the files directly** from `.agents/design/`:
-   - `design.json` — tokens: `authority` (model + canonical source), `brand`
+   - `design.json` — tokens: `authority` (design source + port targets), `brand`
      (name, tagline, description), `colors`, `typography` (families + scale),
      `spacing`, `radii`, `shadows`, `principles`.
    - `components.jsx` — "pseudocode React": the component patterns the team has
      agreed on. Treat these as the structure/props/variants to reuse.
    - `principles.md` — voice, information hierarchy, and do/don't guidance.
 
-Read `authority.model` (see the top of this doc) to know whether these files lead
-or trail the UI. Read `brand.description` for app/project context — it tells you
-what you're building and for whom, which should inform layout and copy, not just
-styling.
+Read `authority` (see the top of this doc) to know what each surface ships as and
+which reference/skill to port the design with. Read `brand.description` for
+app/project context — it tells you what you're building and for whom, which should
+inform layout and copy, not just styling.
 
 ## Step 2 — Generate UI that conforms
 
@@ -92,8 +100,8 @@ styling.
 - If you genuinely need a value the system doesn't cover, **add it to the design
   system** (a new token or a new/updated pattern in `.agents/design/`) rather than
   scattering a one-off magic value in feature code — then use it. Call this out so
-  a human can review it in the PR. (For a `derived` system, the value should first
-  exist in the canonical/native UI; the file here records it.)
+  a human can review it in the PR. (When there's a port target, add the value to
+  the design here, then port it into the app's implementation via the `syncSource`.)
 - Prefer one confident, on-system element over several tentative custom ones.
 
 ## If there is no `.agents/design/` yet
@@ -114,5 +122,5 @@ user's other `AGENTS.md` content.
 
 The design system is a shared, human-readable artifact that designers and
 developers refine together in the repo and in the Colophon canvas. Your role is to
-keep every UI change faithful to it — and, when it's a `derived` system, to keep it
-faithful to the canonical UI it mirrors.
+keep every UI change faithful to it — and, when there's a port target, to port that
+design faithfully into the app's implementation via the configured reference/skill.

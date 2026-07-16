@@ -28,19 +28,25 @@ Colophon ships two halves in one plugin:
 
 These are plain files. Commit them, review them in PRs, edit them by hand or in the canvas.
 
-#### Canonical vs derived — who wins on a conflict?
+#### Design vs. port — the design leads, the implementation ships
 
-`design.json` carries an `authority.model` so the system says how much weight it
-carries, and Copilot adapts:
+The design files are always the **source of truth for design** — tokens, component
+intent, and principles — and are framework-agnostic. `components.jsx` is design
+intent for the canvas preview, **not** shipping code. What varies is how a design
+becomes shipping code, which `design.json` records in an `authority` block:
 
-| `authority.model` | Meaning | Copilot behavior |
-| --- | --- | --- |
-| `canonical` (default) | These files **are** the source of truth. The web/JSX case — tokens compile to the CSS vars the app ships. | Generates UI from them; adds missing values here. |
-| `derived` | These files are a **non-shipping mirror** of a canonical surface (`authority.canonicalSource`) — e.g. a native WinUI 3 XAML/C# or SwiftUI app. | Matches them for consistency, but **the canonical (native) UI wins on conflict**; changes flow native → files, and `authority.maintainer` owns the re-sync. |
+| Field | Meaning |
+| --- | --- |
+| `authority.designSource` | Who owns the *design* (default `"self"` = these files). |
+| `authority.port` | App-wide default **port target**: `authoritySource` (what the UI ships as — e.g. `Native WinUI 3 / C#`, `SwiftUI`), `syncSource` (the reference/skill to port design → that implementation — e.g. `microsoft/win-dev-skills`), and optional `helperAgent`. |
+| `authority.portOverrides[]` | Per-area / per-component overrides — e.g. a React-style **chat** surface targeting [Reactor](https://github.com/microsoft/microsoft-ui-reactor). Each has `area`, `components[]`, and the same three port fields. |
 
-Absent or unknown ⇒ `canonical`, so existing systems are unchanged. Scanning a repo
-with no web styling (a native/XAML app) proposes a `derived` system automatically.
-The skill, the injected context, and the `AGENTS.md` pointer all reflect the model.
+No `port`/overrides ⇒ the files are both the design **and** the implementation
+source of truth (web/JSX repos) — Colophon's original behavior, unchanged. Scanning
+a repo with no web styling (a native/XAML app) pre-fills a port target for you to
+complete. The skill, the injected context, and the `AGENTS.md` pointer all reflect
+these port targets, so agents know what each surface ships as and which skill to
+port the design with — they never ship `components.jsx` verbatim.
 
 ### 2. The canvas renders + edits it
 Open the **Design System** canvas to see the system rendered live:
