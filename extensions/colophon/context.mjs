@@ -64,7 +64,8 @@ export function buildSummary(design) {
   if (authority.hasPort) {
     lines.push(
       "Authority: these files are the source of truth for DESIGN (tokens, component intent, principles) " +
-      "and are framework-agnostic — components.jsx is design intent for preview, not shipping code. " +
+      "and are framework-agnostic — components.jsx is design intent for preview, not shipping code. The " +
+      "shipping implementation below is canonical; treat token values and components.jsx as derived examples. " +
       "To ship, port the design into this app's implementation via the port target(s) below:"
     );
     for (const l of portLines(authority, { bullet: "  - " })) lines.push(l);
@@ -77,8 +78,14 @@ export function buildSummary(design) {
   lines.push("");
 
   if (colors.length) {
-    lines.push("Colors:");
-    for (const c of colors) lines.push(`  - ${c.name}: ${c.value}${c.usage ? ` — ${c.usage}` : ""}`);
+    const previewOnly = authority.hasPort;
+    lines.push(previewOnly
+      ? "Colors (PREVIEW-ONLY hex — bind the mapped `resource` in code, never the raw value, so light/dark/high-contrast stay correct):"
+      : "Colors:");
+    for (const c of colors) {
+      const res = c.resource ? ` → resource ${c.resource}` : "";
+      lines.push(`  - ${c.name}: ${c.value}${res}${c.usage ? ` — ${c.usage}` : ""}`);
+    }
     lines.push("");
   }
 
@@ -120,9 +127,9 @@ export function sessionStartContext(design) {
     if (authority.hasPort) {
       const targets = portLines(authority, { bullet: "" }).join("; ");
       return [
-        `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}). These files are the source of truth for DESIGN and are framework-agnostic — components.jsx is design intent for preview, not shipping code.`,
-        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow their tokens and patterns. To ship, port the design into this app's implementation using the port target(s): ${targets}.`,
-        `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
+        `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}). These files are the source of truth for DESIGN and are framework-agnostic — components.jsx is design intent for preview, not shipping code, and the color hex values are preview-only swatches.`,
+        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
+        `You can open the "Colophon" canvas to view/edit it (with Light/Dark/High-contrast preview), or call the colophon tool for a text summary.`,
       ].join(" ");
     }
     return [
@@ -140,7 +147,7 @@ export function promptContext(design) {
   const head = design.source !== "repo"
     ? `The user's request looks UI-related. There's no ${DESIGN_SUBPATH}/ in this repo yet, but a starter design system is available.`
     : authority.hasPort
-      ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's implementation via the configured port target(s).`
+      ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's canonical implementation via the configured port target(s); the color hex is preview-only, so bind each color's mapped resource key instead.`
       : `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/.`;
   return [
     head,

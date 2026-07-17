@@ -15,13 +15,16 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 
-let state = { design: null, tokens: null, dirty: false, mode: "normal", proposal: null };
+let state = { design: null, tokens: null, dirty: false, mode: "normal", proposal: null, theme: "light", validation: null };
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);
   return res.headers.get("content-type")?.includes("json") ? res.json() : res.text();
 }
+
+const THEMES = ["light", "dark", "highContrast"];
+const THEME_LABEL = { light: "Light", dark: "Dark", highContrast: "High contrast" };
 
 function colorList(tokens) {
   const c = tokens?.colors;
@@ -30,9 +33,42 @@ function colorList(tokens) {
   return [];
 }
 
-function cssVarsFromTokens(tokens) {
+// The base (light) preview value of a color, tolerating a flat `value` or a
+// { themes: { light } } shape. Mirrors designio.baseColorValue.
+function baseColorValue(c) {
+  if (!c) return "";
+  if (typeof c.value === "string" && c.value) return c.value;
+  const th = c.themes;
+  if (th && typeof th === "object") return th.light || th.dark || th.highContrast || "";
+  return "";
+}
+
+// Preview value for a theme, falling back theme → light → base.
+function colorValueForTheme(c, theme = "light") {
+  const th = c?.themes;
+  if (th && typeof th === "object" && typeof th[theme] === "string" && th[theme]) return th[theme];
+  if (theme !== "light" && th && typeof th.light === "string" && th.light) return th.light;
+  return baseColorValue(c);
+}
+
+// Write a preview value for the active theme. Light writes the flat `value` (unless
+// the color already uses a themes map); dark/highContrast write into themes.
+function setColorValueForTheme(c, theme, hex) {
+  if (theme === "light" && !(c.themes && typeof c.themes === "object")) { c.value = hex; return; }
+  c.themes = (c.themes && typeof c.themes === "object") ? c.themes : {};
+  if (theme === "light" && typeof c.value === "string" && !c.themes.light) c.themes.light = c.value;
+  c.themes[theme] = hex;
+}
+
+// Does this system have a port target? Then colors are preview-only.
+function hasPort(t) {
+  const a = t?.authority;
+  return !!(a && (a.port || (Array.isArray(a.portOverrides) && a.portOverrides.length)));
+}
+
+function cssVarsFromTokens(tokens, theme = "light") {
   const lines = [];
-  for (const c of colorList(tokens)) lines.push(`--color-${c.name}: ${c.value};`);
+  for (const c of colorList(tokens)) lines.push(`--color-${c.name}: ${colorValueForTheme(c, theme)};`);
   const ty = tokens?.typography || {};
   if (ty.display?.family) lines.push(`--font-display: ${ty.display.family};`);
   if (ty.body?.family) lines.push(`--font-body: ${ty.body.family};`);
@@ -46,7 +82,8 @@ function cssVarsFromTokens(tokens) {
 function applyVars() {
   let tag = $("#ds-vars");
   if (!tag) { tag = el("style", { id: "ds-vars" }); document.head.append(tag); }
-  tag.textContent = cssVarsFromTokens(state.tokens);
+  tag.textContent = cssVarsFromTokens(state.tokens, state.theme);
+  document.body.setAttribute("data-ds-theme", state.theme);
 }
 
 function markDirty() {
@@ -75,10 +112,13 @@ function portFields(obj, { withScope = false } = {}) {
     oninput: (e) => { obj.syncSource = e.target.value; markDirty(); } });
   const helperIn = el("input", { type: "text", value: obj.helperAgent || "", placeholder: "helper agent (optional) — e.g. win-dev-skills",
     oninput: (e) => { obj.helperAgent = e.target.value; markDirty(); } });
+  const ownerIn = el("input", { type: "text", value: obj.owner || "", placeholder: "owner (optional) — who owns the canonical implementation",
+    oninput: (e) => { obj.owner = e.target.value; markDirty(); } });
   rows.push(
     el("div", { class: "editable" }, el("label", {}, "Authority source (ships as)"), shipsIn),
     el("div", { class: "editable" }, el("label", {}, "Sync source (port reference/skill)"), syncIn),
     el("div", { class: "editable" }, el("label", {}, "Helper agent (optional)"), helperIn),
+    el("div", { class: "editable" }, el("label", {}, "Owner (optional)"), ownerIn),
   );
   return rows;
 }
@@ -105,6 +145,17 @@ function renderAuthority(t) {
       } }),
     " This app has a default port target (ships as native/other, not the JSX itself)");
   wrap.append(defToggle, defBody);
+
+  // App-wide ownership + sync process for the canonical implementation. Most
+  // relevant when a port target exists (native/other is canonical), but harmless
+  // to record either way — it names who keeps the derived examples aligned.
+  const ownerIn = el("input", { type: "text", value: a.owner || "", placeholder: "e.g. @openclaw/windows-ui",
+    oninput: (e) => { a.owner = e.target.value; markDirty(); } });
+  const syncProcIn = el("input", { type: "text", value: a.syncProcess || "", placeholder: "e.g. Regenerated from XAML each release; see docs/design-sync.md",
+    oninput: (e) => { a.syncProcess = e.target.value; markDirty(); } });
+  wrap.append(el("div", { class: "faces", style: "margin-top:10px;grid-template-columns:1fr 1fr;display:grid;gap:12px" },
+    el("div", { class: "editable" }, el("label", {}, "Implementation owner (optional)"), ownerIn),
+    el("div", { class: "editable" }, el("label", {}, "Sync process (optional)"), syncProcIn)));
 
   // Per-area overrides.
   wrap.append(el("div", { class: "muted", style: "margin-top:12px;font-weight:600" }, "Per-area overrides"));
@@ -149,20 +200,45 @@ function renderBrand(t) {
 
 function renderColors(t) {
   const list = colorList(t);
+  const previewOnly = hasPort(t);
+  const section = el("section", { class: "block" }, el("h2", {}, "Color"));
+  section.append(el("div", { class: "muted", style: "margin:-6px 0 12px" },
+    previewOnly
+      ? el("span", {}, "Previewing ", el("strong", {}, THEME_LABEL[state.theme]),
+          " — these hex values are preview-only swatches. Bind each color's ",
+          el("span", { class: "mono" }, "resource"), " key in code, never the raw hex.")
+      : el("span", {}, "Previewing ", el("strong", {}, THEME_LABEL[state.theme]), " theme.")));
   const grid = el("div", { class: "swatches" });
   list.forEach((c, i) => {
-    const colorIn = el("input", { type: "color", value: /^#([0-9a-f]{6})$/i.test(c.value) ? c.value : "#000000",
-      oninput: (e) => { list[i].value = e.target.value; if (Array.isArray(t.colors)) t.colors[i].value = e.target.value; fill.style.background = e.target.value; valEl.textContent = e.target.value; applyVars(); markDirty(); } });
-    const fill = el("div", { class: "chipfill", style: `background:${c.value}` });
-    const valEl = el("span", { class: "val mono" }, c.value);
+    const shown = colorValueForTheme(c, state.theme);
+    const colorIn = el("input", { type: "color", value: /^#([0-9a-f]{6})$/i.test(shown) ? shown : "#000000",
+      oninput: (e) => {
+        setColorValueForTheme(list[i], state.theme, e.target.value);
+        if (Array.isArray(t.colors)) setColorValueForTheme(t.colors[i], state.theme, e.target.value);
+        fill.style.background = e.target.value; valEl.textContent = e.target.value; applyVars(); markDirty();
+      } });
+    const fill = el("div", { class: "chipfill", style: `background:${shown}` });
+    const valEl = el("span", { class: "val mono" }, shown);
+    const themeChips = el("div", { class: "theme-chips" });
+    if (c.themes && typeof c.themes === "object") {
+      for (const th of THEMES) {
+        const v = c.themes[th];
+        if (!v) continue;
+        themeChips.append(el("span", { class: "theme-chip" + (th === state.theme ? " is-active" : ""), title: `${THEME_LABEL[th]}: ${v}` },
+          el("span", { class: "dot", style: `background:${v}` }), th === "highContrast" ? "HC" : THEME_LABEL[th]));
+      }
+    }
     grid.append(el("div", { class: "swatch" }, fill,
       el("div", { class: "meta" },
         el("div", { class: "row" }, el("span", { class: "name" }, c.name), colorIn),
         el("div", { class: "row" }, valEl),
+        c.resource ? el("div", { class: "resource mono", title: "Canonical implementation resource key" }, "→ " + c.resource) : "",
+        themeChips.childNodes.length ? themeChips : "",
         c.usage ? el("div", { class: "usage" }, c.usage) : "",
       )));
   });
-  return el("section", { class: "block" }, el("h2", {}, "Color"), grid);
+  section.append(grid);
+  return section;
 }
 
 function renderTypography(t) {
@@ -246,6 +322,7 @@ async function renderComponents(t, src) {
   const names = exportNames(src);
   const ok = await ensureReact();
 
+  state.componentBuildError = null;
   let comps = null, buildErr = null;
   if (ok) {
     try {
@@ -258,6 +335,7 @@ async function renderComponents(t, src) {
       comps = factory(window.React);
     } catch (e) {
       buildErr = String(e && e.message ? e.message : e);
+      state.componentBuildError = buildErr;
       try { console.error("[colophon] component preview build failed:", e); } catch { /* noop */ }
     }
   }
@@ -404,6 +482,48 @@ function discardProposal() {
   load();
 }
 
+/* ---------- validation ---------- */
+
+function validationPanel() {
+  const v = state.validation;
+  if (!v) return "";
+  const errors = [...(v.errors || [])];
+  const warnings = [...(v.warnings || [])];
+  if (state.componentBuildError) errors.push("components.jsx failed to compile/render in the live preview: " + state.componentBuildError);
+  const ok = errors.length === 0;
+  const bar = el("section", { class: "banner validation " + (ok ? "vok" : "vbad") });
+  bar.append(el("div", { class: "prow" },
+    el("div", {},
+      el("strong", {}, ok ? "✓ Design system valid" : "✗ Validation found issues"),
+      el("span", { class: "muted", style: "margin-left:8px" }, `${errors.length} error(s), ${warnings.length} warning(s)`),
+      state.dirty ? el("span", { class: "muted", style: "margin-left:8px" }, "· validates the saved system — save to include unsaved edits") : "",
+    ),
+    el("div", { class: "pactions" }, el("button", { class: "btn", onclick: () => { state.validation = null; render(); } }, "Dismiss"))));
+  if (errors.length) bar.append(el("ul", { class: "warnlist err" }, ...errors.map((e) => el("li", {}, e))));
+  if (warnings.length) bar.append(el("ul", { class: "warnlist" }, ...warnings.map((w) => el("li", {}, w))));
+  return bar;
+}
+
+async function doValidate() {
+  const btn = $("#validate-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Validating…"; }
+  try {
+    state.validation = await api("/api/validate");
+    await render();
+  } catch (e) { alert("Validate failed: " + e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = "Validate"; } }
+}
+
+/* ---------- theme preview ---------- */
+
+function setTheme(theme) {
+  if (!THEMES.includes(theme)) return;
+  state.theme = theme;
+  for (const b of document.querySelectorAll("#theme-switch .theme-btn")) b.classList.toggle("is-active", b.dataset.theme === theme);
+  applyVars();
+  render();
+}
+
 /* ---------- top-level render ---------- */
 
 async function render() {
@@ -420,6 +540,9 @@ async function render() {
   } else if (state.design.source === "sample") {
     root.append(onboarding());
   }
+
+  const vpanel = validationPanel();
+  if (vpanel) root.append(vpanel);
 
   root.append(renderBrand(t));
   root.append(renderColors(t));
@@ -473,6 +596,10 @@ function connectEvents() {
 window.addEventListener("DOMContentLoaded", () => {
   $("#save-btn").addEventListener("click", doSave);
   $("#reload-btn").addEventListener("click", () => load());
+  $("#validate-btn")?.addEventListener("click", doValidate);
+  for (const b of document.querySelectorAll("#theme-switch .theme-btn")) {
+    b.addEventListener("click", () => setTheme(b.dataset.theme));
+  }
   load().catch((e) => { $("#app").textContent = "Failed to load design system: " + e.message; });
   connectEvents();
 });

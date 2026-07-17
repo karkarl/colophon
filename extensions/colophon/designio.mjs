@@ -185,6 +185,13 @@ function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portO
         "these say what each surface ships as and which reference/skill to port it with):",
       ...portLines(authority, { bullet: "- " }),
     );
+    lines.push(
+      "",
+      "Colors in `design.json` are **preview-only** swatches. When a color has a `resource` (e.g. a WinUI " +
+        "`ThemeResource` key), bind that resource in code — never hard-code the preview hex — so light, dark, " +
+        "and high-contrast themes stay correct. The shipping implementation is canonical; treat `components.jsx` " +
+        "and the token values as derived visual examples, not a parallel upstream source.",
+    );
   }
   lines.push(
     "",
@@ -301,8 +308,17 @@ export async function ensureAgentsPointer(workspacePath) {
 //          implementation (e.g. github.com/microsoft/win-dev-skills).
 //        - helperAgent: an optional skill/agent that performs the port (may be
 //          absent — e.g. Reactor has none yet).
+//        - owner: an optional owner of the canonical shipping implementation for
+//          that surface (who keeps the derived examples aligned).
 //      `port` is the app-wide default; `portOverrides` override it per area or per
-//      component (e.g. a React-style chat surface targeting Reactor).
+//      component (e.g. a React-style chat surface targeting Reactor). The authority
+//      block also carries an app-wide `owner` and a `syncProcess` (how the design
+//      examples stay aligned with the canonical implementation).
+//
+//   When a port target exists the shipping implementation is canonical, so each
+//   color's hex is PREVIEW-ONLY and should map to an implementation `resource` key
+//   (e.g. a WinUI ThemeResource) that agents bind instead of the raw value. Colors
+//   may also carry per-theme preview values under `themes` (light/dark/highContrast).
 //
 // No port/overrides ⇒ the files are both the design and the implementation source
 // of truth (web/JSX repos) — the original behavior. Everything normalizes so a
@@ -313,27 +329,35 @@ function normPortTarget(p) {
   const authoritySource = str(p.authoritySource);
   const syncSource = str(p.syncSource);
   const helperAgent = str(p.helperAgent);
-  if (!authoritySource && !syncSource && !helperAgent) return null;
-  return { authoritySource, syncSource, helperAgent };
+  const owner = str(p.owner);
+  if (!authoritySource && !syncSource && !helperAgent && !owner) return null;
+  return { authoritySource, syncSource, helperAgent, owner };
 }
 
 export function readAuthority(tokens) {
   const a = (tokens && typeof tokens.authority === "object" && tokens.authority) || {};
   const str = (v) => (typeof v === "string" ? v.trim() : "");
   const designSource = str(a.designSource) || "self";
+  // Who owns the canonical (shipping) implementation and the process that keeps the
+  // design-file examples aligned with it. Only meaningful when there's a port target
+  // (native/other implementation is canonical); harmless otherwise.
+  const owner = str(a.owner);
+  const syncProcess = str(a.syncProcess);
 
   const port = normPortTarget(a.port);
   const portOverrides = (Array.isArray(a.portOverrides) ? a.portOverrides : [])
     .map((o) => {
-      const base = normPortTarget(o) || { authoritySource: "", syncSource: "", helperAgent: "" };
+      const base = normPortTarget(o) || { authoritySource: "", syncSource: "", helperAgent: "", owner: "" };
       const components = Array.isArray(o.components) ? o.components.map(str).filter(Boolean) : [];
       return { area: str(o.area), components, ...base };
     })
-    .filter((o) => o.area || o.components.length || o.authoritySource || o.syncSource || o.helperAgent);
+    .filter((o) => o.area || o.components.length || o.authoritySource || o.syncSource || o.helperAgent || o.owner);
 
   return {
     designSource,
     designIsSelf: designSource === "self" || designSource === "",
+    owner,
+    syncProcess,
     hasPort: !!port || portOverrides.length > 0,
     port,
     portOverrides,
@@ -348,7 +372,8 @@ export function portLines(authority, { bullet = "- " } = {}) {
     const ships = t.authoritySource || "(unspecified)";
     const via = t.syncSource ? ` — port via ${t.syncSource}` : " — no sync source set";
     const helper = t.helperAgent ? ` (helper agent: ${t.helperAgent})` : (t.syncSource ? " (no helper agent yet)" : "");
-    return `ships as ${ships}${via}${helper}`;
+    const owner = t.owner ? ` [owner: ${t.owner}]` : "";
+    return `ships as ${ships}${via}${helper}${owner}`;
   };
   if (authority.port) lines.push(`${bullet}Default: ${fmt(authority.port)}`);
   for (const o of authority.portOverrides) {
@@ -356,21 +381,66 @@ export function portLines(authority, { bullet = "- " } = {}) {
       .filter(Boolean).join(", ") || "override";
     lines.push(`${bullet}${scope}: ${fmt(o)}`);
   }
+  if (authority.owner) lines.push(`${bullet}Canonical implementation owner: ${authority.owner}`);
+  if (authority.syncProcess) lines.push(`${bullet}Examples kept aligned via: ${authority.syncProcess}`);
   return lines;
+}
+
+// When there's a port target, the shipping implementation (native/other) is
+// canonical, so the hex/rgba in design.json are PREVIEW-ONLY swatches — agents must
+// bind each color's `resource` key (e.g. a WinUI ThemeResource) rather than the raw
+// value, so light/dark/high-contrast stay correct. With no port, the files are the
+// implementation and the values are canonical.
+export function colorsArePreviewOnly(authorityOrTokens) {
+  const a = authorityOrTokens && "hasPort" in authorityOrTokens
+    ? authorityOrTokens
+    : readAuthority(authorityOrTokens);
+  return !!a.hasPort;
+}
+
+// The known preview themes. A color may carry per-theme preview values under
+// `themes`; missing themes fall back to light/base so the canvas still renders.
+export const THEMES = ["light", "dark", "highContrast"];
+
+// The base (light) preview value of a color, tolerating either a flat `value` or a
+// { themes: { light } } shape.
+export function baseColorValue(color) {
+  if (!color) return "";
+  if (typeof color.value === "string" && color.value) return color.value;
+  const th = color.themes;
+  if (th && typeof th === "object") return th.light || th.dark || th.highContrast || "";
+  return "";
+}
+
+// The PREVIEW value to render for a given theme (never an implementation value —
+// that's the color's `resource`). Falls back light → base when a theme is absent.
+export function colorValueForTheme(color, theme = "light") {
+  const th = color?.themes;
+  if (th && typeof th === "object" && typeof th[theme] === "string" && th[theme]) return th[theme];
+  if (theme !== "light" && th && typeof th.light === "string" && th.light) return th.light;
+  return baseColorValue(color);
 }
 
 export function colorList(tokens) {
   const c = tokens?.colors;
-  if (Array.isArray(c)) return c.map((x) => ({ name: x.name, value: x.value, usage: x.usage || "" }));
-  if (c && typeof c === "object") return Object.entries(c).map(([name, value]) => ({ name, value, usage: "" }));
+  const norm = (name, x) => ({
+    name,
+    value: baseColorValue(x),
+    usage: (x && x.usage) || "",
+    resource: x && typeof x.resource === "string" ? x.resource.trim() : "",
+    themes: x && x.themes && typeof x.themes === "object" ? x.themes : null,
+  });
+  if (Array.isArray(c)) return c.map((x) => norm(x.name, x));
+  if (c && typeof c === "object") return Object.entries(c).map(([name, value]) => norm(name, { value }));
   return [];
 }
 
 // Build the CSS custom properties that both the canvas chrome and the live
 // component previews consume: --color-*, --font-*, --space-*, --radius-*, --shadow-*.
-export function tokensToCssVars(tokens) {
+// `theme` selects which per-theme preview color to emit (default light).
+export function tokensToCssVars(tokens, theme = "light") {
   const lines = [];
-  for (const { name, value } of colorList(tokens)) lines.push(`--color-${name}: ${value};`);
+  for (const c of colorList(tokens)) lines.push(`--color-${c.name}: ${colorValueForTheme(c, theme)};`);
 
   const ty = tokens?.typography || {};
   if (ty.display?.family) lines.push(`--font-display: ${ty.display.family};`);

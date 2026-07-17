@@ -16,6 +16,12 @@ export function renderShell() {
       <h1>Design System</h1>
       <span id="source-pill" class="source-pill">loading…</span>
       <span class="grow"></span>
+      <div id="theme-switch" class="theme-switch" role="group" aria-label="Preview theme">
+        <button class="theme-btn is-active" data-theme="light" title="Light theme preview">Light</button>
+        <button class="theme-btn" data-theme="dark" title="Dark theme preview">Dark</button>
+        <button class="theme-btn" data-theme="highContrast" title="High-contrast theme preview">High&nbsp;contrast</button>
+      </div>
+      <button id="validate-btn" class="btn" title="Validate the design system for drift">Validate</button>
       <button id="reload-btn" class="btn" title="Reload from disk">Reload</button>
       <button id="save-btn" class="btn primary" disabled>Save to repo</button>
     </div>

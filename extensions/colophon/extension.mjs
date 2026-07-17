@@ -19,6 +19,7 @@ import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/exte
 import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, readAuthority, DESIGN_SUBPATH } from "./designio.mjs";
 import { buildSummary, looksLikeUiWork, sessionStartContext, promptContext } from "./context.mjs";
 import { scratchTokens, normalizeTokens, scanCodebase } from "./sources.mjs";
+import { validateTokens, validateComponentsSource, flattenResult } from "./validate.mjs";
 import { renderShell } from "./renderer.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -45,6 +46,17 @@ async function pkgNameFor(workdir) {
     const pkg = JSON.parse(await fs.readFile(path.join(workdir, "package.json"), "utf8"));
     return pkg?.name || null;
   } catch { return null; }
+}
+
+// Validate a loaded design object (falls back to the sample when there's no repo
+// system). Merges the JSON parse error, design.json schema checks, and the
+// components.jsx structural check into one { ok, errors, warnings } result.
+function validateLoaded(design) {
+  return flattenResult({
+    parseError: design.parseError || null,
+    design: validateTokens(design.tokens),
+    components: validateComponentsSource(design.componentsSource || ""),
+  });
 }
 
 // ---- per-instance loopback servers ----------------------------------------
@@ -107,6 +119,11 @@ async function handle(entry, req, res) {
   if (pathname === "/api/design") {
     const design = await loadDesign(entry.workdir);
     return sendJson(res, 200, { design, cssVars: tokensToCssVars(design.tokens) });
+  }
+
+  if (pathname === "/api/validate") {
+    const design = await loadDesign(entry.workdir);
+    return sendJson(res, 200, { source: design.source, parseError: design.parseError || null, ...validateLoaded(design) });
   }
 
   if (pathname === "/api/save" && req.method === "POST") {
@@ -195,7 +212,7 @@ async function startServer(instanceId, workdir) {
 const canvas = createCanvas({
   id: "colophon",
   displayName: "Colophon",
-  description: "View, edit, and live-preview this repo's design system (.agents/design/): brand, color, type, spacing, components.",
+  description: "View, edit, and live-preview this repo's design system (.agents/design/): brand, color, type, spacing, components. Previews Light, Dark, and High-contrast themes and validates the system for drift.",
   inputSchema: { type: "object", properties: { workingDirectory: { type: "string", description: "Repo/working directory whose .agents/design/ to load" } }, additionalProperties: true },
 
   open: async (ctx) => {
@@ -264,6 +281,16 @@ const canvas = createCanvas({
         const entry = servers.get(ctx.instanceId);
         if (entry) broadcast(entry, "changed");
         return { ok: true };
+      },
+    },
+    {
+      name: "validate",
+      description: "Validate this repo's .agents/design/: schema/parse checks on design.json plus a structural check on components.jsx. Returns errors and warnings so drift is caught (e.g. a port target set without resource mappings or an owner). Writes nothing.",
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
+        const design = await loadDesign(workdir);
+        return { source: design.source, ...validateLoaded(design) };
       },
     },
   ],
