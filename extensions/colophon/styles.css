@@ -6,20 +6,35 @@
 
 /* ---------- 1. Canvas chrome ---------- */
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; }
 body {
-  background: var(--background-color-default, #ffffff);
-  color: var(--text-color-default, #1f2328);
+  /* min-height (not height:100%) so the body box spans the full scroll height —
+     otherwise the sticky topbar unsticks after one viewport of scrolling. */
+  min-height: 100vh;
+  /* Page background follows the selected preview theme's app/page background
+     (paper), with matching ink for text. */
+  background: var(--color-paper, #ffffff);
+  color: var(--color-ink, #1f2328);
   font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   font-size: var(--text-body-medium, 14px);
   line-height: var(--leading-body-medium, 20px);
+  /* Route the chrome's neutral tokens through the design system's own colors so
+     the whole inspector — cards, inputs, topbar — reflects light / dark / HC,
+     not just the live previews. These resolve to the active theme because
+     client.js re-injects --color-* per theme. */
+  --background-color-default: var(--color-surface, #ffffff);
+  --border-color-default: var(--color-line, #d0d7de);
+  --border-color-muted: var(--color-line, #f3f4f6);
+  --text-color-default: var(--color-ink, #1f2328);
+  --text-color-muted: var(--color-muted, #656d76);
+  transition: background 160ms ease-out, color 160ms ease-out;
 }
 .wrap { max-width: 960px; margin: 0 auto; padding: 20px 24px 80px; }
 
 .topbar {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 24px; margin: 0 -24px 8px;
+  padding: 12px 24px; margin: 0 0 8px;
   background: var(--background-color-default, #fff);
   border-bottom: 1px solid var(--border-color-default, #d0d7de);
 }
