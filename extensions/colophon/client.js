@@ -484,6 +484,28 @@ function discardProposal() {
 
 /* ---------- validation ---------- */
 
+function checksDescription() {
+  const ported = hasPort(state.tokens);
+  const nodes = [
+    el("p", { class: "vdesc-line" },
+      el("strong", {}, "What this checks: "),
+      "that ", el("code", {}, "design.json"), " parses and defines the core token groups (colors, type, spacing, radii), and that ",
+      el("code", {}, "components.jsx"), " exports patterns with balanced syntax — the authoritative render check runs live here in the canvas."),
+  ];
+  if (ported) {
+    nodes.push(el("p", { class: "vdesc-line" },
+      "A native port is declared, so the shipping implementation — not this preview — is the source of truth. It also requires every color to carry a ",
+      el("code", {}, "resource"), " key and the authority to name an ",
+      el("code", {}, "owner"), " and a ", el("code", {}, "syncProcess"),
+      ". Those are the breadcrumbs that keep the design files and the shipping code from silently drifting apart."));
+  } else {
+    nodes.push(el("p", { class: "vdesc-line muted" },
+      "No port is declared, so the design files are canonical (there is no second copy to drift against) — the drift checks for ",
+      el("code", {}, "resource"), " keys, ", el("code", {}, "owner"), ", and ", el("code", {}, "syncProcess"), " don't apply here."));
+  }
+  return nodes;
+}
+
 function validationPanel() {
   const v = state.validation;
   if (!v) return "";
@@ -491,17 +513,34 @@ function validationPanel() {
   const warnings = [...(v.warnings || [])];
   if (state.componentBuildError) errors.push("components.jsx failed to compile/render in the live preview: " + state.componentBuildError);
   const ok = errors.length === 0;
-  const bar = el("section", { class: "banner validation " + (ok ? "vok" : "vbad") });
+  const bar = el("section", { class: "banner validation " + (ok ? "vok" : "vbad"), role: "status" });
   bar.append(el("div", { class: "prow" },
     el("div", {},
       el("strong", {}, ok ? "✓ Design system valid" : "✗ Validation found issues"),
       el("span", { class: "muted", style: "margin-left:8px" }, `${errors.length} error(s), ${warnings.length} warning(s)`),
       state.dirty ? el("span", { class: "muted", style: "margin-left:8px" }, "· validates the saved system — save to include unsaved edits") : "",
     ),
-    el("div", { class: "pactions" }, el("button", { class: "btn", onclick: () => { state.validation = null; render(); } }, "Dismiss"))));
+    el("div", { class: "pactions" }, el("button", { class: "btn", onclick: () => { state.validation = null; renderValidation(); } }, "Dismiss"))));
+  bar.append(el("div", { class: "vdesc" }, ...checksDescription()));
   if (errors.length) bar.append(el("ul", { class: "warnlist err" }, ...errors.map((e) => el("li", {}, e))));
   if (warnings.length) bar.append(el("ul", { class: "warnlist" }, ...warnings.map((w) => el("li", {}, w))));
   return bar;
+}
+
+// The validation result floats in a fixed bar just below the sticky topbar,
+// so it stays visible while scrolling and doesn't shove the page content down.
+function positionValidationSlot() {
+  const slot = $("#validation-slot");
+  const bar = $(".topbar");
+  if (slot && bar) slot.style.top = (bar.offsetHeight + 8) + "px";
+}
+
+function renderValidation() {
+  const slot = $("#validation-slot");
+  if (!slot) return;
+  slot.textContent = "";
+  const panel = validationPanel();
+  if (panel) { slot.append(panel); positionValidationSlot(); }
 }
 
 async function doValidate() {
@@ -509,7 +548,7 @@ async function doValidate() {
   if (btn) { btn.disabled = true; btn.textContent = "Validating…"; }
   try {
     state.validation = await api("/api/validate");
-    await render();
+    renderValidation();
   } catch (e) { alert("Validate failed: " + e.message); }
   finally { if (btn) { btn.disabled = false; btn.textContent = "Validate"; } }
 }
@@ -541,8 +580,7 @@ async function render() {
     root.append(onboarding());
   }
 
-  const vpanel = validationPanel();
-  if (vpanel) root.append(vpanel);
+  renderValidation();
 
   root.append(renderBrand(t));
   root.append(renderColors(t));
@@ -600,6 +638,7 @@ window.addEventListener("DOMContentLoaded", () => {
   for (const b of document.querySelectorAll("#theme-switch .theme-btn")) {
     b.addEventListener("click", () => setTheme(b.dataset.theme));
   }
+  window.addEventListener("resize", positionValidationSlot);
   load().catch((e) => { $("#app").textContent = "Failed to load design system: " + e.message; });
   connectEvents();
 });

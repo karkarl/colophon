@@ -25,6 +25,7 @@ export function renderShell() {
       <button id="reload-btn" class="btn" title="Reload from disk">Reload</button>
       <button id="save-btn" class="btn primary" disabled>Save to repo</button>
     </div>
+    <div id="validation-slot" aria-live="polite"></div>
     <div class="wrap"><div id="app"></div></div>
     <script src="/client.js"></script>
   </body>
