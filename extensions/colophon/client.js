@@ -63,10 +63,28 @@ function setColorValueForTheme(c, theme, hex) {
   if (theme === "light" && typeof c.value === "string") c.value = hex;
 }
 
-// Does this system have a port target? Then colors are preview-only.
+// A port target only "counts" once it names a source/owner. An all-empty object is
+// normalized away server-side (designio.normPortTarget / readAuthority), so mirror that
+// rule here — otherwise toggling a port on but leaving every field blank would flip the
+// canvas into preview-only mode yet silently drop the port on save.
+function portTargetFilled(p) {
+  if (!p || typeof p !== "object") return false;
+  const s = (v) => (typeof v === "string" ? v.trim() : "");
+  return !!(s(p.authoritySource) || s(p.syncSource) || s(p.helperAgent) || s(p.owner));
+}
+function portOverrideFilled(o) {
+  if (!o || typeof o !== "object") return false;
+  const s = (v) => (typeof v === "string" ? v.trim() : "");
+  const comps = Array.isArray(o.components) && o.components.some(s);
+  return !!(s(o.area) || comps || portTargetFilled(o));
+}
+
+// Does this system have a real port target? Then colors are preview-only.
 function hasPort(t) {
   const a = t?.authority;
-  return !!(a && (a.port || (Array.isArray(a.portOverrides) && a.portOverrides.length)));
+  if (!a || typeof a !== "object") return false;
+  if (portTargetFilled(a.port)) return true;
+  return Array.isArray(a.portOverrides) && a.portOverrides.some(portOverrideFilled);
 }
 
 function cssVarsFromTokens(tokens, theme = "light") {
@@ -135,12 +153,14 @@ function renderAuthority(t) {
   wrap.append(el("div", { class: "muted", style: "margin-top:4px" },
     "These files are the source of truth for design (framework-agnostic). Port targets say what each surface ships as and which reference/skill to port the design with — leave empty for web/JSX repos where these files are also the implementation."));
 
-  // Default port target (app-wide).
-  const hasPort = !!a.port && typeof a.port === "object";
-  const defBody = el("div", { class: "authority-port", style: hasPort ? "" : "display:none" });
-  if (hasPort) defBody.append(...portFields(a.port));
+  // Default port target (app-wide). The checkbox/fields track whether the object
+  // exists so they appear the moment you toggle it on; whether it actually "counts"
+  // as a port (preview-only mode, validation) is decided by hasPort() once filled.
+  const hasDefaultPort = !!a.port && typeof a.port === "object";
+  const defBody = el("div", { class: "authority-port", style: hasDefaultPort ? "" : "display:none" });
+  if (hasDefaultPort) defBody.append(...portFields(a.port));
   const defToggle = el("label", { class: "authority-toggle", style: "margin-top:10px;display:block" },
-    el("input", { type: "checkbox", checked: hasPort ? "checked" : undefined,
+    el("input", { type: "checkbox", checked: hasDefaultPort ? "checked" : undefined,
       onchange: (e) => {
         if (e.target.checked) { a.port = a.port || { authoritySource: "", syncSource: "", helperAgent: "" }; }
         else { a.port = null; }
@@ -585,7 +605,14 @@ function setTheme(theme) {
 
 /* ---------- top-level render ---------- */
 
+// Guards against overlapping async renders: renderComponents() awaits a CDN
+// (React/Babel) fetch on first load, so a theme switch mid-fetch could start a
+// second render and both would append their component section. Only the newest
+// render is allowed to append after its await.
+let renderSeq = 0;
+
 async function render() {
+  const gen = ++renderSeq;
   const t = state.tokens;
   const root = $("#app");
   root.textContent = "";
@@ -607,7 +634,9 @@ async function render() {
   root.append(renderTypography(t));
   root.append(renderScales(t));
   root.append(renderPrinciples(t));
-  root.append(await renderComponents(t, state.design.componentsSource || ""));
+  const components = await renderComponents(t, state.design.componentsSource || "");
+  if (gen !== renderSeq) return; // a newer render superseded this one
+  root.append(components);
 }
 
 async function doInit(mode) {
