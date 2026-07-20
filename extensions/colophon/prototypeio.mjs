@@ -24,7 +24,7 @@ export const NODE_KINDS = ["layout", "component", "text", "image", "spacer"];
 // Header legend re-emitted on every write so the on-disk file is self-documenting.
 const HEADER = `// prototypes.jsonc — click-through prototypes built from this repo's design system.
 // Framework-agnostic scene graph (not shipping code): layout primitives + references to
-// components.jsx by name + navigation as data. Copilot authors/patches this; review it in
+// components.jsonc by name + navigation as data. Copilot authors/patches this; review it in
 // the Prototype canvas. Node kinds: layout | component | text | image | spacer. Every node
 // may carry id, on (interactions), visibleWhen/hiddenWhen. Actions: navigate, back,
 // setState, toggle, openModal, closeModal. This file is regenerated with stable key order
@@ -309,7 +309,7 @@ function applyNodeOp(screen, op) {
 
 // ---- validation ------------------------------------------------------------
 // Structural checks that catch the drift a scene graph is prone to: navigation to a
-// screen that doesn't exist, references to components not in components.jsx, and token
+// screen that doesn't exist, references to components not in components.jsonc, and token
 // names (color/space/radius) that aren't defined. Writes nothing.
 export function validatePrototypes(doc, { componentNames = [], tokenNames = {} } = {}) {
   const errors = [];
@@ -339,7 +339,7 @@ export function validatePrototypes(doc, { componentNames = [], tokenNames = {} }
       const kind = nodeKind(node);
       if (!kind) { errors.push(`Node "${node.id || "?"}" in screen "${screen.id}" has no kind (layout/component/text/image/spacer).`); return; }
       if (kind === "component" && comps.size && !comps.has(node.component)) {
-        errors.push(`Screen "${screen.id}": component "${node.component}" is not defined in components.jsx.`);
+        errors.push(`Screen "${screen.id}": component "${node.component}" is not defined in components.jsonc.`);
       }
       if (node.background && colors.size && !colors.has(node.background)) warnings.push(`Screen "${screen.id}": background token "${node.background}" is not a defined color.`);
       if (node.color && colors.size && !colors.has(node.color)) warnings.push(`Screen "${screen.id}": color token "${node.color}" is not a defined color.`);

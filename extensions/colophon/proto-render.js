@@ -3,10 +3,10 @@
 
    It turns the JSONC scene graph into DOM using the design system's CSS variables
    (--color-*, --space-*, --radius-*, --font-*). Leaf `component` nodes are rendered by
-   instantiating the compiled components.jsx components (React) so previews match the
-   real house style; everything else is plain, deterministic DOM. The scene graph itself
-   is never evaluated — only components.jsx is Babel-compiled, the same trust boundary the
-   Design System canvas already accepts. */
+   expanding the repo's components.jsonc definitions (via window.DSComp, a pure JSON→DOM
+   interpreter — no React or Babel) so previews match the real house style; everything
+   else is plain, deterministic DOM. Nothing here is ever evaluated as code — both the
+   scene graph and the component definitions are pure data. */
 
 (function () {
   const NODE_KINDS = ["layout", "component", "text", "image", "spacer"];
@@ -27,27 +27,17 @@
     return n;
   };
 
-  // ---- component compilation (React + Babel) ------------------------------
-  // Mirrors the Design System canvas: strip exports, force the classic JSX runtime so
-  // it compiles to React.createElement inside a `new Function` body.
-  function exportNames(src) {
-    const names = [];
-    const re = /export\s+(?:default\s+)?(?:function|const|let|var)\s+([A-Za-z0-9_$]+)/g;
-    let m; while ((m = re.exec(src))) names.push(m[1]);
-    return [...new Set(names)];
-  }
-
-  function compileComponents(src) {
-    if (!src || !src.trim()) return { comps: {}, error: null };
-    if (!window.React || !window.Babel) return { comps: {}, error: "React/Babel not loaded" };
+  // ---- component definitions (pure JSON interpreter) ----------------------
+  // components.jsonc is expanded to DOM by window.DSComp (components-render.mjs); this
+  // just captures the doc + the defined names so the interpreter can render `component`
+  // nodes and report unknown references.
+  function prepareComponents(doc) {
+    const DS = window.DSComp;
+    if (!doc || !DS) return { doc: null, names: [], error: DS ? null : "component interpreter not loaded" };
     try {
-      const names = exportNames(src);
-      const stripped = src.replace(/export\s+default\s+/g, "").replace(/export\s+/g, "");
-      const code = window.Babel.transform(stripped, { presets: [["react", { runtime: "classic" }]], filename: "components.jsx" }).code;
-      const factory = new Function("React", `${code}\nreturn {${names.join(",")}};`);
-      return { comps: factory(window.React) || {}, error: null };
+      return { doc, names: DS.componentNames(doc), error: null };
     } catch (e) {
-      return { comps: {}, error: String(e && e.message ? e.message : e) };
+      return { doc: null, names: [], error: String(e && e.message ? e.message : e) };
     }
   }
 
@@ -85,8 +75,8 @@
   }
 
   // ---- runtime ------------------------------------------------------------
-  function createRuntime({ doc, componentsSource }) {
-    const compiled = compileComponents(componentsSource || "");
+  function createRuntime({ doc, componentsDoc }) {
+    const prepared = prepareComponents(componentsDoc || null);
     const state = { ...(doc.state || {}) };
     const screens = doc.screens || [];
     let currentId = screens[0]?.id || null;
@@ -108,9 +98,9 @@
 
     return {
       state,
-      buildError: compiled.error,
-      get componentNames() { return Object.keys(compiled.comps); },
-      comps: compiled.comps,
+      buildError: prepared.error,
+      get componentNames() { return prepared.names.slice(); },
+      componentsDoc: prepared.doc,
       get currentId() { return currentId; },
       setScreen(id) { if (screens.some((s) => s.id === id)) { currentId = id; openModalId = null; onChange(); } },
       get openModalId() { return openModalId; },
@@ -194,17 +184,19 @@
   function renderComponent(node, ctx) {
     const name = node.component;
     const host = el("div", { class: "proto-node proto-component", style: "display:inline-flex;max-width:100%" });
-    const Comp = ctx.comps && ctx.comps[name];
-    if (Comp && window.React && window.ReactDOM) {
+    const DS = window.DSComp;
+    const known = ctx.componentsDoc && ctx.componentNames && ctx.componentNames.includes(name);
+    if (DS && ctx.componentsDoc && known) {
       try {
-        ctx.roots.push({ host, element: window.React.createElement(Comp, node.props || {}) });
+        const dom = DS.renderComponent(ctx.componentsDoc, name, node.props || {});
+        if (dom) host.append(dom);
         return host;
       } catch (e) {
         host.append(el("div", { class: "proto-err" }, `Render error: ${e.message || e}`));
         return host;
       }
     }
-    // Offline / not-found fallback: a labeled tile so the flow is still legible.
+    // Not-found / interpreter-missing fallback: a labeled tile so the flow is still legible.
     const label = node.props && (node.props.children || node.props.title || node.props.label);
     host.append(el("div", { class: "proto-fallback" },
       el("span", { class: "proto-fallback-name" }, name || "component"),
@@ -232,19 +224,12 @@
   }
 
   // Mount any React `component` nodes collected during the DOM build.
-  function mountRoots(ctx) {
-    for (const r of ctx.roots) {
-      try { window.ReactDOM.createRoot(r.host).render(r.element); }
-      catch (e) { r.host.append(el("div", { class: "proto-err" }, `Render error: ${e.message || e}`)); }
-    }
-  }
-
   // Render the runtime's current screen (and any open modal) into `surface`.
   function renderScreen(surface, runtime, tokens) {
     surface.innerHTML = "";
     const screen = runtime.screen();
     if (!screen) { surface.append(el("div", { class: "proto-empty" }, "No screen selected.")); return; }
-    const ctx = { state: runtime.state, comps: runtime.comps, dispatch: (a) => runtime.dispatch(a), type: buildTypeScale(tokens), roots: [] };
+    const ctx = { state: runtime.state, componentsDoc: runtime.componentsDoc, componentNames: runtime.componentNames, dispatch: (a) => runtime.dispatch(a), type: buildTypeScale(tokens) };
 
     const root = renderNode(screen.root, ctx);
     if (root) { root.classList.add("proto-screen-root"); surface.append(root); }
@@ -259,8 +244,7 @@
         surface.append(backdrop);
       }
     }
-    mountRoots(ctx);
   }
 
-  window.ProtoRender = { compileComponents, createRuntime, renderScreen, buildTypeScale, nodeKind };
+  window.ProtoRender = { createRuntime, renderScreen, buildTypeScale, nodeKind };
 })();

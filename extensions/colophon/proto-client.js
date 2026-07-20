@@ -57,17 +57,18 @@ async function api(path, opts) {
   return res.headers.get("content-type")?.includes("json") ? res.json() : res.text();
 }
 
-// ---- React/Babel (for live component nodes), same approach as the design canvas ----
-let reactReady = null;
-function loadScript(src) { return new Promise((ok, no) => { const s = el("script", { src }); s.onload = ok; s.onerror = () => no(new Error("failed " + src)); document.head.append(s); }); }
-async function ensureReact() {
-  if (window.React && window.ReactDOM && window.Babel) return true;
-  if (!reactReady) reactReady = (async () => {
-    await loadScript("https://unpkg.com/react@18/umd/react.production.min.js");
-    await loadScript("https://unpkg.com/react-dom@18/umd/react-dom.production.min.js");
-    await loadScript("https://unpkg.com/@babel/standalone@7/babel.min.js");
-  })();
-  try { await reactReady; return !!(window.React && window.ReactDOM && window.Babel); } catch { return false; }
+// ---- component definitions (rendered by window.DSComp, a pure JSON interpreter) ----
+// No React/Babel needed — the interpreter module (components-render.mjs) is loaded as an
+// ESM <script type="module"> by the shell and sets window.DSComp before the first render.
+// Module scripts are deferred, so briefly wait for it in case a render races module load.
+function whenDSComp(timeoutMs = 3000) {
+  if (window.DSComp) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (window.DSComp || Date.now() - t0 > timeoutMs) { clearInterval(iv); resolve(!!window.DSComp); }
+    }, 15);
+  });
 }
 
 // ---- CSS variables from tokens (mirrors designio.tokensToCssVars, theme-aware) ----
@@ -230,12 +231,12 @@ async function toggleOutline() {
 
 // ---- load ------------------------------------------------------------------
 async function load() {
-  await ensureReact();
   const data = await api("/api/prototypes");
+  await whenDSComp();
   state.design = data.design;
   state.proto = data.proto;
   state.validation = data.validation;
-  state.runtime = ProtoRender.createRuntime({ doc: data.proto.doc, componentsSource: data.design.componentsSource });
+  state.runtime = ProtoRender.createRuntime({ doc: data.proto.doc, componentsDoc: data.design.componentsDoc });
   state.runtime.onChange(() => { renderSurface(); });
   state.runtime.onNavigate(() => { syncScreenSelect(); });
 

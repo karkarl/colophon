@@ -70,8 +70,8 @@ export function buildSummary(design) {
   if (authority.hasPort) {
     lines.push(
       "Authority: these files are the source of truth for DESIGN (tokens, component intent, principles) " +
-      "and are framework-agnostic — components.jsx is design intent for preview, not shipping code. The " +
-      "shipping implementation below is canonical; treat token values and components.jsx as derived examples. " +
+      "and are framework-agnostic — components.jsonc is design intent for preview, not shipping code. The " +
+      "shipping implementation below is canonical; treat token values and components.jsonc as derived examples. " +
       "To ship, port the design into this app's implementation via the port target(s) below:"
     );
     for (const l of portLines(authority, { bullet: "  - " })) lines.push(l);
@@ -117,7 +117,7 @@ export function buildSummary(design) {
   }
 
   if (design.componentsSource) {
-    lines.push(`Component patterns are documented in ${DESIGN_SUBPATH}/components.jsx — match those patterns and class/token names.`);
+    lines.push(`Component patterns are documented in ${DESIGN_SUBPATH}/components.jsonc — match those patterns and class/token names.`);
   }
   if (design.principlesMarkdown) {
     lines.push(`Prose guidance: ${DESIGN_SUBPATH}/principles.md — ${firstLine(design.principlesMarkdown.replace(/^#.*$/m, ""))}`);
@@ -133,14 +133,14 @@ export function sessionStartContext(design) {
     if (authority.hasPort) {
       const targets = portLines(authority, { bullet: "" }).join("; ");
       return [
-        `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}). These files are the source of truth for DESIGN and are framework-agnostic — components.jsx is design intent for preview, not shipping code, and the color hex values are preview-only swatches.`,
-        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
+        `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}). These files are the source of truth for DESIGN and are framework-agnostic — components.jsonc is design intent for preview, not shipping code, and the color hex values are preview-only swatches.`,
+        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
         `You can open the "Colophon" canvas to view/edit it (with Light/Dark/High-contrast preview), or call the colophon tool for a text summary.`,
       ].join(" ");
     }
     return [
       `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
-      `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
+      `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
       `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
     ].join(" ");
   }

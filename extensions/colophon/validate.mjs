@@ -1,16 +1,15 @@
 // validate.mjs — a schema / parse / render smoke-check for .agents/design/*.
 //
 // Two layers, so drift is caught automatically:
-//   validateTokens(tokens)            — parse + structural checks on design.json
-//   validateComponentsSource(src)     — structural checks on components.jsx
-//   validateDesignDir(dir)            — read both from disk and aggregate
+//   validateTokens(tokens)        — parse + structural checks on design.json
+//   validateComponents(src)       — structural checks on components.jsonc
+//   validateDesignDir(dir)        — read both from disk and aggregate
 //
 // The design.json checks are authoritative (JSON parses, required shape present,
-// theme/resource contract honored when a port target is set). The components.jsx
-// check is intentionally lightweight (exports present, delimiters balanced): the
-// *authoritative* render check runs in the canvas, which has React + Babel and
-// surfaces real build/render errors — this Node-side check just catches gross drift
-// where React/Babel aren't available (e.g. CI).
+// theme/resource contract honored when a port target is set). The components.jsonc
+// check verifies valid JSON, that each component has a name + root, that node kinds
+// are known, and that component references resolve — the same doc the canvas renders
+// with a pure interpreter (no React/Babel needed), so what validates here previews there.
 //
 // Run as a CLI to gate CI:  node validate.mjs [path-to/.agents/design]
 // Exits 0 when valid (warnings allowed), 1 on errors or a JSON parse failure.
@@ -19,6 +18,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { colorList, readAuthority, baseColorValue, THEMES } from "./designio.mjs";
+import { validateComponentsDoc, COMPONENTS_FILENAME } from "./componentsio.mjs";
 
 // ---- design.json -----------------------------------------------------------
 export function validateTokens(tokens) {
@@ -83,57 +83,18 @@ export function validateTokens(tokens) {
   return { ok: errors.length === 0, errors, warnings };
 }
 
-// ---- components.jsx --------------------------------------------------------
-function exportNames(src) {
-  const names = [];
-  const re = /export\s+(?:default\s+)?(?:function|const|let|var)\s+([A-Za-z0-9_$]+)/g;
-  let m;
-  while ((m = re.exec(src))) names.push(m[1]);
-  return [...new Set(names)];
-}
-
-// Count a delimiter char while skipping the obvious noise that would cause false
-// positives: line comments, block comments, and single/double/backtick strings.
-function countDelim(src, open, close) {
-  let depthOpen = 0;
-  let depthClose = 0;
-  let i = 0;
-  const n = src.length;
-  let str = null; // current string delimiter, or null
-  while (i < n) {
-    const ch = src[i];
-    const next = src[i + 1];
-    if (str) {
-      if (ch === "\\") { i += 2; continue; }
-      if (ch === str) str = null;
-      i++;
-      continue;
-    }
-    if (ch === "/" && next === "/") { const nl = src.indexOf("\n", i); i = nl < 0 ? n : nl; continue; }
-    if (ch === "/" && next === "*") { const end = src.indexOf("*/", i + 2); i = end < 0 ? n : end + 2; continue; }
-    if (ch === '"' || ch === "'" || ch === "`") { str = ch; i++; continue; }
-    if (ch === open) depthOpen++;
-    else if (ch === close) depthClose++;
-    i++;
+// ---- components.jsonc ------------------------------------------------------
+// Structural check on the component definitions: valid JSON, each component has a
+// name + root, node kinds are known, and component references resolve. The canvas
+// renders the same doc with a pure interpreter (no React/Babel), so what validates
+// here is what previews there.
+export function validateComponents(src) {
+  const text = typeof src === "string" ? src : "";
+  if (!text.trim()) {
+    return { ok: true, errors: [], warnings: ["components.jsonc is empty — no component patterns to preview."], exports: [] };
   }
-  return [depthOpen, depthClose];
-}
-
-export function validateComponentsSource(src) {
-  const errors = [];
-  const warnings = [];
-  const source = typeof src === "string" ? src : "";
-  if (!source.trim()) {
-    warnings.push("components.jsx is empty — no component patterns to preview.");
-    return { ok: true, errors, warnings, exports: [] };
-  }
-  const exports = exportNames(source);
-  if (!exports.length) warnings.push("components.jsx exports no components (nothing will render in the canvas).");
-  for (const [open, close, label] of [["{", "}", "braces"], ["(", ")", "parens"], ["[", "]", "brackets"]]) {
-    const [o, c] = countDelim(source, open, close);
-    if (o !== c) errors.push(`Unbalanced ${label} in components.jsx (${o} "${open}" vs ${c} "${close}") — it will not compile.`);
-  }
-  return { ok: errors.length === 0, errors, warnings, exports };
+  const res = validateComponentsDoc(null, { text });
+  return { ok: res.ok, errors: res.errors, warnings: res.warnings, exports: res.names };
 }
 
 // ---- aggregate over a directory -------------------------------------------
@@ -156,8 +117,8 @@ export async function validateDesignDir(dir) {
   out.design = validateTokens(tokens);
 
   let csrc = "";
-  try { csrc = await fs.readFile(path.join(dir, "components.jsx"), "utf8"); } catch { /* optional */ }
-  out.components = validateComponentsSource(csrc);
+  try { csrc = await fs.readFile(path.join(dir, COMPONENTS_FILENAME), "utf8"); } catch { /* optional */ }
+  out.components = validateComponents(csrc);
 
   out.ok = !out.parseError && out.design.ok && out.components.ok;
   return out;

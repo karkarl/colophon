@@ -304,64 +304,30 @@ function renderPrinciples(t) {
     el("ul", { class: "principles" }, ...t.principles.map((p) => el("li", {}, p))));
 }
 
-/* ---------- component previews (React + Babel) ---------- */
+/* ---------- component previews (pure JSON interpreter, no React/Babel) ---------- */
 
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    const s = el("script", { src }); s.onload = resolve; s.onerror = () => reject(new Error("failed " + src));
-    document.head.append(s);
+// The interpreter (components-render.mjs) loads as a deferred ESM module and sets
+// window.DSComp; briefly wait for it in case a render races the module load.
+function whenDSComp(timeoutMs = 3000) {
+  if (window.DSComp) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (window.DSComp || Date.now() - t0 > timeoutMs) { clearInterval(iv); resolve(!!window.DSComp); }
+    }, 15);
   });
 }
 
-let reactReady = null;
-async function ensureReact() {
-  if (window.React && window.ReactDOM && window.Babel) return true;
-  if (!reactReady) {
-    reactReady = (async () => {
-      await loadScript("https://unpkg.com/react@18/umd/react.production.min.js");
-      await loadScript("https://unpkg.com/react-dom@18/umd/react-dom.production.min.js");
-      // Pin to Babel 7: Babel 8's preset-react defaults runtime to "automatic",
-      // which emits a top-level `import ... from "react/jsx-runtime"` that is illegal
-      // inside the `new Function` body we build below. (We also force classic runtime
-      // explicitly at transform time as a belt-and-suspenders guard.)
-      await loadScript("https://unpkg.com/@babel/standalone@7/babel.min.js");
-    })();
-  }
-  try { await reactReady; return !!(window.React && window.ReactDOM && window.Babel); }
-  catch { return false; }
-}
-
-function exportNames(src) {
-  const names = [];
-  const re = /export\s+(?:default\s+)?(?:function|const|let|var)\s+([A-Za-z0-9_$]+)/g;
-  let m; while ((m = re.exec(src))) names.push(m[1]);
-  return [...new Set(names)];
-}
-
-async function renderComponents(t, src) {
+async function renderComponents(t, doc) {
   const section = el("section", { class: "block" }, el("h2", {}, "Components"));
-  if (!src.trim()) { section.append(el("div", { class: "muted" }, "No components.jsx yet.")); return section; }
-
-  const names = exportNames(src);
-  const ok = await ensureReact();
+  const DS = window.DSComp;
+  const names = DS && doc ? DS.componentNames(doc) : [];
+  if (!doc || !names.length) {
+    section.append(el("div", { class: "muted" }, "No components.jsonc yet."));
+    return section;
+  }
 
   state.componentBuildError = null;
-  let comps = null, buildErr = null;
-  if (ok) {
-    try {
-      const stripped = src.replace(/export\s+default\s+/g, "").replace(/export\s+/g, "");
-      // Force the classic runtime so JSX compiles to React.createElement(...) — the
-      // automatic runtime would emit a top-level jsx-runtime import that can't live
-      // inside a `new Function` body. Works on both Babel 7 and 8.
-      const code = window.Babel.transform(stripped, { presets: [["react", { runtime: "classic" }]], filename: "components.jsx" }).code;
-      const factory = new Function("React", `${code}\nreturn {${names.join(",")}};`);
-      comps = factory(window.React);
-    } catch (e) {
-      buildErr = String(e && e.message ? e.message : e);
-      state.componentBuildError = buildErr;
-      try { console.error("[colophon] component preview build failed:", e); } catch { /* noop */ }
-    }
-  }
 
   for (const name of names) {
     const card = el("div", { class: "preview" });
@@ -371,26 +337,29 @@ async function renderComponents(t, src) {
     stage.append(surface);
     card.append(stage);
 
-    if (comps && comps[name]) {
-      try { window.ReactDOM.createRoot(surface).render(window.React.createElement(comps[name])); }
-      catch (e) { surface.append(el("div", { class: "err" }, "Render error: " + (e.message || e))); }
-    } else {
-      surface.append(el("div", { class: "err" }, ok ? ("Build error: " + (buildErr || "component not found")) : "Live preview needs network access to load React. Source shown below."));
+    try {
+      const dom = DS.renderComponent(doc, name, {});
+      if (dom) surface.append(dom);
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      state.componentBuildError = msg;
+      surface.append(el("div", { class: "err" }, "Render error: " + msg));
     }
-    const blockSrc = sliceComponent(src, name);
-    card.append(el("details", { class: "src" }, el("summary", {}, "Source"), el("pre", { class: "mono" }, el("code", {}, blockSrc))));
+
+    card.append(el("details", { class: "src" },
+      el("summary", {}, "Definition"),
+      el("pre", { class: "mono" }, el("code", {}, componentDefJson(doc, name)))));
     section.append(card);
   }
   return section;
 }
 
-function sliceComponent(src, name) {
-  const idx = src.search(new RegExp(`(export\\s+)?(function|const|let|var)\\s+${name}\\b`));
-  if (idx < 0) return src;
-  // Grab from the declaration to the next top-level export/function or EOF.
-  const after = src.slice(idx);
-  const next = after.slice(1).search(/\n(export\s+)?(function|const)\s/);
-  return (next < 0 ? after : after.slice(0, next + 1)).trim();
+// Pretty-print just one component's JSON definition for the collapsible source view.
+function componentDefJson(doc, name) {
+  const list = (doc && Array.isArray(doc.components)) ? doc.components : [];
+  const one = list.find((c) => c && c.name === name);
+  try { return JSON.stringify(one ?? {}, null, 2); }
+  catch { return ""; }
 }
 
 /* ---------- onboarding + proposal ---------- */
@@ -526,7 +495,7 @@ function checksDescription() {
     el("p", { class: "vdesc-line" },
       el("strong", {}, "What this checks: "),
       "that ", el("code", {}, "design.json"), " parses and defines the core token groups (colors, type, spacing, radii), and that ",
-      el("code", {}, "components.jsx"), " exports patterns with balanced syntax — the authoritative render check runs live here in the canvas."),
+      el("code", {}, "components.jsonc"), " is valid JSON where every component has a root and all component references resolve — the same definitions rendered live here in the canvas."),
   ];
   if (ported) {
     nodes.push(el("p", { class: "vdesc-line" },
@@ -547,7 +516,7 @@ function validationPanel() {
   if (!v) return "";
   const errors = [...(v.errors || [])];
   const warnings = [...(v.warnings || [])];
-  if (state.componentBuildError) errors.push("components.jsx failed to compile/render in the live preview: " + state.componentBuildError);
+  if (state.componentBuildError) errors.push("components.jsonc failed to render in the live preview: " + state.componentBuildError);
   const ok = errors.length === 0;
   const bar = el("section", { class: "banner validation " + (ok ? "vok" : "vbad"), role: "status" });
   bar.append(el("div", { class: "prow" },
@@ -605,10 +574,9 @@ function setTheme(theme) {
 
 /* ---------- top-level render ---------- */
 
-// Guards against overlapping async renders: renderComponents() awaits a CDN
-// (React/Babel) fetch on first load, so a theme switch mid-fetch could start a
-// second render and both would append their component section. Only the newest
-// render is allowed to append after its await.
+// Guards against overlapping async renders: render() is async (it may await other
+// work), so a theme switch mid-render could start a second pass and both would append
+// their component section. Only the newest render is allowed to append after its await.
 let renderSeq = 0;
 
 async function render() {
@@ -634,7 +602,7 @@ async function render() {
   root.append(renderTypography(t));
   root.append(renderScales(t));
   root.append(renderPrinciples(t));
-  const components = await renderComponents(t, state.design.componentsSource || "");
+  const components = await renderComponents(t, state.design.componentsDoc || null);
   if (gen !== renderSeq) return; // a newer render superseded this one
   root.append(components);
 }
@@ -664,6 +632,7 @@ function updateSourcePill() {
 
 async function load() {
   const data = await api("/api/design");
+  await whenDSComp();
   state.design = data.design;
   state.tokens = JSON.parse(JSON.stringify(data.design.tokens || {}));
   state.dirty = false;

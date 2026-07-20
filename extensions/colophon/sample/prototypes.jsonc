@@ -3,12 +3,12 @@
 // This is a framework-agnostic *scene graph*, not shipping code. Copilot authors and
 // patches it from conversation; designers/devs review it here (or visually in the
 // Prototype canvas). It ports cleanly to web / WinUI / SwiftUI because nodes are
-// semantic — layout primitives + references to components.jsx by name + navigation as
+// semantic — layout primitives + references to components.jsonc by name + navigation as
 // data — never absolute-positioned pixels and never executable JS.
 //
 // Node kinds (one discriminator key each):
 //   layout    { "layout": "stack" | "row" | "grid" | "scroll", ...container props, "children": [] }
-//   component { "component": "Button", "props": { ... } }   // name must exist in components.jsx
+//   component { "component": "Button", "props": { ... } }   // name must exist in components.jsonc
 //   text      { "text": "Hello", "style": "title" }         // style = a typography scale role
 //   image     { "image": "<url|placeholder>", "alt": "..." }
 //   spacer    { "spacer": true, "size": "4" }               // size = a spacing scale name

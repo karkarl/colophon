@@ -27,6 +27,7 @@ export function renderShell() {
     </div>
     <div id="validation-slot" aria-live="polite"></div>
     <div class="wrap"><div id="app"></div></div>
+    <script type="module" src="/components-render.mjs"></script>
     <script src="/client.js"></script>
   </body>
 </html>`;

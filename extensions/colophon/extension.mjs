@@ -19,12 +19,13 @@ import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/exte
 import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, readAuthority, colorList, DESIGN_SUBPATH } from "./designio.mjs";
 import { buildSummary, looksLikeUiWork, sessionStartContext, promptContext } from "./context.mjs";
 import { scratchTokens, normalizeTokens, scanCodebase } from "./sources.mjs";
-import { validateTokens, validateComponentsSource, flattenResult } from "./validate.mjs";
+import { validateTokens, validateComponents, flattenResult } from "./validate.mjs";
 import { renderShell } from "./renderer.mjs";
 import { renderProtoShell } from "./proto-renderer.mjs";
 import { loadPrototypes, savePrototypes, applyOps, validatePrototypes, findScreen, PROTO_SUBPATH } from "./prototypeio.mjs";
 import { buildOutline } from "./proto-outline.mjs";
 import { codegenScreen } from "./protocodegen.mjs";
+import { componentNames, COMPONENTS_FILENAME } from "./componentsio.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 let sessionRef = null;
@@ -54,23 +55,25 @@ async function pkgNameFor(workdir) {
 
 // Validate a loaded design object (falls back to the sample when there's no repo
 // system). Merges the JSON parse error, design.json schema checks, and the
-// components.jsx structural check into one { ok, errors, warnings } result.
+// components.jsonc structural check into one { ok, errors, warnings } result.
 function validateLoaded(design) {
   return flattenResult({
     parseError: design.parseError || null,
     design: validateTokens(design.tokens),
-    components: validateComponentsSource(design.componentsSource || ""),
+    components: validateComponents(design.componentsSource || ""),
   });
 }
 
-// Extract the component names exported by components.jsx (top-level function/const
-// declarations with a Capitalized name) so prototype validation can flag references to
-// components that don't exist.
-function componentNamesFrom(source) {
+// The component names defined by components.jsonc, so prototype validation can flag
+// references to components that don't exist. Falls back to a source scan only for a
+// legacy components.jsx doc (format "jsx", no parsed doc).
+function componentNamesFrom(design) {
+  if (design && design.componentsDoc) return componentNames(design.componentsDoc);
+  const source = (design && design.componentsSource) || "";
   const names = new Set();
   const re = /(?:export\s+)?(?:function|const)\s+([A-Z]\w*)/g;
   let m;
-  while ((m = re.exec(source || ""))) names.add(m[1]);
+  while ((m = re.exec(source))) names.add(m[1]);
   return [...names];
 }
 
@@ -89,7 +92,7 @@ async function loadProtoBundle(workdir) {
   const design = await loadDesign(workdir);
   const proto = await loadPrototypes(workdir);
   const validation = validatePrototypes(proto.doc, {
-    componentNames: componentNamesFrom(design.componentsSource || ""),
+    componentNames: componentNamesFrom(design),
     tokenNames: tokenNamesFrom(design.tokens),
   });
   return { design, proto, validation };
@@ -101,6 +104,8 @@ const servers = new Map(); // instanceId -> { server, url, workdir, sse:Set, wat
 const STATIC = {
   "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "/client.js": { file: "client.js", type: "text/javascript; charset=utf-8" },
+  "/componentsio.mjs": { file: "componentsio.mjs", type: "text/javascript; charset=utf-8" },
+  "/components-render.mjs": { file: "components-render.mjs", type: "text/javascript; charset=utf-8" },
   "/proto.css": { file: "proto.css", type: "text/css; charset=utf-8" },
   "/proto-client.js": { file: "proto-client.js", type: "text/javascript; charset=utf-8" },
   "/proto-render.js": { file: "proto-render.js", type: "text/javascript; charset=utf-8" },
@@ -224,7 +229,7 @@ async function handle(entry, req, res) {
   if (pathname === "/api/prototypes") {
     const { design, proto, validation } = await loadProtoBundle(entry.workdir);
     return sendJson(res, 200, {
-      design: { tokens: design.tokens, componentsSource: design.componentsSource || "", source: design.source },
+      design: { tokens: design.tokens, componentsSource: design.componentsSource || "", componentsDoc: design.componentsDoc || null, componentsFormat: design.componentsFormat || null, source: design.source },
       proto: { source: proto.source, doc: proto.doc, parseError: proto.parseError || null },
       validation,
     });
@@ -374,7 +379,7 @@ const canvas = createCanvas({
     },
     {
       name: "validate",
-      description: "Validate this repo's .agents/design/: schema/parse checks on design.json plus a structural check on components.jsx. Returns errors and warnings so drift is caught (e.g. a port target set without resource mappings or an owner). Writes nothing.",
+      description: "Validate this repo's .agents/design/: schema/parse checks on design.json plus a structural check on components.jsonc. Returns errors and warnings so drift is caught (e.g. a port target set without resource mappings or an owner). Writes nothing.",
       handler: async (ctx) => {
         const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
         setWorkdir(workdir);
@@ -556,7 +561,7 @@ const designTool = {
       ? " Ensured an AGENTS.md pointer so any agent loads this system before UI work."
       : "";
     const repoHeader = authority.hasPort
-      ? `Design system loaded from ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's implementation via the configured port target(s); don't ship components.jsx verbatim.${seededNote}`
+      ? `Design system loaded from ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's implementation via the configured port target(s); don't ship components.jsonc verbatim.${seededNote}`
       : `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.${seededNote}`;
     const header = design.source === "repo"
       ? repoHeader
@@ -565,7 +570,7 @@ const designTool = {
       source: design.source,
       dir: design.dir,
       seeded,
-      componentsPath: design.source === "repo" ? path.join(design.dir, "components.jsx") : null,
+      componentsPath: design.source === "repo" ? path.join(design.dir, COMPONENTS_FILENAME) : null,
       instructions: header,
       designSystem: summary,
     };
@@ -576,7 +581,7 @@ const designTool = {
 const protoTool = {
   name: "prototype",
   description:
-    "Author and inspect click-through UI prototypes for this repo, built from its design system (.agents/design/prototypes.jsonc). Use this to turn a described flow into screens the team can click through in the Prototype canvas, then convert a screen to code. The scene graph is framework-agnostic data (layout primitives + references to components.jsx by name + navigation as data) — never shipping code. Actions: 'read' (Markdown flow outline), 'validate' (dangling nav / unknown components or tokens), 'patch' (surgical ops), 'codegen' (one screen to code for the port target).",
+    "Author and inspect click-through UI prototypes for this repo, built from its design system (.agents/design/prototypes.jsonc). Use this to turn a described flow into screens the team can click through in the Prototype canvas, then convert a screen to code. The scene graph is framework-agnostic data (layout primitives + references to components.jsonc by name + navigation as data) — never shipping code. Actions: 'read' (Markdown flow outline), 'validate' (dangling nav / unknown components or tokens), 'patch' (surgical ops), 'codegen' (one screen to code for the port target).",
   inputSchema: {
     type: "object",
     properties: {

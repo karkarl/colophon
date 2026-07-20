@@ -54,6 +54,7 @@ export function renderProtoShell() {
     <div id="outline-slot"></div>
     <div class="stage"><div id="frame-wrap" class="frame-wrap"></div></div>
 
+    <script type="module" src="/components-render.mjs"></script>
     <script src="/proto-render.js"></script>
     <script src="/proto-client.js"></script>
   </body>
