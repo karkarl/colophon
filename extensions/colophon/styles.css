@@ -122,8 +122,25 @@ button.btn:disabled { opacity: .5; cursor: default; }
 .warnlist.err { color: var(--true-color-red, #cf222e); }
 
 /* onboarding */
-.onboard { margin: 8px 0 22px; }
+.onboard {
+  margin: 8px 0 22px;
+  border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px;
+  background: var(--background-color-default, #fff); overflow: hidden;
+}
+.onboard > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px;
+}
+.onboard > summary::-webkit-details-marker { display: none; }
+.onboard > summary:hover { background: var(--border-color-muted, #f3f4f6); }
+.onboard > summary:focus-visible { outline: 2px solid var(--true-color-blue, #0969da); outline-offset: -2px; }
+.onboard .chev {
+  flex: none; margin-top: 2px; font-size: 12px; line-height: 18px;
+  color: var(--text-color-muted, #656d76); transition: transform 160ms ease-out;
+}
+.onboard[open] .chev { transform: rotate(90deg); }
 .onboard-head h2 { font-size: 16px; margin: 0 0 4px; }
+.onboard-body { padding: 0 16px 16px; }
 .onboard-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
 .ocard {
   border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px;

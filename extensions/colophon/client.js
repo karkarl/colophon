@@ -373,11 +373,23 @@ function sliceComponent(src, name) {
 /* ---------- onboarding + proposal ---------- */
 
 function onboarding() {
-  const wrap = el("section", { class: "onboard" });
-  wrap.append(el("div", { class: "onboard-head" },
-    el("h2", {}, "Set up a design system"),
-    el("div", { class: "muted" }, "This repo has no ", el("span", { class: "mono" }, ".agents/design/"), " yet. Choose how to start — you can refine everything in the canvas afterward."),
-    el("div", { class: "muted", style: "margin-top:4px" }, "Seeding also adds an ", el("span", { class: "mono" }, "AGENTS.md"), " pointer so every agent reads the system before UI work.")));
+  // Collapsible: once you've seen the setup options you rarely need them again,
+  // and this block only shows pre-setup (source === "sample"). Remember the
+  // open/closed choice best-effort; default open so first-run is guided.
+  let open = true;
+  try { const s = localStorage.getItem("colophon.onboardOpen"); if (s !== null) open = s === "1"; } catch { /* no storage */ }
+
+  const wrap = el("details", open ? { class: "onboard", open: "" } : { class: "onboard" });
+  wrap.addEventListener("toggle", () => { try { localStorage.setItem("colophon.onboardOpen", wrap.open ? "1" : "0"); } catch { /* no storage */ } });
+
+  wrap.append(el("summary", { class: "onboard-summary" },
+    el("span", { class: "chev", "aria-hidden": "true" }, "▸"),
+    el("div", { class: "onboard-head" },
+      el("h2", {}, "Set up a design system"),
+      el("div", { class: "muted" }, "This repo has no ", el("span", { class: "mono" }, ".agents/design/"), " yet — the starter below is a preview. Choose how to start; refine everything in the canvas afterward."))));
+
+  const body = el("div", { class: "onboard-body" });
+  body.append(el("div", { class: "muted" }, "Seeding also adds an ", el("span", { class: "mono" }, "AGENTS.md"), " pointer so every agent reads the system before UI work."));
 
   const cards = el("div", { class: "onboard-cards" });
 
@@ -409,7 +421,8 @@ function onboarding() {
     el("div", { class: "orow" }, scanBtn),
   ));
 
-  wrap.append(cards);
+  body.append(cards);
+  wrap.append(body);
   return wrap;
 }
 
