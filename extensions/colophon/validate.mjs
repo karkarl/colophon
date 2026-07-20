@@ -58,15 +58,19 @@ export function validateTokens(tokens) {
   // must be named so the derived examples stay aligned.
   const authority = readAuthority(tokens);
   if (authority.hasPort) {
+    // These three are the drift contract: when the shipping implementation is
+    // canonical, agents must be told how to bind the real resource, who owns it,
+    // and how the preview stays aligned. Missing any of them lets design and code
+    // drift silently, so they are errors (non-zero exit) — not advisories.
     const missing = colors.filter((c) => !c.resource).map((c) => c.name);
     if (missing.length) {
-      warnings.push(
+      errors.push(
         `A port target is set (shipping implementation is canonical), but ${missing.length} color(s) have no ` +
           `\`resource\` mapping, so agents only have preview hex to bind: ${missing.join(", ")}.`,
       );
     }
-    if (!authority.owner) warnings.push("A port target is set but authority.owner does not name who owns the canonical implementation.");
-    if (!authority.syncProcess) warnings.push("A port target is set but authority.syncProcess does not describe how the examples stay aligned.");
+    if (!authority.owner) errors.push("A port target is set but authority.owner does not name who owns the canonical implementation.");
+    if (!authority.syncProcess) errors.push("A port target is set but authority.syncProcess does not describe how the examples stay aligned.");
     if (authority.port && !authority.port.syncSource) warnings.push("The default port target has no syncSource (reference/skill to port design → code).");
     for (const o of authority.portOverrides) {
       if (!o.syncSource) {

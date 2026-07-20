@@ -58,6 +58,9 @@ function setColorValueForTheme(c, theme, hex) {
   c.themes = (c.themes && typeof c.themes === "object") ? c.themes : {};
   if (theme === "light" && typeof c.value === "string" && !c.themes.light) c.themes.light = c.value;
   c.themes[theme] = hex;
+  // Keep the canonical `value` aligned with themes.light so readers that prefer
+  // `value` (baseColorValue, summaries, validation) don't report a stale hex.
+  if (theme === "light" && typeof c.value === "string") c.value = hex;
 }
 
 // Does this system have a port target? Then colors are preview-only.
@@ -571,7 +574,11 @@ async function doValidate() {
 function setTheme(theme) {
   if (!THEMES.includes(theme)) return;
   state.theme = theme;
-  for (const b of document.querySelectorAll("#theme-switch .theme-btn")) b.classList.toggle("is-active", b.dataset.theme === theme);
+  for (const b of document.querySelectorAll("#theme-switch .theme-btn")) {
+    const active = b.dataset.theme === theme;
+    b.classList.toggle("is-active", active);
+    b.setAttribute("aria-pressed", active ? "true" : "false");
+  }
   applyVars();
   render();
 }
