@@ -16,11 +16,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, readAuthority, DESIGN_SUBPATH } from "./designio.mjs";
+import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, readAuthority, colorList, DESIGN_SUBPATH } from "./designio.mjs";
 import { buildSummary, looksLikeUiWork, sessionStartContext, promptContext } from "./context.mjs";
 import { scratchTokens, normalizeTokens, scanCodebase } from "./sources.mjs";
 import { validateTokens, validateComponentsSource, flattenResult } from "./validate.mjs";
 import { renderShell } from "./renderer.mjs";
+import { renderProtoShell } from "./proto-renderer.mjs";
+import { loadPrototypes, savePrototypes, applyOps, validatePrototypes, findScreen, PROTO_SUBPATH } from "./prototypeio.mjs";
+import { buildOutline } from "./proto-outline.mjs";
+import { codegenScreen } from "./protocodegen.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 let sessionRef = null;
@@ -59,12 +63,47 @@ function validateLoaded(design) {
   });
 }
 
+// Extract the component names exported by components.jsx (top-level function/const
+// declarations with a Capitalized name) so prototype validation can flag references to
+// components that don't exist.
+function componentNamesFrom(source) {
+  const names = new Set();
+  const re = /(?:export\s+)?(?:function|const)\s+([A-Z]\w*)/g;
+  let m;
+  while ((m = re.exec(source || ""))) names.add(m[1]);
+  return [...names];
+}
+
+// The defined token names a prototype may reference, used by validatePrototypes.
+function tokenNamesFrom(tokens) {
+  return {
+    colors: colorList(tokens).map((c) => c.name),
+    spacing: (tokens?.spacing?.scale || []).map((s) => String(s.name)),
+    radii: (tokens?.radii || []).map((r) => r.name),
+  };
+}
+
+// Load the design + prototypes together and validate the scene graph against the
+// design's components/tokens. Shared by the canvas route, the actions, and the tool.
+async function loadProtoBundle(workdir) {
+  const design = await loadDesign(workdir);
+  const proto = await loadPrototypes(workdir);
+  const validation = validatePrototypes(proto.doc, {
+    componentNames: componentNamesFrom(design.componentsSource || ""),
+    tokenNames: tokenNamesFrom(design.tokens),
+  });
+  return { design, proto, validation };
+}
+
 // ---- per-instance loopback servers ----------------------------------------
 const servers = new Map(); // instanceId -> { server, url, workdir, sse:Set, watcher }
 
 const STATIC = {
   "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "/client.js": { file: "client.js", type: "text/javascript; charset=utf-8" },
+  "/proto.css": { file: "proto.css", type: "text/css; charset=utf-8" },
+  "/proto-client.js": { file: "proto-client.js", type: "text/javascript; charset=utf-8" },
+  "/proto-render.js": { file: "proto-render.js", type: "text/javascript; charset=utf-8" },
 };
 
 async function readBody(req) {
@@ -102,7 +141,7 @@ async function handle(entry, req, res) {
   const pathname = url.pathname;
 
   if (pathname === "/" || pathname === "/index.html") {
-    const html = renderShell();
+    const html = entry.kind === "prototype" ? renderProtoShell() : renderShell();
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     return res.end(html);
   }
@@ -181,6 +220,56 @@ async function handle(entry, req, res) {
     } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
   }
 
+  // ---- prototype canvas routes ---------------------------------------------
+  if (pathname === "/api/prototypes") {
+    const { design, proto, validation } = await loadProtoBundle(entry.workdir);
+    return sendJson(res, 200, {
+      design: { tokens: design.tokens, componentsSource: design.componentsSource || "", source: design.source },
+      proto: { source: proto.source, doc: proto.doc, parseError: proto.parseError || null },
+      validation,
+    });
+  }
+
+  if (pathname === "/api/prototypes/outline") {
+    const proto = await loadPrototypes(entry.workdir);
+    return sendJson(res, 200, { markdown: buildOutline(proto.doc, { title: "Prototype" }) });
+  }
+
+  if (pathname === "/api/prototypes/save" && req.method === "POST") {
+    try {
+      const { doc } = await readBody(req);
+      const out = await savePrototypes(entry.workdir, doc);
+      if (!entry.watcher) watchDesign(entry);
+      broadcast(entry, "changed");
+      log(`Saved prototypes to ${out.path}`);
+      return sendJson(res, 200, { ok: true, path: out.path });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/prototypes/patch" && req.method === "POST") {
+    try {
+      const { ops } = await readBody(req);
+      const current = await loadPrototypes(entry.workdir);
+      const { doc, applied, errors } = applyOps(current.doc, Array.isArray(ops) ? ops : []);
+      if (errors.length) return sendJson(res, 400, { error: errors.join("; "), applied });
+      const out = await savePrototypes(entry.workdir, doc);
+      if (!entry.watcher) watchDesign(entry);
+      broadcast(entry, "changed");
+      log(`Patched prototypes (${applied} op(s)) at ${out.path}`);
+      return sendJson(res, 200, { ok: true, applied, path: out.path });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/prototypes/codegen" && req.method === "POST") {
+    try {
+      const { screenId } = await readBody(req);
+      const design = await loadDesign(entry.workdir);
+      const proto = await loadPrototypes(entry.workdir);
+      const out = codegenScreen(proto.doc, screenId, design.tokens);
+      return sendJson(res, 200, { ok: true, ...out });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
   if (pathname === "/events") {
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
     res.write("event: ready\ndata: {}\n\n");
@@ -193,8 +282,8 @@ async function handle(entry, req, res) {
   res.end("not found");
 }
 
-async function startServer(instanceId, workdir) {
-  const entry = { workdir, sse: new Set(), watcher: null };
+async function startServer(instanceId, workdir, kind = "design") {
+  const entry = { workdir, kind, sse: new Set(), watcher: null };
   const server = createServer((req, res) => {
     handle(entry, req, res).catch((err) => {
       log(`request error: ${err.message || err}`, "error");
@@ -305,6 +394,121 @@ const canvas = createCanvas({
   },
 });
 
+// Shared teardown for both canvases' loopback servers.
+async function closeInstance(instanceId) {
+  const entry = servers.get(instanceId);
+  if (!entry) return;
+  servers.delete(instanceId);
+  try { entry.watcher?.close?.(); } catch { /* noop */ }
+  for (const res of entry.sse) { try { res.end(); } catch { /* noop */ } }
+  await new Promise((r) => entry.server.close(() => r()));
+}
+
+// ---- prototype canvas ------------------------------------------------------
+// A second canvas in the same extension: a device-framed, click-through preview of the
+// prototypes.jsonc scene graph, rendered with the repo's own design tokens + components.
+const protoCanvas = createCanvas({
+  id: "prototype",
+  displayName: "Prototype",
+  description: "Device-framed, click-through prototypes generated from this repo's design system (.agents/design/prototypes.jsonc). Pick web/desktop/mobile/tablet frames, navigate between screens, and convert a screen to code for the configured port target.",
+  inputSchema: { type: "object", properties: { workingDirectory: { type: "string", description: "Repo/working directory whose .agents/design/prototypes.jsonc to load" } }, additionalProperties: true },
+
+  open: async (ctx) => {
+    const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+    setWorkdir(workdir);
+    let entry = servers.get(ctx.instanceId);
+    if (!entry) {
+      entry = await startServer(ctx.instanceId, workdir, "prototype");
+      servers.set(ctx.instanceId, entry);
+    } else if (workdir && entry.workdir !== workdir) {
+      entry.workdir = workdir;
+    }
+    const proto = await loadPrototypes(entry.workdir);
+    const count = proto.doc.screens?.length || 0;
+    return {
+      title: `Prototype — ${count} screen${count === 1 ? "" : "s"}`,
+      status: proto.source === "repo" ? ".agents/design/prototypes.jsonc" : "sample (unsaved)",
+      url: entry.url,
+    };
+  },
+
+  actions: [
+    {
+      name: "read",
+      description: "Return the current prototypes as a Markdown flow outline (screens, nodes, navigation) the agent can follow without parsing JSON.",
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
+        const proto = await loadPrototypes(workdir);
+        return { source: proto.source, outline: buildOutline(proto.doc, { title: "Prototype" }) };
+      },
+    },
+    {
+      name: "patch",
+      description: "Apply surgical scene-graph ops (setState/setMeta/upsertScreen/deleteScreen/setNode/patchNode/deleteNode/insertNode/setNav) to prototypes.jsonc and save. Prefer this over rewriting the whole file so diffs stay small.",
+      inputSchema: { type: "object", properties: { ops: { type: "array", items: { type: "object" }, description: "Ordered list of scene-graph ops." }, workingDirectory: { type: "string" } }, required: ["ops"], additionalProperties: false },
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
+        try {
+          const current = await loadPrototypes(workdir);
+          const { doc, applied, errors } = applyOps(current.doc, ctx.input?.ops || []);
+          if (errors.length) throw new CanvasError("patch_failed", errors.join("; "));
+          const out = await savePrototypes(workdir, doc);
+          const entry = servers.get(ctx.instanceId);
+          if (entry) { entry.workdir = workdir; if (!entry.watcher) watchDesign(entry); broadcast(entry, "changed"); }
+          return { ok: true, applied, path: out.path };
+        } catch (err) { if (err instanceof CanvasError) throw err; throw new CanvasError("patch_failed", String(err.message || err)); }
+      },
+    },
+    {
+      name: "outline",
+      description: "Return the Markdown flow outline of all screens and navigation (same as 'read').",
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
+        const proto = await loadPrototypes(workdir);
+        return { markdown: buildOutline(proto.doc, { title: "Prototype" }) };
+      },
+    },
+    {
+      name: "codegen",
+      description: "Convert one screen to code for the repo's configured port target (React when the design is the source; a native hand-off scaffold + notes when a port target is set).",
+      inputSchema: { type: "object", properties: { screenId: { type: "string" }, workingDirectory: { type: "string" } }, required: ["screenId"], additionalProperties: false },
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
+        try {
+          const design = await loadDesign(workdir);
+          const proto = await loadPrototypes(workdir);
+          return codegenScreen(proto.doc, ctx.input?.screenId, design.tokens);
+        } catch (err) { throw new CanvasError("codegen_failed", String(err.message || err)); }
+      },
+    },
+    {
+      name: "validate",
+      description: "Validate prototypes.jsonc against the design system: dangling navigation targets, unknown component references, unknown token references. Writes nothing.",
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
+        const { proto, validation } = await loadProtoBundle(workdir);
+        return { source: proto.source, parseError: proto.parseError || null, ...validation };
+      },
+    },
+    {
+      name: "refresh",
+      description: "Tell the open prototype canvas to reload from disk.",
+      handler: async (ctx) => {
+        const entry = servers.get(ctx.instanceId);
+        if (entry) broadcast(entry, "changed");
+        return { ok: true };
+      },
+    },
+  ],
+
+  onClose: async (ctx) => { await closeInstance(ctx.instanceId); },
+});
+
 // ---- tool: hand the design system to the agent as text ---------------------
 const designTool = {
   name: "colophon",
@@ -368,6 +572,54 @@ const designTool = {
   },
 };
 
+// ---- tool: let the agent author/read/convert prototypes --------------------
+const protoTool = {
+  name: "prototype",
+  description:
+    "Author and inspect click-through UI prototypes for this repo, built from its design system (.agents/design/prototypes.jsonc). Use this to turn a described flow into screens the team can click through in the Prototype canvas, then convert a screen to code. The scene graph is framework-agnostic data (layout primitives + references to components.jsx by name + navigation as data) — never shipping code. Actions: 'read' (Markdown flow outline), 'validate' (dangling nav / unknown components or tokens), 'patch' (surgical ops), 'codegen' (one screen to code for the port target).",
+  inputSchema: {
+    type: "object",
+    properties: {
+      action: { type: "string", enum: ["read", "validate", "patch", "codegen"], description: "read (default): flow outline. validate: check the graph. patch: apply ops + save. codegen: convert a screen." },
+      ops: { type: "array", items: { type: "object" }, description: "For action=patch: ordered scene-graph ops (setState/setMeta/upsertScreen/deleteScreen/setNode/patchNode/deleteNode/insertNode/setNav)." },
+      screenId: { type: "string", description: "For action=codegen: the screen id to convert." },
+      workingDirectory: { type: "string", description: "Repo/working directory. Defaults to this session's repo." },
+    },
+    additionalProperties: false,
+  },
+  handler: async (input) => {
+    const workdir = input?.workingDirectory || sessionWorkdir;
+    const action = input?.action || "read";
+    if (action === "patch") {
+      const current = await loadPrototypes(workdir);
+      const { doc, applied, errors } = applyOps(current.doc, Array.isArray(input?.ops) ? input.ops : []);
+      if (errors.length) return { ok: false, applied, errors };
+      const out = await savePrototypes(workdir, doc);
+      for (const entry of servers.values()) if (entry.kind === "prototype") broadcast(entry, "changed");
+      return { ok: true, applied, path: out.path, outline: buildOutline(doc, { title: "Prototype" }) };
+    }
+    if (action === "codegen") {
+      const design = await loadDesign(workdir);
+      const proto = await loadPrototypes(workdir);
+      try { return codegenScreen(proto.doc, input?.screenId, design.tokens); }
+      catch (err) { return { ok: false, error: String(err.message || err) }; }
+    }
+    if (action === "validate") {
+      const { proto, validation } = await loadProtoBundle(workdir);
+      return { source: proto.source, parseError: proto.parseError || null, ...validation };
+    }
+    const proto = await loadPrototypes(workdir);
+    return {
+      source: proto.source,
+      instructions: proto.source === "repo"
+        ? "Prototypes loaded from .agents/design/prototypes.jsonc. Edit with action=patch (surgical ops) and review in the Prototype canvas."
+        : "No prototypes.jsonc in this repo yet; showing the bundled sample. Use action=patch to author real screens for this repo.",
+      screens: (proto.doc.screens || []).map((s) => ({ id: s.id, name: s.name, device: s.device })),
+      outline: buildOutline(proto.doc, { title: "Prototype" }),
+    };
+  },
+};
+
 // ---- hooks: the "skill" that pulls the system into UI work -----------------
 const hooks = {
   onSessionStart: async (input) => {
@@ -388,7 +640,7 @@ const hooks = {
 };
 
 sessionRef = await joinSession({
-  canvases: [canvas],
-  tools: [designTool],
+  canvases: [canvas, protoCanvas],
+  tools: [designTool, protoTool],
   hooks,
 });

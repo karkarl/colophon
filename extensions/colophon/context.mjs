@@ -7,6 +7,11 @@
 
 import { colorList, readAuthority, portLines, DESIGN_SUBPATH } from "./designio.mjs";
 
+// One-line pointer to the prototype feature, woven into the UI-work context so Copilot
+// knows it can build click-through mockups instead of one-off static UI.
+const PROTO_HINT =
+  `To design a flow before writing code, build a click-through prototype from this design system: use the "prototype" tool (action=patch to author screens, codegen to convert one to code) and open the "Prototype" canvas to click through it in web/desktop/mobile/tablet frames. Prototypes live at ${DESIGN_SUBPATH}/prototypes.jsonc.`;
+
 const UI_TERMS = [
   "ui", "ux", "page", "screen", "view", "component", "layout", "design",
   "style", "styling", "css", "tailwind", "theme", "color", "colour", "palette",
@@ -15,6 +20,7 @@ const UI_TERMS = [
   "responsive", "spacing", "icon", "brand", "frontend", "front-end", "react",
   "vue", "svelte", "html", "figma", "accessib", "a11y", "dark mode", "menu",
   "table", "chart", "badge", "tooltip", "toast", "banner", "widget", "onboarding",
+  "mockup", "mock-up", "prototype", "click-through", "clickthrough", "wireframe", "flow",
 ];
 
 const BUILD_TERMS = [
@@ -152,6 +158,7 @@ export function promptContext(design) {
   return [
     head,
     "Consult it before writing UI: use the colophon tool (or read the files) and honor its color, typography, spacing, radius tokens, component patterns, principles, and anti-references.",
+    PROTO_HINT,
     "Here is the current design system for quick reference:",
     "",
     buildSummary(design),

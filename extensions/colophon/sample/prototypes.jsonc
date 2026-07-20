@@ -1,0 +1,158 @@
+// prototypes.jsonc — click-through prototypes built from THIS repo's design system.
+//
+// This is a framework-agnostic *scene graph*, not shipping code. Copilot authors and
+// patches it from conversation; designers/devs review it here (or visually in the
+// Prototype canvas). It ports cleanly to web / WinUI / SwiftUI because nodes are
+// semantic — layout primitives + references to components.jsx by name + navigation as
+// data — never absolute-positioned pixels and never executable JS.
+//
+// Node kinds (one discriminator key each):
+//   layout    { "layout": "stack" | "row" | "grid" | "scroll", ...container props, "children": [] }
+//   component { "component": "Button", "props": { ... } }   // name must exist in components.jsx
+//   text      { "text": "Hello", "style": "title" }         // style = a typography scale role
+//   image     { "image": "<url|placeholder>", "alt": "..." }
+//   spacer    { "spacer": true, "size": "4" }               // size = a spacing scale name
+// Every node may carry:
+//   "id"          stable id — how Copilot patches a single node surgically
+//   "on"          interactions, e.g. { "tap": { "navigate": "invite-sent" } }
+//   "visibleWhen" / "hiddenWhen"  bind rendering to state, e.g. { "tab": "activity" }
+// Interaction actions: navigate, back, setState, toggle, openModal, closeModal.
+{
+  "meta": {
+    "version": 1,
+    "updatedBy": "starter",
+    "note": "Sample click-through for the Northlight system. Edit in the Prototype canvas or by hand."
+  },
+
+  // Prototype-level default state. Interactions mutate a runtime copy; reload resets it.
+  "state": {
+    "tab": "overview"
+  },
+
+  "screens": [
+    {
+      "id": "home",
+      "name": "Home",
+      "device": "iphone-15",
+      "root": {
+        "id": "home-root",
+        "layout": "stack",
+        "direction": "vertical",
+        "gap": "5",
+        "padding": "5",
+        "background": "paper",
+        "children": [
+          {
+            "id": "home-head",
+            "layout": "row",
+            "justify": "space-between",
+            "align": "flex-start",
+            "children": [
+              {
+                "id": "home-heading",
+                "layout": "stack",
+                "direction": "vertical",
+                "gap": "1",
+                "children": [
+                  { "id": "home-eyebrow", "text": "Workspace", "style": "eyebrow" },
+                  { "id": "home-title", "text": "Good morning, Rowan", "style": "title" }
+                ]
+              },
+              { "id": "home-status", "component": "Badge", "props": { "children": "All systems normal", "tone": "positive" } }
+            ]
+          },
+
+          // Tabs — simple state via setState; content below binds with visibleWhen.
+          {
+            "id": "home-tabs",
+            "layout": "row",
+            "gap": "4",
+            "children": [
+              { "id": "tab-overview", "text": "Overview", "style": "heading", "on": { "tap": { "setState": { "tab": "overview" } } } },
+              { "id": "tab-activity", "text": "Activity", "style": "heading", "color": "muted", "on": { "tap": { "setState": { "tab": "activity" } } } }
+            ]
+          },
+
+          {
+            "id": "overview-grid",
+            "layout": "grid",
+            "columns": 1,
+            "gap": "4",
+            "visibleWhen": { "tab": "overview" },
+            "children": [
+              { "id": "card-deploys", "component": "Card", "props": { "title": "Deploys", "body": "3 shipped today. Last one 20 minutes ago." } },
+              { "id": "card-reviews", "component": "Card", "props": { "title": "Review queue", "body": "2 PRs waiting on you." } }
+            ]
+          },
+          {
+            "id": "activity-card",
+            "component": "Card",
+            "props": { "title": "Recent activity", "body": "Rowan merged #482 · CI green · deploy queued." },
+            "visibleWhen": { "tab": "activity" }
+          },
+
+          // Primary action → navigates to the confirmation screen.
+          {
+            "id": "invite-row",
+            "layout": "row",
+            "gap": "4",
+            "align": "flex-end",
+            "children": [
+              { "id": "invite-field", "component": "Field", "props": { "label": "Invite a teammate", "placeholder": "name@company.com" } },
+              { "id": "invite-send", "component": "Button", "props": { "children": "Send invite", "variant": "primary" }, "on": { "tap": { "navigate": "invite-sent" } } }
+            ]
+          },
+
+          { "id": "help-link", "text": "Why invite teammates?", "style": "small", "color": "accent", "on": { "tap": { "openModal": "why-invite" } } }
+        ]
+      },
+
+      // Modals live on the screen; openModal/closeModal toggle them.
+      "modals": [
+        {
+          "id": "why-invite",
+          "root": {
+            "id": "why-invite-root",
+            "layout": "stack",
+            "direction": "vertical",
+            "gap": "4",
+            "padding": "5",
+            "background": "surface",
+            "radius": "lg",
+            "children": [
+              { "id": "why-title", "text": "Better together", "style": "heading" },
+              { "id": "why-body", "text": "Teammates see the same field notes and review queue, so nothing falls through the cracks.", "style": "body", "color": "muted" },
+              { "id": "why-close", "component": "Button", "props": { "children": "Got it", "variant": "primary" }, "on": { "tap": { "closeModal": true } } }
+            ]
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "invite-sent",
+      "name": "Invite sent",
+      "device": "iphone-15",
+      "root": {
+        "id": "sent-root",
+        "layout": "stack",
+        "direction": "vertical",
+        "gap": "5",
+        "padding": "6",
+        "background": "paper",
+        "align": "center",
+        "justify": "center",
+        "children": [
+          { "id": "sent-badge", "component": "Badge", "props": { "children": "Sent", "tone": "positive" } },
+          { "id": "sent-title", "text": "Invite on its way", "style": "title" },
+          { "id": "sent-body", "text": "We emailed your teammate a link to join the workspace.", "style": "body", "color": "muted" },
+          { "id": "sent-back", "component": "Button", "props": { "children": "Back to home", "variant": "secondary" }, "on": { "tap": { "navigate": "home" } } }
+        ]
+      }
+    }
+  ],
+
+  "flows": [
+    { "id": "invite", "name": "Invite a teammate", "start": "home" }
+  ]
+}
