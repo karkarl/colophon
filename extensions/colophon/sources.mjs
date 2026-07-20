@@ -16,6 +16,14 @@ export function scratchTokens({ name = "Untitled", tagline = "", description = "
   return {
     $schema: "https://agents.design/schema/v1",
     meta: { version: 1, updatedBy: "scratch", note: "Fresh skeleton — replace these with your real brand." },
+    // These files are always the source of truth for DESIGN (framework-agnostic).
+    // `port` describes how a design becomes shipping code: authoritySource = what a
+    // surface ships as (e.g. "Native WinUI 3 / C#", "SwiftUI"), syncSource = the
+    // reference/skill an agent uses to port design → that implementation, helperAgent
+    // = an optional skill that performs the port. Leave `port` null for web/JSX repos
+    // where these files are also the implementation. Use `portOverrides` to target a
+    // specific area/components differently (e.g. a React-style chat surface → Reactor).
+    authority: { designSource: "self", port: null, portOverrides: [] },
     brand: { name, tagline, description, surface: "product", voice: "", personality: [], antiReferences: [] },
     colors: [
       { name: "ink", value: "#141414", usage: "Primary text, headings" },
@@ -240,7 +248,28 @@ export async function scanCodebase(workdir, { pkgName } = {}) {
   const colors = proposedColors.length ? assignSemanticNames(proposedColors) : scratchTokens().colors;
 
   const tokens = scratchTokens({ name: pkgName || path.basename(workdir) });
-  tokens.meta = { version: 1, updatedBy: "scan", note: `Scanned ${scanned} files in ${path.basename(workdir)} — a proposal to refine, not gospel.` };
+  // A repo with candidate files but effectively no web styling signal (few/no
+  // colors, css vars, or font declarations) is usually a native app (WinUI/XAML,
+  // SwiftUI, etc.) whose real UI lives outside anything the scanner can read. The
+  // design files stay the source of truth for design, but there IS a port step to
+  // native code — so we pre-fill a port target for the maintainer to complete
+  // (which framework it ships as, and which reference/skill to port design with).
+  const styleSignals = varColors.length + litColors.length + fontDecls.size + radii.size + shadows.size;
+  const looksNative = scanned === 0 || styleSignals < 3;
+  if (looksNative) {
+    tokens.meta = { version: 1, updatedBy: "scan", note: `Scanned ${scanned} file(s) in ${path.basename(workdir)} but found little web styling — this looks like a native app. These tokens are a design starting point; set the port target so agents know how to ship it.` };
+    tokens.authority = {
+      designSource: "self",
+      port: {
+        authoritySource: "the app's native UI (e.g. WinUI 3 / C#, SwiftUI — set this)",
+        syncSource: "",
+        helperAgent: "",
+      },
+      portOverrides: [],
+    };
+  } else {
+    tokens.meta = { version: 1, updatedBy: "scan", note: `Scanned ${scanned} files in ${path.basename(workdir)} — a proposal to refine, not gospel.` };
+  }
   tokens.colors = colors;
 
   // Fonts
@@ -264,6 +293,7 @@ export async function scanCodebase(workdir, { pkgName } = {}) {
 
   const evidence = {
     scannedFiles: scanned,
+    fileCount: scanned,
     totalCandidateFiles: files.length,
     uniqueColors: hexes.size + rgbish.size,
     cssVariables: cssVars.size,
@@ -271,6 +301,7 @@ export async function scanCodebase(workdir, { pkgName } = {}) {
     topColors: litColors.slice(0, 10),
     fonts,
     hasTailwind: files.some((f) => /tailwind\.config\./.test(f)),
+    looksNative,
   };
   return { tokens, evidence };
 }

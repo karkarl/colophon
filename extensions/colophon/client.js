@@ -15,13 +15,16 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 
-let state = { design: null, tokens: null, dirty: false, mode: "normal", proposal: null };
+let state = { design: null, tokens: null, dirty: false, mode: "normal", proposal: null, theme: "light", validation: null };
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);
   return res.headers.get("content-type")?.includes("json") ? res.json() : res.text();
 }
+
+const THEMES = ["light", "dark", "highContrast"];
+const THEME_LABEL = { light: "Light", dark: "Dark", highContrast: "High contrast" };
 
 function colorList(tokens) {
   const c = tokens?.colors;
@@ -30,9 +33,63 @@ function colorList(tokens) {
   return [];
 }
 
-function cssVarsFromTokens(tokens) {
+// The base (light) preview value of a color, tolerating a flat `value` or a
+// { themes: { light } } shape. Mirrors designio.baseColorValue.
+function baseColorValue(c) {
+  if (!c) return "";
+  if (typeof c.value === "string" && c.value) return c.value;
+  const th = c.themes;
+  if (th && typeof th === "object") return th.light || th.dark || th.highContrast || "";
+  return "";
+}
+
+// Preview value for a theme, falling back theme → light → base.
+function colorValueForTheme(c, theme = "light") {
+  const th = c?.themes;
+  if (th && typeof th === "object" && typeof th[theme] === "string" && th[theme]) return th[theme];
+  if (theme !== "light" && th && typeof th.light === "string" && th.light) return th.light;
+  return baseColorValue(c);
+}
+
+// Write a preview value for the active theme. Light writes the flat `value` (unless
+// the color already uses a themes map); dark/highContrast write into themes.
+function setColorValueForTheme(c, theme, hex) {
+  if (theme === "light" && !(c.themes && typeof c.themes === "object")) { c.value = hex; return; }
+  c.themes = (c.themes && typeof c.themes === "object") ? c.themes : {};
+  if (theme === "light" && typeof c.value === "string" && !c.themes.light) c.themes.light = c.value;
+  c.themes[theme] = hex;
+  // Keep the canonical `value` aligned with themes.light so readers that prefer
+  // `value` (baseColorValue, summaries, validation) don't report a stale hex.
+  if (theme === "light" && typeof c.value === "string") c.value = hex;
+}
+
+// A port target only "counts" once it names a source/owner. An all-empty object is
+// normalized away server-side (designio.normPortTarget / readAuthority), so mirror that
+// rule here — otherwise toggling a port on but leaving every field blank would flip the
+// canvas into preview-only mode yet silently drop the port on save.
+function portTargetFilled(p) {
+  if (!p || typeof p !== "object") return false;
+  const s = (v) => (typeof v === "string" ? v.trim() : "");
+  return !!(s(p.authoritySource) || s(p.syncSource) || s(p.helperAgent) || s(p.owner));
+}
+function portOverrideFilled(o) {
+  if (!o || typeof o !== "object") return false;
+  const s = (v) => (typeof v === "string" ? v.trim() : "");
+  const comps = Array.isArray(o.components) && o.components.some(s);
+  return !!(s(o.area) || comps || portTargetFilled(o));
+}
+
+// Does this system have a real port target? Then colors are preview-only.
+function hasPort(t) {
+  const a = t?.authority;
+  if (!a || typeof a !== "object") return false;
+  if (portTargetFilled(a.port)) return true;
+  return Array.isArray(a.portOverrides) && a.portOverrides.some(portOverrideFilled);
+}
+
+function cssVarsFromTokens(tokens, theme = "light") {
   const lines = [];
-  for (const c of colorList(tokens)) lines.push(`--color-${c.name}: ${c.value};`);
+  for (const c of colorList(tokens)) lines.push(`--color-${c.name}: ${colorValueForTheme(c, theme)};`);
   const ty = tokens?.typography || {};
   if (ty.display?.family) lines.push(`--font-display: ${ty.display.family};`);
   if (ty.body?.family) lines.push(`--font-body: ${ty.body.family};`);
@@ -46,7 +103,8 @@ function cssVarsFromTokens(tokens) {
 function applyVars() {
   let tag = $("#ds-vars");
   if (!tag) { tag = el("style", { id: "ds-vars" }); document.head.append(tag); }
-  tag.textContent = cssVarsFromTokens(state.tokens);
+  tag.textContent = cssVarsFromTokens(state.tokens, state.theme);
+  document.body.setAttribute("data-ds-theme", state.theme);
 }
 
 function markDirty() {
@@ -56,6 +114,86 @@ function markDirty() {
 }
 
 /* ---------- section renderers ---------- */
+
+function portFields(obj, { withScope = false } = {}) {
+  const rows = [];
+  if (withScope) {
+    const areaIn = el("input", { type: "text", value: obj.area || "", placeholder: "e.g. chat",
+      oninput: (e) => { obj.area = e.target.value; markDirty(); } });
+    const compIn = el("input", { type: "text", value: (obj.components || []).join(", "), placeholder: "e.g. ChatBubble, ChatComposer",
+      oninput: (e) => { obj.components = e.target.value.split(",").map((s) => s.trim()).filter(Boolean); markDirty(); } });
+    rows.push(
+      el("div", { class: "editable" }, el("label", {}, "Area"), areaIn),
+      el("div", { class: "editable" }, el("label", {}, "Components (comma-separated)"), compIn),
+    );
+  }
+  const shipsIn = el("input", { type: "text", value: obj.authoritySource || "", placeholder: "ships as — e.g. Native WinUI 3 / C#",
+    oninput: (e) => { obj.authoritySource = e.target.value; markDirty(); } });
+  const syncIn = el("input", { type: "text", value: obj.syncSource || "", placeholder: "sync source — e.g. https://github.com/microsoft/win-dev-skills",
+    oninput: (e) => { obj.syncSource = e.target.value; markDirty(); } });
+  const helperIn = el("input", { type: "text", value: obj.helperAgent || "", placeholder: "helper agent (optional) — e.g. win-dev-skills",
+    oninput: (e) => { obj.helperAgent = e.target.value; markDirty(); } });
+  const ownerIn = el("input", { type: "text", value: obj.owner || "", placeholder: "owner (optional) — who owns the canonical implementation",
+    oninput: (e) => { obj.owner = e.target.value; markDirty(); } });
+  rows.push(
+    el("div", { class: "editable" }, el("label", {}, "Authority source (ships as)"), shipsIn),
+    el("div", { class: "editable" }, el("label", {}, "Sync source (port reference/skill)"), syncIn),
+    el("div", { class: "editable" }, el("label", {}, "Helper agent (optional)"), helperIn),
+    el("div", { class: "editable" }, el("label", {}, "Owner (optional)"), ownerIn),
+  );
+  return rows;
+}
+
+function renderAuthority(t) {
+  const a = (t.authority && typeof t.authority === "object") ? t.authority : (t.authority = {});
+  if (typeof a.designSource !== "string" || !a.designSource) a.designSource = "self";
+  if (!Array.isArray(a.portOverrides)) a.portOverrides = [];
+
+  const wrap = el("div", { class: "authority", style: "margin-top:14px" }, el("label", {}, "Authority — design vs. port"));
+  wrap.append(el("div", { class: "muted", style: "margin-top:4px" },
+    "These files are the source of truth for design (framework-agnostic). Port targets say what each surface ships as and which reference/skill to port the design with — leave empty for web/JSX repos where these files are also the implementation."));
+
+  // Default port target (app-wide). The checkbox/fields track whether the object
+  // exists so they appear the moment you toggle it on; whether it actually "counts"
+  // as a port (preview-only mode, validation) is decided by hasPort() once filled.
+  const hasDefaultPort = !!a.port && typeof a.port === "object";
+  const defBody = el("div", { class: "authority-port", style: hasDefaultPort ? "" : "display:none" });
+  if (hasDefaultPort) defBody.append(...portFields(a.port));
+  const defToggle = el("label", { class: "authority-toggle", style: "margin-top:10px;display:block" },
+    el("input", { type: "checkbox", checked: hasDefaultPort ? "checked" : undefined,
+      onchange: (e) => {
+        if (e.target.checked) { a.port = a.port || { authoritySource: "", syncSource: "", helperAgent: "" }; }
+        else { a.port = null; }
+        markDirty(); render();
+      } }),
+    " This app has a default port target (ships as native/other, not the JSX itself)");
+  wrap.append(defToggle, defBody);
+
+  // App-wide ownership + sync process for the canonical implementation. Most
+  // relevant when a port target exists (native/other is canonical), but harmless
+  // to record either way — it names who keeps the derived examples aligned.
+  const ownerIn = el("input", { type: "text", value: a.owner || "", placeholder: "e.g. @openclaw/windows-ui",
+    oninput: (e) => { a.owner = e.target.value; markDirty(); } });
+  const syncProcIn = el("input", { type: "text", value: a.syncProcess || "", placeholder: "e.g. Regenerated from XAML each release; see docs/design-sync.md",
+    oninput: (e) => { a.syncProcess = e.target.value; markDirty(); } });
+  wrap.append(el("div", { class: "faces", style: "margin-top:10px;grid-template-columns:1fr 1fr;display:grid;gap:12px" },
+    el("div", { class: "editable" }, el("label", {}, "Implementation owner (optional)"), ownerIn),
+    el("div", { class: "editable" }, el("label", {}, "Sync process (optional)"), syncProcIn)));
+
+  // Per-area overrides.
+  wrap.append(el("div", { class: "muted", style: "margin-top:12px;font-weight:600" }, "Per-area overrides"));
+  a.portOverrides.forEach((o, i) => {
+    const card = el("div", { class: "authority-override" }, ...portFields(o, { withScope: true }));
+    card.append(el("button", { class: "btn", style: "margin-top:8px",
+      onclick: () => { a.portOverrides.splice(i, 1); markDirty(); render(); } }, "Remove override"));
+    wrap.append(card);
+  });
+  wrap.append(el("button", { class: "btn", style: "margin-top:8px",
+    onclick: () => { a.portOverrides.push({ area: "", components: [], authoritySource: "", syncSource: "", helperAgent: "" }); markDirty(); render(); } },
+    "Add area override"));
+
+  return wrap;
+}
 
 function renderBrand(t) {
   const b = t.brand || {};
@@ -79,25 +217,51 @@ function renderBrand(t) {
       el("div", { class: "editable" }, el("label", {}, "Tagline"), tagIn),
     ),
     el("div", { class: "editable", style: "margin-top:12px" }, el("label", {}, "Description (app / project context for codegen)"), descIn),
+    renderAuthority(t),
   );
 }
 
 function renderColors(t) {
   const list = colorList(t);
+  const previewOnly = hasPort(t);
+  const section = el("section", { class: "block" }, el("h2", {}, "Color"));
+  section.append(el("div", { class: "muted", style: "margin:-6px 0 12px" },
+    previewOnly
+      ? el("span", {}, "Previewing ", el("strong", {}, THEME_LABEL[state.theme]),
+          " — these hex values are preview-only swatches. Bind each color's ",
+          el("span", { class: "mono" }, "resource"), " key in code, never the raw hex.")
+      : el("span", {}, "Previewing ", el("strong", {}, THEME_LABEL[state.theme]), " theme.")));
   const grid = el("div", { class: "swatches" });
   list.forEach((c, i) => {
-    const colorIn = el("input", { type: "color", value: /^#([0-9a-f]{6})$/i.test(c.value) ? c.value : "#000000",
-      oninput: (e) => { list[i].value = e.target.value; if (Array.isArray(t.colors)) t.colors[i].value = e.target.value; fill.style.background = e.target.value; valEl.textContent = e.target.value; applyVars(); markDirty(); } });
-    const fill = el("div", { class: "chipfill", style: `background:${c.value}` });
-    const valEl = el("span", { class: "val mono" }, c.value);
+    const shown = colorValueForTheme(c, state.theme);
+    const colorIn = el("input", { type: "color", value: /^#([0-9a-f]{6})$/i.test(shown) ? shown : "#000000",
+      oninput: (e) => {
+        setColorValueForTheme(list[i], state.theme, e.target.value);
+        if (Array.isArray(t.colors)) setColorValueForTheme(t.colors[i], state.theme, e.target.value);
+        fill.style.background = e.target.value; valEl.textContent = e.target.value; applyVars(); markDirty();
+      } });
+    const fill = el("div", { class: "chipfill", style: `background:${shown}` });
+    const valEl = el("span", { class: "val mono" }, shown);
+    const themeChips = el("div", { class: "theme-chips" });
+    if (c.themes && typeof c.themes === "object") {
+      for (const th of THEMES) {
+        const v = c.themes[th];
+        if (!v) continue;
+        themeChips.append(el("span", { class: "theme-chip" + (th === state.theme ? " is-active" : ""), title: `${THEME_LABEL[th]}: ${v}` },
+          el("span", { class: "dot", style: `background:${v}` }), th === "highContrast" ? "HC" : THEME_LABEL[th]));
+      }
+    }
     grid.append(el("div", { class: "swatch" }, fill,
       el("div", { class: "meta" },
         el("div", { class: "row" }, el("span", { class: "name" }, c.name), colorIn),
         el("div", { class: "row" }, valEl),
+        c.resource ? el("div", { class: "resource mono", title: "Canonical implementation resource key" }, "→ " + c.resource) : "",
+        themeChips.childNodes.length ? themeChips : "",
         c.usage ? el("div", { class: "usage" }, c.usage) : "",
       )));
   });
-  return el("section", { class: "block" }, el("h2", {}, "Color"), grid);
+  section.append(grid);
+  return section;
 }
 
 function renderTypography(t) {
@@ -181,6 +345,7 @@ async function renderComponents(t, src) {
   const names = exportNames(src);
   const ok = await ensureReact();
 
+  state.componentBuildError = null;
   let comps = null, buildErr = null;
   if (ok) {
     try {
@@ -193,6 +358,7 @@ async function renderComponents(t, src) {
       comps = factory(window.React);
     } catch (e) {
       buildErr = String(e && e.message ? e.message : e);
+      state.componentBuildError = buildErr;
       try { console.error("[colophon] component preview build failed:", e); } catch { /* noop */ }
     }
   }
@@ -230,11 +396,23 @@ function sliceComponent(src, name) {
 /* ---------- onboarding + proposal ---------- */
 
 function onboarding() {
-  const wrap = el("section", { class: "onboard" });
-  wrap.append(el("div", { class: "onboard-head" },
-    el("h2", {}, "Set up a design system"),
-    el("div", { class: "muted" }, "This repo has no ", el("span", { class: "mono" }, ".agents/design/"), " yet. Choose how to start — you can refine everything in the canvas afterward."),
-    el("div", { class: "muted", style: "margin-top:4px" }, "Seeding also adds an ", el("span", { class: "mono" }, "AGENTS.md"), " pointer so every agent reads the system before UI work.")));
+  // Collapsible: once you've seen the setup options you rarely need them again,
+  // and this block only shows pre-setup (source === "sample"). Remember the
+  // open/closed choice best-effort; default open so first-run is guided.
+  let open = true;
+  try { const s = localStorage.getItem("colophon.onboardOpen"); if (s !== null) open = s === "1"; } catch { /* no storage */ }
+
+  const wrap = el("details", open ? { class: "onboard", open: "" } : { class: "onboard" });
+  wrap.addEventListener("toggle", () => { try { localStorage.setItem("colophon.onboardOpen", wrap.open ? "1" : "0"); } catch { /* no storage */ } });
+
+  wrap.append(el("summary", { class: "onboard-summary" },
+    el("span", { class: "chev", "aria-hidden": "true" }, "▸"),
+    el("div", { class: "onboard-head" },
+      el("h2", {}, "Set up a design system"),
+      el("div", { class: "muted" }, "This repo has no ", el("span", { class: "mono" }, ".agents/design/"), " yet — the starter below is a preview. Choose how to start; refine everything in the canvas afterward."))));
+
+  const body = el("div", { class: "onboard-body" });
+  body.append(el("div", { class: "muted" }, "Seeding also adds an ", el("span", { class: "mono" }, "AGENTS.md"), " pointer so every agent reads the system before UI work."));
 
   const cards = el("div", { class: "onboard-cards" });
 
@@ -266,7 +444,8 @@ function onboarding() {
     el("div", { class: "orow" }, scanBtn),
   ));
 
-  wrap.append(cards);
+  body.append(cards);
+  wrap.append(body);
   return wrap;
 }
 
@@ -286,6 +465,12 @@ function proposalBar() {
     const ev = p.evidence;
     bar.append(el("div", { class: "muted", style: "margin-top:6px" },
       `Scanned ${ev.fileCount} files · ${(ev.topColors || []).length} colors · ${(ev.fonts || []).length} font(s)${ev.hasTailwind ? " · Tailwind detected" : ""}`));
+  }
+  if (state.tokens?.authority?.port || (state.tokens?.authority?.portOverrides || []).length) {
+    bar.append(el("div", { class: "muted", style: "margin-top:6px" },
+      "Little/no web styling was found, so this looks like a native app. These tokens are a design starting point — set the ",
+      el("strong", {}, "port target"),
+      " (what it ships as + the sync source/skill to port with) in Brand → Authority before saving."));
   }
   if ((p.warnings || []).length) {
     bar.append(el("ul", { class: "warnlist" }, ...p.warnings.map((w) => el("li", {}, w))));
@@ -333,9 +518,101 @@ function discardProposal() {
   load();
 }
 
+/* ---------- validation ---------- */
+
+function checksDescription() {
+  const ported = hasPort(state.tokens);
+  const nodes = [
+    el("p", { class: "vdesc-line" },
+      el("strong", {}, "What this checks: "),
+      "that ", el("code", {}, "design.json"), " parses and defines the core token groups (colors, type, spacing, radii), and that ",
+      el("code", {}, "components.jsx"), " exports patterns with balanced syntax — the authoritative render check runs live here in the canvas."),
+  ];
+  if (ported) {
+    nodes.push(el("p", { class: "vdesc-line" },
+      "A native port is declared, so the shipping implementation — not this preview — is the source of truth. It also requires every color to carry a ",
+      el("code", {}, "resource"), " key and the authority to name an ",
+      el("code", {}, "owner"), " and a ", el("code", {}, "syncProcess"),
+      ". Those are the breadcrumbs that keep the design files and the shipping code from silently drifting apart."));
+  } else {
+    nodes.push(el("p", { class: "vdesc-line muted" },
+      "No port is declared, so the design files are canonical (there is no second copy to drift against) — the drift checks for ",
+      el("code", {}, "resource"), " keys, ", el("code", {}, "owner"), ", and ", el("code", {}, "syncProcess"), " don't apply here."));
+  }
+  return nodes;
+}
+
+function validationPanel() {
+  const v = state.validation;
+  if (!v) return "";
+  const errors = [...(v.errors || [])];
+  const warnings = [...(v.warnings || [])];
+  if (state.componentBuildError) errors.push("components.jsx failed to compile/render in the live preview: " + state.componentBuildError);
+  const ok = errors.length === 0;
+  const bar = el("section", { class: "banner validation " + (ok ? "vok" : "vbad"), role: "status" });
+  bar.append(el("div", { class: "prow" },
+    el("div", {},
+      el("strong", {}, ok ? "✓ Design system valid" : "✗ Validation found issues"),
+      el("span", { class: "muted", style: "margin-left:8px" }, `${errors.length} error(s), ${warnings.length} warning(s)`),
+      state.dirty ? el("span", { class: "muted", style: "margin-left:8px" }, "· validates the saved system — save to include unsaved edits") : "",
+    ),
+    el("div", { class: "pactions" }, el("button", { class: "btn", onclick: () => { state.validation = null; renderValidation(); } }, "Dismiss"))));
+  bar.append(el("div", { class: "vdesc" }, ...checksDescription()));
+  if (errors.length) bar.append(el("ul", { class: "warnlist err" }, ...errors.map((e) => el("li", {}, e))));
+  if (warnings.length) bar.append(el("ul", { class: "warnlist" }, ...warnings.map((w) => el("li", {}, w))));
+  return bar;
+}
+
+// The validation result floats in a fixed bar just below the sticky topbar,
+// so it stays visible while scrolling and doesn't shove the page content down.
+function positionValidationSlot() {
+  const slot = $("#validation-slot");
+  const bar = $(".topbar");
+  if (slot && bar) slot.style.top = (bar.offsetHeight + 8) + "px";
+}
+
+function renderValidation() {
+  const slot = $("#validation-slot");
+  if (!slot) return;
+  slot.textContent = "";
+  const panel = validationPanel();
+  if (panel) { slot.append(panel); positionValidationSlot(); }
+}
+
+async function doValidate() {
+  const btn = $("#validate-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Validating…"; }
+  try {
+    state.validation = await api("/api/validate");
+    renderValidation();
+  } catch (e) { alert("Validate failed: " + e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = "Validate"; } }
+}
+
+/* ---------- theme preview ---------- */
+
+function setTheme(theme) {
+  if (!THEMES.includes(theme)) return;
+  state.theme = theme;
+  for (const b of document.querySelectorAll("#theme-switch .theme-btn")) {
+    const active = b.dataset.theme === theme;
+    b.classList.toggle("is-active", active);
+    b.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+  applyVars();
+  render();
+}
+
 /* ---------- top-level render ---------- */
 
+// Guards against overlapping async renders: renderComponents() awaits a CDN
+// (React/Babel) fetch on first load, so a theme switch mid-fetch could start a
+// second render and both would append their component section. Only the newest
+// render is allowed to append after its await.
+let renderSeq = 0;
+
 async function render() {
+  const gen = ++renderSeq;
   const t = state.tokens;
   const root = $("#app");
   root.textContent = "";
@@ -350,12 +627,16 @@ async function render() {
     root.append(onboarding());
   }
 
+  renderValidation();
+
   root.append(renderBrand(t));
   root.append(renderColors(t));
   root.append(renderTypography(t));
   root.append(renderScales(t));
   root.append(renderPrinciples(t));
-  root.append(await renderComponents(t, state.design.componentsSource || ""));
+  const components = await renderComponents(t, state.design.componentsSource || "");
+  if (gen !== renderSeq) return; // a newer render superseded this one
+  root.append(components);
 }
 
 async function doInit(mode) {
@@ -402,6 +683,11 @@ function connectEvents() {
 window.addEventListener("DOMContentLoaded", () => {
   $("#save-btn").addEventListener("click", doSave);
   $("#reload-btn").addEventListener("click", () => load());
+  $("#validate-btn")?.addEventListener("click", doValidate);
+  for (const b of document.querySelectorAll("#theme-switch .theme-btn")) {
+    b.addEventListener("click", () => setTheme(b.dataset.theme));
+  }
+  window.addEventListener("resize", positionValidationSlot);
   load().catch((e) => { $("#app").textContent = "Failed to load design system: " + e.message; });
   connectEvents();
 });

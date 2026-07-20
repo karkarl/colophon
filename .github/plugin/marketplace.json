@@ -11,7 +11,7 @@
   "plugins": [
     {
       "name": "colophon",
-      "description": "Keeps a repo's design system in .agents/design/ as the source of truth, renders/edits it in a Copilot canvas, and makes Copilot generate UI from its tokens, components, and principles.",
+      "description": "Keeps a repo's design system in .agents/design/ as a shared, versioned design source, renders/edits it in a Copilot canvas, and makes Copilot generate UI from its tokens, components, and principles — the source of truth for design, with configurable per-area port targets that say what each surface ships as (React web, native WinUI/XAML, SwiftUI) and which reference/skill ports the design into it.",
       "version": "0.1.0",
       "source": "."
     }

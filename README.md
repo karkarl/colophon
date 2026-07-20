@@ -13,7 +13,7 @@ automatically.
 
 Colophon ships two halves in one plugin:
 - a **skill** (`skills/colophon/`) that tells Copilot to treat `.agents/design/` as
-  the source of truth and build UI from its tokens, components, and principles; and
+  the design source and build UI from its tokens, components, and principles; and
 - a **canvas extension** (`extensions/colophon/`) that renders and edits the system
   live, and exposes a `colophon` tool + hooks so the agent always has it in context.
 
@@ -22,11 +22,31 @@ Colophon ships two halves in one plugin:
 ### 1. The design system lives in the repo: `.agents/design/`
 | File | What it is |
 | --- | --- |
-| `design.json` | Tokens: brand, colors, typography, spacing, radii, shadows, principles |
+| `design.json` | Tokens: authority, brand, colors, typography, spacing, radii, shadows, principles |
 | `components.jsx` | "Pseudocode React" — the component patterns your team has agreed on |
 | `principles.md` | Prose voice / information hierarchy / do & don't |
 
 These are plain files. Commit them, review them in PRs, edit them by hand or in the canvas.
+
+#### Design vs. port — the design leads, the implementation ships
+
+The design files are always the **source of truth for design** — tokens, component
+intent, and principles — and are framework-agnostic. `components.jsx` is design
+intent for the canvas preview, **not** shipping code. What varies is how a design
+becomes shipping code, which `design.json` records in an `authority` block:
+
+| Field | Meaning |
+| --- | --- |
+| `authority.designSource` | Who owns the *design* (default `"self"` = these files). |
+| `authority.port` | App-wide default **port target**: `authoritySource` (what the UI ships as — e.g. `Native WinUI 3 / C#`, `SwiftUI`), `syncSource` (the reference/skill to port design → that implementation — e.g. `microsoft/win-dev-skills`), and optional `helperAgent`. |
+| `authority.portOverrides[]` | Per-area / per-component overrides — e.g. a React-style **chat** surface targeting [Reactor](https://github.com/microsoft/microsoft-ui-reactor). Each has `area`, `components[]`, and the same three port fields. |
+
+No `port`/overrides ⇒ the files are both the design **and** the implementation
+source of truth (web/JSX repos) — Colophon's original behavior, unchanged. Scanning
+a repo with no web styling (a native/XAML app) pre-fills a port target for you to
+complete. The skill, the injected context, and the `AGENTS.md` pointer all reflect
+these port targets, so agents know what each surface ships as and which skill to
+port the design with — they never ship `components.jsx` verbatim.
 
 ### 2. The canvas renders + edits it
 Open the **Design System** canvas to see the system rendered live:

@@ -5,6 +5,11 @@
     "updatedBy": "starter",
     "note": "Edit this in the Design System canvas or directly. Devs + designers share this file."
   },
+  "authority": {
+    "designSource": "self",
+    "port": null,
+    "portOverrides": []
+  },
   "brand": {
     "name": "Northlight",
     "tagline": "Field notes for people who build in the open.",
@@ -20,16 +25,16 @@
     ]
   },
   "colors": [
-    { "name": "ink",      "value": "#1c1a17", "usage": "Primary text, headings" },
-    { "name": "paper",    "value": "#f7f4ee", "usage": "App / page background" },
-    { "name": "surface",  "value": "#ffffff", "usage": "Raised surfaces, inputs" },
-    { "name": "muted",    "value": "#6b6459", "usage": "Secondary text, captions" },
-    { "name": "line",     "value": "#e4ddd0", "usage": "Borders, dividers" },
-    { "name": "accent",   "value": "#b5502a", "usage": "Primary actions, links, focus" },
-    { "name": "accentInk","value": "#fbf7f0", "usage": "Text on accent" },
-    { "name": "positive", "value": "#3f6b4c", "usage": "Success states" },
-    { "name": "warning",  "value": "#a8791f", "usage": "Warnings" },
-    { "name": "critical", "value": "#8f2f2a", "usage": "Errors, destructive" }
+    { "name": "ink",      "value": "#1c1a17", "usage": "Primary text, headings", "themes": { "dark": "#f2ede3", "highContrast": "#ffffff" } },
+    { "name": "paper",    "value": "#f7f4ee", "usage": "App / page background", "themes": { "dark": "#1a1714", "highContrast": "#000000" } },
+    { "name": "surface",  "value": "#ffffff", "usage": "Raised surfaces, inputs", "themes": { "dark": "#221e1a", "highContrast": "#000000" } },
+    { "name": "muted",    "value": "#6b6459", "usage": "Secondary text, captions", "themes": { "dark": "#a89f90", "highContrast": "#ffffff" } },
+    { "name": "line",     "value": "#e4ddd0", "usage": "Borders, dividers", "themes": { "dark": "#3a342c", "highContrast": "#ffffff" } },
+    { "name": "accent",   "value": "#b5502a", "usage": "Primary actions, links, focus", "themes": { "dark": "#e0794f", "highContrast": "#ffd60a" } },
+    { "name": "accentInk","value": "#fbf7f0", "usage": "Text on accent", "themes": { "dark": "#1a1714", "highContrast": "#000000" } },
+    { "name": "positive", "value": "#3f6b4c", "usage": "Success states", "themes": { "dark": "#5c9b70", "highContrast": "#3ff07a" } },
+    { "name": "warning",  "value": "#a8791f", "usage": "Warnings", "themes": { "dark": "#d0a54e", "highContrast": "#ffb000" } },
+    { "name": "critical", "value": "#8f2f2a", "usage": "Errors, destructive", "themes": { "dark": "#d1554e", "highContrast": "#ff5449" } }
   ],
   "typography": {
     "display": {

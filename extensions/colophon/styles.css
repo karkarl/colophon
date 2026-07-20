@@ -6,20 +6,35 @@
 
 /* ---------- 1. Canvas chrome ---------- */
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; }
 body {
-  background: var(--background-color-default, #ffffff);
-  color: var(--text-color-default, #1f2328);
+  /* min-height (not height:100%) so the body box spans the full scroll height —
+     otherwise the sticky topbar unsticks after one viewport of scrolling. */
+  min-height: 100vh;
+  /* Page background follows the selected preview theme's app/page background
+     (paper), with matching ink for text. */
+  background: var(--color-paper, #ffffff);
+  color: var(--color-ink, #1f2328);
   font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   font-size: var(--text-body-medium, 14px);
   line-height: var(--leading-body-medium, 20px);
+  /* Route the chrome's neutral tokens through the design system's own colors so
+     the whole inspector — cards, inputs, topbar — reflects light / dark / HC,
+     not just the live previews. These resolve to the active theme because
+     client.js re-injects --color-* per theme. */
+  --background-color-default: var(--color-surface, #ffffff);
+  --border-color-default: var(--color-line, #d0d7de);
+  --border-color-muted: var(--color-line, #f3f4f6);
+  --text-color-default: var(--color-ink, #1f2328);
+  --text-color-muted: var(--color-muted, #656d76);
+  transition: background 160ms ease-out, color 160ms ease-out;
 }
 .wrap { max-width: 960px; margin: 0 auto; padding: 20px 24px 80px; }
 
 .topbar {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 24px; margin: 0 -24px 8px;
+  padding: 12px 24px; margin: 0 0 8px;
   background: var(--background-color-default, #fff);
   border-bottom: 1px solid var(--border-color-default, #d0d7de);
 }
@@ -32,6 +47,22 @@ body {
 }
 .source-pill.repo { color: var(--true-color-blue, #0969da); border-color: var(--true-color-blue-muted, #b6e3ff); }
 .source-pill.sample { color: var(--true-color-red, #cf222e); border-color: var(--true-color-red-muted, #ffcecb); }
+
+/* Preview theme switch (Light / Dark / High contrast) */
+.theme-switch {
+  display: inline-flex; align-items: center; gap: 0;
+  border: 1px solid var(--border-color-default, #d0d7de); border-radius: 999px; overflow: hidden;
+}
+.theme-switch .theme-btn {
+  font: inherit; font-size: 12px; cursor: pointer; padding: 4px 12px; border: none;
+  background: var(--background-color-default, #fff); color: var(--text-color-muted, #656d76);
+  border-left: 1px solid var(--border-color-default, #d0d7de);
+}
+.theme-switch .theme-btn:first-child { border-left: none; }
+.theme-switch .theme-btn:hover { background: var(--border-color-muted, #f3f4f6); }
+.theme-switch .theme-btn.is-active {
+  background: var(--true-color-blue, #0969da); color: #fff;
+}
 
 button.btn {
   font: inherit; cursor: pointer; padding: 6px 12px; border-radius: 6px;
@@ -58,11 +89,58 @@ button.btn:disabled { opacity: .5; cursor: default; }
 }
 .banner.proposal .prow { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .banner.proposal .pactions { display: flex; gap: 8px; }
+.banner.validation .prow { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.banner.validation .pactions { display: flex; gap: 8px; }
+.banner.validation.vok { border-color: var(--true-color-green-muted, #aceebb); background: color-mix(in srgb, var(--true-color-green, #1a7f37) 8%, transparent); }
+.banner.validation.vbad { border-color: var(--true-color-red-muted, #ffcecb); background: color-mix(in srgb, var(--true-color-red, #cf222e) 8%, transparent); }
+.banner.validation .vdesc { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-color-default, #1f2328); }
+.banner.validation .vdesc-line { margin: 4px 0 0; max-width: 78ch; }
+.banner.validation .vdesc code {
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 11px;
+  padding: 0 4px; border-radius: 4px;
+  background: color-mix(in srgb, var(--text-color-muted, #656d76) 14%, transparent);
+}
+
+/* Floating validation infobar: pinned just below the sticky topbar (top is set
+   from the topbar height in client.js), centered over the content, dismissible. */
+#validation-slot {
+  position: fixed; left: 0; right: 0; z-index: 20;
+  display: flex; justify-content: center;
+  padding: 0 24px; pointer-events: none;
+}
+#validation-slot:empty { display: none; }
+#validation-slot .banner.validation {
+  pointer-events: auto;
+  width: 100%; max-width: 912px; margin: 0;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.10);
+  animation: vslide 160ms ease-out;
+}
+#validation-slot .banner.validation.vok { background: color-mix(in srgb, var(--true-color-green, #1a7f37) 12%, var(--color-surface, #fff)); }
+#validation-slot .banner.validation.vbad { background: color-mix(in srgb, var(--true-color-red, #cf222e) 12%, var(--color-surface, #fff)); }
+@keyframes vslide { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 .warnlist { margin: 8px 0 0; padding-left: 18px; color: var(--text-color-muted, #656d76); font-size: 12px; }
+.warnlist.err { color: var(--true-color-red, #cf222e); }
 
 /* onboarding */
-.onboard { margin: 8px 0 22px; }
+.onboard {
+  margin: 8px 0 22px;
+  border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px;
+  background: var(--background-color-default, #fff); overflow: hidden;
+}
+.onboard > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px;
+}
+.onboard > summary::-webkit-details-marker { display: none; }
+.onboard > summary:hover { background: var(--border-color-muted, #f3f4f6); }
+.onboard > summary:focus-visible { outline: 2px solid var(--true-color-blue, #0969da); outline-offset: -2px; }
+.onboard .chev {
+  flex: none; margin-top: 2px; font-size: 12px; line-height: 18px;
+  color: var(--text-color-muted, #656d76); transition: transform 160ms ease-out;
+}
+.onboard[open] .chev { transform: rotate(90deg); }
 .onboard-head h2 { font-size: 16px; margin: 0 0 4px; }
+.onboard-body { padding: 0 16px 16px; }
 .onboard-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
 .ocard {
   border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px;
@@ -104,6 +182,20 @@ section.block > h2 {
 }
 .hidden { display: none !important; }
 
+/* Authority (canonical vs derived) */
+.authority { display: grid; gap: 4px; }
+.authority > label { font-size: 11px; color: var(--text-color-muted, #656d76); }
+.authority-toggle { font-size: 12px; color: inherit; cursor: pointer; }
+.authority-toggle input { margin-right: 6px; vertical-align: middle; }
+.authority-port {
+  border-left: 2px solid var(--color-accent, #b5502a);
+  padding-left: 10px; margin-top: 8px; display: grid; gap: 8px;
+}
+.authority-override {
+  border: 1px solid var(--border-color-default, #d0d7de);
+  border-radius: 8px; padding: 10px; margin-top: 8px; display: grid; gap: 8px;
+}
+
 /* Colors grid */
 .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .swatch { border: 1px solid var(--border-color-default, #d0d7de); border-radius: 10px; overflow: hidden; }
@@ -113,6 +205,15 @@ section.block > h2 {
 .swatch .name { font-weight: 600; font-size: 13px; }
 .swatch .val { font-size: 12px; }
 .swatch .usage { font-size: 11px; color: var(--text-color-muted, #656d76); }
+.swatch .resource { font-size: 11px; color: var(--true-color-blue, #0969da); word-break: break-all; }
+.swatch .theme-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.swatch .theme-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 10px;
+  padding: 1px 6px 1px 4px; border-radius: 999px;
+  border: 1px solid var(--border-color-default, #d0d7de); color: var(--text-color-muted, #656d76);
+}
+.swatch .theme-chip.is-active { border-color: var(--true-color-blue, #0969da); color: var(--true-color-blue, #0969da); }
+.swatch .theme-chip .dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.15); }
 .swatch input[type="color"] { width: 26px; height: 22px; padding: 0; border: none; background: none; cursor: pointer; }
 
 /* Type scale */
