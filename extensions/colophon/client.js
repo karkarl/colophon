@@ -525,19 +525,24 @@ function validationPanel() {
       el("span", { class: "muted", style: "margin-left:8px" }, `${errors.length} error(s), ${warnings.length} warning(s)`),
       state.dirty ? el("span", { class: "muted", style: "margin-left:8px" }, "· validates the saved system — save to include unsaved edits") : "",
     ),
-    el("div", { class: "pactions" }, el("button", { class: "btn", onclick: () => { state.validation = null; renderValidation(); } }, "Dismiss"))));
+    el("button", {
+      class: "validation-close",
+      type: "button",
+      "aria-label": "Dismiss validation results",
+      title: "Dismiss",
+      onclick: () => { state.validation = null; renderValidation(); },
+    }, "×")));
   bar.append(el("div", { class: "vdesc" }, ...checksDescription()));
   if (errors.length) bar.append(el("ul", { class: "warnlist err" }, ...errors.map((e) => el("li", {}, e))));
   if (warnings.length) bar.append(el("ul", { class: "warnlist" }, ...warnings.map((w) => el("li", {}, w))));
   return bar;
 }
 
-// The validation result floats in a fixed bar just below the sticky topbar,
-// so it stays visible while scrolling and doesn't shove the page content down.
+// The validation result floats below the sticky topbar without shifting page content.
 function positionValidationSlot() {
   const slot = $("#validation-slot");
   const bar = $(".topbar");
-  if (slot && bar) slot.style.top = (bar.offsetHeight + 8) + "px";
+  if (slot && bar) slot.style.top = (bar.offsetHeight + 14) + "px";
 }
 
 function renderValidation() {
@@ -623,6 +628,29 @@ async function doSave() {
   } catch (e) { btn.disabled = false; btn.textContent = "Save changes"; alert("Save failed: " + e.message); }
 }
 
+async function doExport() {
+  const button = $("#export-btn");
+  if (button) { button.disabled = true; button.textContent = "Exporting…"; }
+  try {
+    const result = await api("/api/prototypes/export", { method: "POST" });
+    alert(`Exported prototype:\n${result.path}`);
+  } catch (error) {
+    alert("Export failed: " + error.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = "Export"; }
+  }
+}
+
+async function doPublish() {
+  if (!window.confirm("Publish this prototype to GitHub Pages? This creates a commit on the gh-pages branch.")) return;
+  try {
+    const result = await api("/api/prototypes/publish", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    window.open(result.published.url, "_blank", "noopener");
+  } catch (error) {
+    alert("Publish failed: " + error.message);
+  }
+}
+
 function updateSourcePill() {
   const pill = $("#source-pill");
   if (!pill) return;
@@ -653,6 +681,25 @@ window.addEventListener("DOMContentLoaded", () => {
   $("#save-btn").addEventListener("click", doSave);
   $("#reload-btn").addEventListener("click", () => load());
   $("#validate-btn")?.addEventListener("click", doValidate);
+  $("#export-btn")?.addEventListener("click", doExport);
+  $("#publish-btn")?.addEventListener("click", () => {
+    $("#export-menu").hidden = true;
+    $("#export-menu-btn").setAttribute("aria-expanded", "false");
+    doPublish();
+  });
+  $("#export-menu-btn")?.addEventListener("click", () => {
+    const menu = $("#export-menu");
+    const open = menu.hidden;
+    menu.hidden = !open;
+    $("#export-menu-btn").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".split-button")) {
+      const menu = $("#export-menu");
+      if (menu) menu.hidden = true;
+      $("#export-menu-btn")?.setAttribute("aria-expanded", "false");
+    }
+  });
   for (const b of document.querySelectorAll("#theme-switch .theme-btn")) {
     b.addEventListener("click", () => setTheme(b.dataset.theme));
   }

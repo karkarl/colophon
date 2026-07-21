@@ -26,6 +26,8 @@ import { loadPrototypes, savePrototypes, applyOps, validatePrototypes, findScree
 import { buildOutline } from "./proto-outline.mjs";
 import { codegenScreen } from "./protocodegen.mjs";
 import { componentNames, COMPONENTS_FILENAME } from "./componentsio.mjs";
+import { buildPrototypeExportHtml, writePrototypeExport } from "./prototypeexport.mjs";
+import { publishPrototypeToPages } from "./pagespublish.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 let sessionRef = null;
@@ -106,6 +108,7 @@ const STATIC = {
   "/client.js": { file: "client.js", type: "text/javascript; charset=utf-8" },
   "/componentsio.mjs": { file: "componentsio.mjs", type: "text/javascript; charset=utf-8" },
   "/components-render.mjs": { file: "components-render.mjs", type: "text/javascript; charset=utf-8" },
+  "/components-runtime.js": { file: "components-runtime.js", type: "text/javascript; charset=utf-8" },
   "/proto.css": { file: "proto.css", type: "text/css; charset=utf-8" },
   "/proto-client.js": { file: "proto-client.js", type: "text/javascript; charset=utf-8" },
   "/proto-render.js": { file: "proto-render.js", type: "text/javascript; charset=utf-8" },
@@ -272,6 +275,32 @@ async function handle(entry, req, res) {
       const proto = await loadPrototypes(entry.workdir);
       const out = codegenScreen(proto.doc, screenId, design.tokens);
       return sendJson(res, 200, { ok: true, ...out });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/prototypes/export" && req.method === "POST") {
+    try {
+      const { design, proto, validation } = await loadProtoBundle(entry.workdir);
+      if (!validation.ok) return sendJson(res, 400, { error: `Cannot export an invalid prototype: ${validation.errors.join(" ")}`, validation });
+      const outline = buildOutline(proto.doc, { title: design.tokens?.brand?.name || "Prototype" });
+      const html = await buildPrototypeExportHtml({ design, proto, validation, outline });
+      const output = await writePrototypeExport(entry.workdir, html);
+      log(`Exported standalone prototype to ${output.path}`);
+      return sendJson(res, 200, { ok: true, ...output });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/prototypes/publish" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const { design, proto, validation } = await loadProtoBundle(entry.workdir);
+      if (!validation.ok) return sendJson(res, 400, { error: `Cannot publish an invalid prototype: ${validation.errors.join(" ")}`, validation });
+      const outline = buildOutline(proto.doc, { title: design.tokens?.brand?.name || "Prototype" });
+      const html = await buildPrototypeExportHtml({ design, proto, validation, outline });
+      const output = await writePrototypeExport(entry.workdir, html);
+      const published = await publishPrototypeToPages({ html, name: body?.name || design.tokens?.brand?.name || proto.doc?.meta?.name, workingDirectory: entry.workdir });
+      log(`Published prototype to ${published.url}`);
+      return sendJson(res, 200, { ok: true, export: output, published });
     } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
   }
 
@@ -491,6 +520,39 @@ const protoCanvas = createCanvas({
       },
     },
     {
+      name: "export",
+      description: "Write a self-contained, browser-openable interactive prototype to .agents/design/prototype-export/index.html. The export preserves themes, device frames, screens, and click-through interactions without Copilot or a web server.",
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
+        try {
+          const { design, proto, validation } = await loadProtoBundle(workdir);
+          if (!validation.ok) throw new CanvasError("export_failed", `Cannot export an invalid prototype: ${validation.errors.join(" ")}`);
+          const outline = buildOutline(proto.doc, { title: design.tokens?.brand?.name || "Prototype" });
+          const html = await buildPrototypeExportHtml({ design, proto, validation, outline });
+          return { ok: true, ...(await writePrototypeExport(workdir, html)) };
+        } catch (err) { if (err instanceof CanvasError) throw err; throw new CanvasError("export_failed", String(err.message || err)); }
+      },
+    },
+    {
+      name: "publish",
+      description: "Explicitly export and publish the prototype to this GitHub repository's gh-pages branch through the authenticated GitHub CLI/API. Does not stage or commit the active working tree.",
+      inputSchema: { type: "object", properties: { name: { type: "string", description: "Optional URL-safe name for this published prototype." }, workingDirectory: { type: "string" } }, additionalProperties: false },
+      handler: async (ctx) => {
+        const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
+        setWorkdir(workdir);
+        try {
+          const { design, proto, validation } = await loadProtoBundle(workdir);
+          if (!validation.ok) throw new CanvasError("publish_failed", `Cannot publish an invalid prototype: ${validation.errors.join(" ")}`);
+          const outline = buildOutline(proto.doc, { title: design.tokens?.brand?.name || "Prototype" });
+          const html = await buildPrototypeExportHtml({ design, proto, validation, outline });
+          const output = await writePrototypeExport(workdir, html);
+          const published = await publishPrototypeToPages({ html, name: ctx.input?.name || design.tokens?.brand?.name || proto.doc?.meta?.name, workingDirectory: workdir });
+          return { ok: true, export: output, published };
+        } catch (err) { if (err instanceof CanvasError) throw err; throw new CanvasError("publish_failed", String(err.message || err)); }
+      },
+    },
+    {
       name: "validate",
       description: "Validate prototypes.jsonc against the design system: dangling navigation targets, unknown component references, unknown token references. Writes nothing.",
       handler: async (ctx) => {
@@ -581,13 +643,14 @@ const designTool = {
 const protoTool = {
   name: "prototype",
   description:
-    "Author and inspect click-through UI prototypes for this repo, built from its design system (.agents/design/prototypes.jsonc). Use this to turn a described flow into screens the team can click through in the Prototype canvas, then convert a screen to code. The scene graph is framework-agnostic data (layout primitives + references to components.jsonc by name + navigation as data) — never shipping code. Actions: 'read' (Markdown flow outline), 'validate' (dangling nav / unknown components or tokens), 'patch' (surgical ops), 'codegen' (one screen to code for the port target).",
+    "Author, export, and inspect click-through UI prototypes for this repo, built from its design system (.agents/design/prototypes.jsonc). Use this to turn a described flow into screens the team can click through in the Prototype canvas, export a self-contained browser artifact, or publish it explicitly to GitHub Pages. The scene graph is framework-agnostic data (layout primitives + references to components.jsonc by name + navigation as data) — never shipping code.",
   inputSchema: {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["read", "validate", "patch", "codegen"], description: "read (default): flow outline. validate: check the graph. patch: apply ops + save. codegen: convert a screen." },
+      action: { type: "string", enum: ["read", "validate", "patch", "codegen", "export", "publish"], description: "read (default): flow outline. validate: check the graph. patch: apply ops + save. codegen: convert a screen. export: write standalone HTML. publish: explicitly deploy it to GitHub Pages." },
       ops: { type: "array", items: { type: "object" }, description: "For action=patch: ordered scene-graph ops (setState/setMeta/upsertScreen/deleteScreen/setNode/patchNode/deleteNode/insertNode/setNav)." },
       screenId: { type: "string", description: "For action=codegen: the screen id to convert." },
+      name: { type: "string", description: "For action=publish: optional URL-safe name for the published prototype." },
       workingDirectory: { type: "string", description: "Repo/working directory. Defaults to this session's repo." },
     },
     additionalProperties: false,
@@ -608,6 +671,19 @@ const protoTool = {
       const proto = await loadPrototypes(workdir);
       try { return codegenScreen(proto.doc, input?.screenId, design.tokens); }
       catch (err) { return { ok: false, error: String(err.message || err) }; }
+    }
+    if (action === "export" || action === "publish") {
+      const { design, proto, validation } = await loadProtoBundle(workdir);
+      if (!validation.ok) return { ok: false, error: `Cannot ${action} an invalid prototype: ${validation.errors.join(" ")}`, validation };
+      const outline = buildOutline(proto.doc, { title: design.tokens?.brand?.name || "Prototype" });
+      const html = await buildPrototypeExportHtml({ design, proto, validation, outline });
+      const output = await writePrototypeExport(workdir, html);
+      if (action === "export") return { ok: true, ...output };
+      try {
+        return { ok: true, export: output, published: await publishPrototypeToPages({ html, name: input?.name || design.tokens?.brand?.name || proto.doc?.meta?.name, workingDirectory: workdir }) };
+      } catch (err) {
+        return { ok: false, export: output, error: String(err.message || err) };
+      }
     }
     if (action === "validate") {
       const { proto, validation } = await loadProtoBundle(workdir);

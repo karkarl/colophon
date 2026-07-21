@@ -13,16 +13,23 @@ export function renderProtoShell() {
   <body>
     <div class="topbar">
       <h1>Prototype</h1>
-      <span id="source-pill" class="source-pill">loading…</span>
+      <button type="button" id="source-pill" class="source-pill">loading…</button>
       <span class="grow"></span>
+      <button type="button" id="reload-btn" class="btn icon-btn" aria-label="Reload from disk" title="Reload from disk">↻</button>
       <div id="theme-switch" class="theme-switch" role="group" aria-label="Preview theme">
         <button type="button" class="theme-btn is-active" data-theme="light" aria-pressed="true">Light</button>
         <button type="button" class="theme-btn" data-theme="dark" aria-pressed="false">Dark</button>
         <button type="button" class="theme-btn" data-theme="highContrast" aria-pressed="false">High&nbsp;contrast</button>
       </div>
-      <button type="button" id="outline-btn" class="btn" title="Show the flow outline">Outline</button>
+      <button type="button" id="outline-btn" class="btn" title="Show the flow outline" aria-pressed="false">Outline</button>
       <button type="button" id="validate-btn" class="btn" title="Validate the prototype">Validate</button>
-      <button type="button" id="reload-btn" class="btn" title="Reload from disk">Reload</button>
+      <div class="split-button">
+        <button type="button" id="export-btn" class="btn primary" title="Write a standalone HTML export">Export</button>
+        <button type="button" id="export-menu-btn" class="btn primary split-toggle" aria-label="Export options" aria-expanded="false" aria-haspopup="menu">▾</button>
+        <div id="export-menu" class="split-menu" role="menu" hidden>
+          <button type="button" id="publish-btn" role="menuitem">Publish to GitHub Pages</button>
+        </div>
+      </div>
     </div>
 
     <div class="devbar">
@@ -50,11 +57,13 @@ export function renderProtoShell() {
       </label>
     </div>
 
-    <div id="validation-slot" aria-live="polite"></div>
     <div id="outline-slot"></div>
-    <div class="stage"><div id="frame-wrap" class="frame-wrap"></div></div>
+    <div class="stage">
+      <div id="validation-slot" aria-live="polite"></div>
+      <div id="frame-wrap" class="frame-wrap"></div>
+    </div>
 
-    <script type="module" src="/components-render.mjs"></script>
+    <script src="/components-runtime.js"></script>
     <script src="/proto-render.js"></script>
     <script src="/proto-client.js"></script>
   </body>

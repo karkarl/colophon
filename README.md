@@ -119,7 +119,24 @@ convert a screen to code.
   targets WinUI/SwiftUI — reusing the same port mechanism as the design system.
 - **`prototype` tool** — Copilot authors and reads prototypes from conversation:
   `action` of `read` (flow outline), `validate` (dangling navigation / unknown components or
-  tokens), `patch` (surgical scene-graph ops), or `codegen` (convert a screen).
+  tokens), `patch` (surgical scene-graph ops), `codegen` (convert a screen), `export`
+  (standalone browser artifact), or `publish` (explicit GitHub Pages deployment).
+
+### Sharing a design system or prototype
+
+| Audience | Share this | What they need |
+| --- | --- | --- |
+| Designers and developers | Commit `.agents/design/` and open a pull request | Repository access; they can open the Colophon and Prototype canvases in Copilot. |
+| Someone continuing the agent work | Share the Copilot agent session from the repository's **Agents** view | Repository access. A session is useful for context and hand-off, not as a public presentation. |
+| Stakeholders and reviewers | Use **Export** in the Prototype canvas | The generated `.agents/design/prototype-export/index.html` is a self-contained, interactive file that opens in any modern browser. |
+| A broad browser audience | Use **Publish** in the Prototype canvas | GitHub authentication with repository admin access. Colophon writes only its generated file to `gh-pages` and opens the resulting GitHub Pages URL. |
+| A team adopting the canvas extension | Share the extension as a private GitHub gist | The recipient can install the gist through Copilot, then open it in their own workspace. |
+
+**Export** is the safe default: it preserves screens, device frames, themes, click-through
+interactions, and component rendering without a Copilot session, a loopback server, or an
+internet connection. **Publish** is intentionally separate and asks for confirmation. It uses
+the authenticated GitHub CLI/API, never stages or commits the active working tree, and refuses
+to overwrite a GitHub Pages configuration that is not already based on `gh-pages`.
 
 ## Agent/host-facing actions
 **Colophon canvas:**
@@ -135,6 +152,10 @@ convert a screen to code.
   `setNav`, …) and save.
 - `validate` — dangling navigation targets, unknown component/token references.
 - `codegen` — convert a screen to code for the configured port target.
+- `export` — write a self-contained interactive `prototype-export/index.html` below
+  `.agents/design/`.
+- `publish` — explicitly export and publish to the repository's `gh-pages` branch via the
+  authenticated GitHub CLI/API, without touching the active working tree.
 - `refresh` — tell the open canvas to reload from disk.
 
 ## Repo layout
@@ -152,10 +173,13 @@ extensions/colophon/              the canvas extension:
   styles.css      canvas chrome + the ds-* component runtime (from tokens)
   prototypeio.mjs  load / save / surgically patch / validate prototypes.jsonc (scene graph)
   proto-render.js  in-canvas JSON→DOM interpreter + interaction/state runtime
+  components-runtime.js  browser-only component runtime used by standalone exports
   proto-client.js  the Prototype canvas app (device frames, screen switcher, click-through)
   proto-renderer.mjs / proto.css   prototype iframe shell + device-frame styles
   proto-outline.mjs                Markdown flow-outline generator
   protocodegen.mjs                 convert a screen to code for the port target
+  prototypeexport.mjs              standalone HTML export writer
+  pagespublish.mjs                 explicit GitHub Pages publisher
   sample/         bundled starter design system + sample prototypes.jsonc
 ```
 

@@ -49,12 +49,13 @@ function findDevice(id) {
   return DEVICES[0].items[0];
 }
 
-let state = { design: null, proto: null, runtime: null, deviceId: "iphone-15", w: 393, h: 852, zoom: "fit", theme: "light", validation: null, showOutline: false };
+let state = { design: null, proto: null, runtime: null, deviceId: "iphone-15", w: 393, h: 852, zoom: "fit", theme: "light", validation: null, showOutline: false, showValidation: false, exportPath: null };
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
-  return res.headers.get("content-type")?.includes("json") ? res.json() : res.text();
+  const payload = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(payload?.error || `${path} -> ${res.status}`);
+  return payload;
 }
 
 // ---- component definitions (rendered by window.DSComp, a pure JSON interpreter) ----
@@ -215,23 +216,66 @@ function setDevice(id) {
 function renderValidation() {
   const slot = $("#validation-slot");
   slot.innerHTML = "";
+  if (!state.showValidation) return;
   const v = state.validation;
   if (!v) return;
-  if (state.proto?.parseError) slot.append(el("div", { class: "vmsg err" }, `Parse error: ${state.proto.parseError}`));
-  for (const e of v.errors || []) slot.append(el("div", { class: "vmsg err" }, e));
-  for (const w of v.warnings || []) slot.append(el("div", { class: "vmsg warn" }, w));
-  if (v.ok && !(v.warnings || []).length && !state.proto?.parseError) slot.append(el("div", { class: "vmsg ok" }, "No issues — navigation, components, and tokens all resolve."));
+  const messages = [];
+  if (state.proto?.parseError) messages.push(["err", `Parse error: ${state.proto.parseError}`]);
+  for (const error of v.errors || []) messages.push(["err", error]);
+  for (const warning of v.warnings || []) messages.push(["warn", warning]);
+  if (!messages.length) messages.push(["ok", "No issues — navigation, components, and tokens all resolve."]);
+
+  const close = el("button", { class: "validation-close", type: "button", "aria-label": "Dismiss validation results", title: "Dismiss" }, "×");
+  close.addEventListener("click", () => { state.showValidation = false; renderValidation(); });
+  slot.append(el("div", { class: "validation-popover" },
+    el("div", { class: "validation-heading" }, "Validation", close),
+    messages.map(([kind, message]) => el("div", { class: `vmsg ${kind}` }, message))));
 }
 async function toggleOutline() {
   const slot = $("#outline-slot");
-  if (slot.innerHTML) { slot.innerHTML = ""; return; }
-  try { const { markdown } = await api("/api/prototypes/outline"); slot.append(el("pre", {}, markdown || "No screens yet.")); }
-  catch (e) { slot.append(el("pre", {}, "Outline failed: " + (e.message || e))); }
+  state.showOutline = !state.showOutline;
+  $("#outline-btn").classList.toggle("is-active", state.showOutline);
+  $("#outline-btn").setAttribute("aria-pressed", String(state.showOutline));
+  if (!state.showOutline) { slot.innerHTML = ""; return; }
+  try {
+    const exported = window.__COLOPHON_PROTOTYPE_EXPORT__;
+    const markdown = exported ? exported.outline : (await api("/api/prototypes/outline")).markdown;
+    slot.append(el("pre", {}, markdown || "No screens yet."));
+  }
+  catch (e) {
+    slot.append(el("pre", {}, "Outline failed: " + (e.message || e)));
+  }
+}
+
+function renderSourcePill() {
+  const pill = $("#source-pill");
+  if (state.exportPath) {
+    pill.textContent = `Exported: ${state.exportPath}`;
+    pill.title = `${state.exportPath}\nClick to copy`;
+    pill.classList.add("repo", "copyable");
+    return;
+  }
+  pill.textContent = window.__COLOPHON_PROTOTYPE_EXPORT__ ? "Standalone export" : state.proto?.source === "repo" ? ".agents/design/prototypes.jsonc" : "starter (sample)";
+  pill.title = "";
+  pill.classList.toggle("repo", !!window.__COLOPHON_PROTOTYPE_EXPORT__ || state.proto?.source === "repo");
+  pill.classList.remove("copyable");
+}
+
+async function copyExportPath() {
+  if (!state.exportPath) return;
+  try {
+    await navigator.clipboard.writeText(state.exportPath);
+    const pill = $("#source-pill");
+    pill.textContent = "Copied export path";
+    setTimeout(renderSourcePill, 1400);
+  } catch (error) {
+    $("#source-pill").title = `Could not copy automatically. Path: ${state.exportPath}`;
+  }
 }
 
 // ---- load ------------------------------------------------------------------
 async function load() {
-  const data = await api("/api/prototypes");
+  const data = window.__COLOPHON_PROTOTYPE_EXPORT__ || await api("/api/prototypes");
   await whenDSComp();
   state.design = data.design;
   state.proto = data.proto;
@@ -244,11 +288,8 @@ async function load() {
   const firstDevice = data.proto.doc.screens?.[0]?.device;
   if (firstDevice && findDevice(firstDevice).id === firstDevice) { state.deviceId = firstDevice; const d = findDevice(firstDevice); state.w = d.w; state.h = d.h; }
 
-  const pill = $("#source-pill");
-  pill.textContent = data.proto.source === "repo" ? ".agents/design/prototypes.jsonc" : "starter (sample)";
-  pill.classList.toggle("repo", data.proto.source === "repo");
-
-  if (state.runtime.buildError) $("#source-pill").title = "Component preview build error: " + state.runtime.buildError;
+  renderSourcePill();
+  if (!state.exportPath && state.runtime.buildError) $("#source-pill").title = "Component preview build error: " + state.runtime.buildError;
 
   fillDeviceSelect(); syncSizeInputs(); fillScreenSelect(); applyVars(); renderValidation(); renderFrame();
 }
@@ -261,9 +302,44 @@ function wire() {
   $("#zoom-select").addEventListener("change", (e) => { state.zoom = e.target.value === "fit" ? "fit" : parseFloat(e.target.value); applyZoom(); });
   $("#screen-select").addEventListener("change", (e) => state.runtime?.setScreen(e.target.value));
   $("#back-btn").addEventListener("click", () => state.runtime?.dispatch({ back: true }));
-  $("#reload-btn").addEventListener("click", () => load().catch((e) => console.error(e)));
-  $("#validate-btn").addEventListener("click", () => { const slot = $("#validation-slot"); slot.innerHTML ? (slot.innerHTML = "") : renderValidation(); });
+  $("#reload-btn").addEventListener("click", () => {
+    if (window.__COLOPHON_PROTOTYPE_EXPORT__) window.location.reload();
+    else load().catch((e) => console.error(e));
+  });
+  $("#validate-btn").addEventListener("click", () => { state.showValidation = true; renderValidation(); });
   $("#outline-btn").addEventListener("click", () => toggleOutline().catch((e) => console.error(e)));
+  $("#source-pill").addEventListener("click", () => copyExportPath());
+  $("#export-btn")?.addEventListener("click", async () => {
+    try {
+      const result = await api("/api/prototypes/export", { method: "POST" });
+      state.exportPath = result.path;
+      renderSourcePill();
+    } catch (e) { $("#source-pill").textContent = "Export failed"; $("#source-pill").title = e.message || String(e); }
+  });
+  $("#publish-btn")?.addEventListener("click", async () => {
+    $("#export-menu").hidden = true;
+    $("#export-menu-btn").setAttribute("aria-expanded", "false");
+    if (!window.confirm("Publish this prototype to GitHub Pages? This creates a commit on the gh-pages branch.")) return;
+    try {
+      const result = await api("/api/prototypes/publish", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      state.exportPath = result.export.path;
+      renderSourcePill();
+      window.open(result.published.url, "_blank", "noopener");
+    } catch (e) { $("#source-pill").textContent = "Publish failed"; $("#source-pill").title = e.message || String(e); }
+  });
+  $("#export-menu-btn")?.addEventListener("click", () => {
+    const menu = $("#export-menu");
+    const open = menu.hidden;
+    menu.hidden = !open;
+    $("#export-menu-btn").setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".split-button")) {
+      const menu = $("#export-menu");
+      if (menu) menu.hidden = true;
+      $("#export-menu-btn")?.setAttribute("aria-expanded", "false");
+    }
+  });
 
   for (const btn of document.querySelectorAll(".theme-btn")) {
     btn.addEventListener("click", () => {
@@ -275,11 +351,12 @@ function wire() {
 
   window.addEventListener("resize", () => { if (state.zoom === "fit") applyZoom(); });
 
-  // Live reload when the file changes on disk.
-  try {
-    const es = new EventSource("/events");
-    es.addEventListener("changed", () => load().catch(() => {}));
-  } catch { /* no SSE */ }
+  if (!window.__COLOPHON_PROTOTYPE_EXPORT__) {
+    try {
+      const es = new EventSource("/events");
+      es.addEventListener("changed", () => load().catch(() => {}));
+    } catch { /* no SSE */ }
+  }
 }
 
 wire();
