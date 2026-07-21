@@ -16,13 +16,20 @@ export function renderShell() {
       <h1>Design System</h1>
       <span id="source-pill" class="source-pill">loading…</span>
       <span class="grow"></span>
+      <button type="button" id="reload-btn" class="btn icon-btn" aria-label="Reload from disk" title="Reload from disk">↻</button>
       <div id="theme-switch" class="theme-switch" role="group" aria-label="Preview theme">
         <button type="button" class="theme-btn is-active" data-theme="light" aria-pressed="true" title="Light theme preview">Light</button>
         <button type="button" class="theme-btn" data-theme="dark" aria-pressed="false" title="Dark theme preview">Dark</button>
         <button type="button" class="theme-btn" data-theme="highContrast" aria-pressed="false" title="High-contrast theme preview">High&nbsp;contrast</button>
       </div>
       <button type="button" id="validate-btn" class="btn" title="Validate the design system for drift">Validate</button>
-      <button type="button" id="reload-btn" class="btn" title="Reload from disk">Reload</button>
+      <div class="split-button">
+        <button type="button" id="export-btn" class="btn primary" title="Write a standalone HTML export">Export</button>
+        <button type="button" id="export-menu-btn" class="btn primary split-toggle" aria-label="Export options" aria-expanded="false" aria-haspopup="menu">▾</button>
+        <div id="export-menu" class="split-menu" role="menu" hidden>
+          <button type="button" id="publish-btn" role="menuitem">Publish to GitHub Pages</button>
+        </div>
+      </div>
       <button type="button" id="save-btn" class="btn primary" disabled>Save to repo</button>
     </div>
     <div id="validation-slot" aria-live="polite"></div>
