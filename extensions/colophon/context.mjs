@@ -7,6 +7,11 @@
 
 import { colorList, readAuthority, portLines, DESIGN_SUBPATH } from "./designio.mjs";
 
+// One-line pointer to the prototype feature, woven into the UI-work context so Copilot
+// knows it can build click-through mockups instead of one-off static UI.
+const PROTO_HINT =
+  `To design a flow before writing code, build a click-through prototype from this design system: use the "prototype" tool (action=patch to author screens, codegen to convert one to code) and open the "Prototype" canvas to click through it in web/desktop/mobile/tablet frames. Prototypes live at ${DESIGN_SUBPATH}/prototypes.jsonc.`;
+
 const UI_TERMS = [
   "ui", "ux", "page", "screen", "view", "component", "layout", "design",
   "style", "styling", "css", "tailwind", "theme", "color", "colour", "palette",
@@ -15,6 +20,7 @@ const UI_TERMS = [
   "responsive", "spacing", "icon", "brand", "frontend", "front-end", "react",
   "vue", "svelte", "html", "figma", "accessib", "a11y", "dark mode", "menu",
   "table", "chart", "badge", "tooltip", "toast", "banner", "widget", "onboarding",
+  "mockup", "mock-up", "prototype", "click-through", "clickthrough", "wireframe", "flow",
 ];
 
 const BUILD_TERMS = [
@@ -64,8 +70,8 @@ export function buildSummary(design) {
   if (authority.hasPort) {
     lines.push(
       "Authority: these files are the source of truth for DESIGN (tokens, component intent, principles) " +
-      "and are framework-agnostic — components.jsx is design intent for preview, not shipping code. The " +
-      "shipping implementation below is canonical; treat token values and components.jsx as derived examples. " +
+      "and are framework-agnostic — components.jsonc is design intent for preview, not shipping code. The " +
+      "shipping implementation below is canonical; treat token values and components.jsonc as derived examples. " +
       "To ship, port the design into this app's implementation via the port target(s) below:"
     );
     for (const l of portLines(authority, { bullet: "  - " })) lines.push(l);
@@ -111,7 +117,7 @@ export function buildSummary(design) {
   }
 
   if (design.componentsSource) {
-    lines.push(`Component patterns are documented in ${DESIGN_SUBPATH}/components.jsx — match those patterns and class/token names.`);
+    lines.push(`Component patterns are documented in ${DESIGN_SUBPATH}/components.jsonc — match those patterns and class/token names.`);
   }
   if (design.principlesMarkdown) {
     lines.push(`Prose guidance: ${DESIGN_SUBPATH}/principles.md — ${firstLine(design.principlesMarkdown.replace(/^#.*$/m, ""))}`);
@@ -127,14 +133,14 @@ export function sessionStartContext(design) {
     if (authority.hasPort) {
       const targets = portLines(authority, { bullet: "" }).join("; ");
       return [
-        `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}). These files are the source of truth for DESIGN and are framework-agnostic — components.jsx is design intent for preview, not shipping code, and the color hex values are preview-only swatches.`,
-        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
+        `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}). These files are the source of truth for DESIGN and are framework-agnostic — components.jsonc is design intent for preview, not shipping code, and the color hex values are preview-only swatches.`,
+        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
         `You can open the "Colophon" canvas to view/edit it (with Light/Dark/High-contrast preview), or call the colophon tool for a text summary.`,
       ].join(" ");
     }
     return [
       `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
-      `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsx, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
+      `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
       `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
     ].join(" ");
   }
@@ -152,6 +158,7 @@ export function promptContext(design) {
   return [
     head,
     "Consult it before writing UI: use the colophon tool (or read the files) and honor its color, typography, spacing, radius tokens, component patterns, principles, and anti-references.",
+    PROTO_HINT,
     "Here is the current design system for quick reference:",
     "",
     buildSummary(design),

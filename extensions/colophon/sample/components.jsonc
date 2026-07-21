@@ -1,0 +1,115 @@
+// components.jsonc — the UI patterns your team has already decided on, as data.
+//
+// This is a framework-agnostic *element tree*, not shipping code. It renders live in
+// the Design System and Prototype canvases, and Copilot reads it to match the house
+// style when it builds new UI. Being structured (not JSX) means Copilot can restructure
+// a component surgically without ever producing a syntax error, and it ports cleanly to
+// web / WinUI / SwiftUI because nodes are semantic, never executable JS.
+//
+// A component is a named template:
+//   { "name": "Button",
+//     "props": { "variant": "primary" },          // declared props + their defaults
+//     "root": <node> }                             // one root node
+//
+// Node kinds (one discriminator key each):
+//   element   { "el": "button", "class": "ds-btn ds-btn-{variant}", "attrs": { ... }, "children": [ ... ] }
+//   component { "component": "Badge", "props": { "tone": "positive" } }   // name must exist below
+//   string    "Save changes"                                             // literal, or "{prop}" to interpolate
+//
+// Interpolation: "{propName}" inside a class, an attribute value, or a string child is
+// replaced with that prop's value. Write "{{" / "}}" for literal braces.
+// Style with the ds-* classes + CSS variables the system generates from design.json
+// (var(--color-accent), var(--space-4), var(--radius-md), var(--font-display), …).
+{
+  "meta": {
+    "version": 1,
+    "updatedBy": "starter",
+    "note": "Component patterns for the Northlight system. Edit in the Design System canvas or by hand."
+  },
+
+  "components": [
+    {
+      "name": "Button",
+      "note": "Primary action. One per view — it's where the eye should land.",
+      "props": { "children": "Save changes", "variant": "primary" },
+      "root": { "el": "button", "class": "ds-btn ds-btn-{variant}", "children": ["{children}"] }
+    },
+
+    {
+      "name": "Field",
+      "note": "Text input with a label above it. Labels are quiet; the field is the subject.",
+      "props": { "label": "Project name", "placeholder": "Northlight" },
+      "root": {
+        "el": "label",
+        "class": "ds-field",
+        "children": [
+          { "el": "span", "class": "ds-field-label", "children": ["{label}"] },
+          { "el": "input", "class": "ds-input", "attrs": { "placeholder": "{placeholder}" } }
+        ]
+      }
+    },
+
+    {
+      "name": "Card",
+      "note": "Content card. Flat by default — a hairline border, not a drop shadow. Never nest a card inside another card.",
+      "props": { "title": "Weekly digest", "body": "12 changes across 3 repos." },
+      "root": {
+        "el": "article",
+        "class": "ds-card",
+        "children": [
+          { "el": "h3", "class": "ds-card-title", "children": ["{title}"] },
+          { "el": "p", "class": "ds-card-body", "children": ["{body}"] },
+          { "el": "a", "class": "ds-link", "attrs": { "href": "#" }, "children": ["Open report →"] }
+        ]
+      }
+    },
+
+    {
+      "name": "Badge",
+      "note": "Status pill. Uses semantic color tokens, never a raw hex.",
+      "props": { "children": "Live", "tone": "positive" },
+      "root": { "el": "span", "class": "ds-badge ds-badge-{tone}", "children": ["{children}"] }
+    },
+
+    {
+      "name": "ExampleScreen",
+      "note": "A representative screen composed from the pieces above — the 'does it hang together' check for the whole system.",
+      "root": {
+        "el": "section",
+        "class": "ds-screen",
+        "children": [
+          {
+            "el": "header",
+            "class": "ds-screen-head",
+            "children": [
+              {
+                "el": "div",
+                "children": [
+                  { "el": "p", "class": "ds-eyebrow", "children": ["Workspace"] },
+                  { "el": "h2", "class": "ds-screen-title", "children": ["Good morning, Rowan"] }
+                ]
+              },
+              { "component": "Badge", "props": { "children": "All systems normal", "tone": "positive" } }
+            ]
+          },
+          {
+            "el": "div",
+            "class": "ds-grid",
+            "children": [
+              { "component": "Card", "props": { "title": "Deploys", "body": "3 shipped today. Last one 20 minutes ago." } },
+              { "component": "Card", "props": { "title": "Review queue", "body": "2 PRs waiting on you." } }
+            ]
+          },
+          {
+            "el": "div",
+            "class": "ds-row",
+            "children": [
+              { "component": "Field", "props": { "label": "Invite a teammate", "placeholder": "name@company.com" } },
+              { "component": "Button", "props": { "children": "Send invite", "variant": "primary" } }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

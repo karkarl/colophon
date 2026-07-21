@@ -14,8 +14,10 @@ automatically.
 Colophon ships two halves in one plugin:
 - a **skill** (`skills/colophon/`) that tells Copilot to treat `.agents/design/` as
   the design source and build UI from its tokens, components, and principles; and
-- a **canvas extension** (`extensions/colophon/`) that renders and edits the system
-  live, and exposes a `colophon` tool + hooks so the agent always has it in context.
+- a **canvas extension** (`extensions/colophon/`) with two canvases — one that renders
+  and edits the system live, and a **Prototype** canvas that generates device-framed,
+  click-through mockups from it — plus `colophon`/`prototype` tools and hooks so the
+  agent always has the design system in context.
 
 ## How it works
 
@@ -23,7 +25,7 @@ Colophon ships two halves in one plugin:
 | File | What it is |
 | --- | --- |
 | `design.json` | Tokens: authority, brand, colors, typography, spacing, radii, shadows, principles |
-| `components.jsx` | "Pseudocode React" — the component patterns your team has agreed on |
+| `components.jsonc` | A structured element-tree (JSON + comments) — the component patterns your team has agreed on |
 | `principles.md` | Prose voice / information hierarchy / do & don't |
 
 These are plain files. Commit them, review them in PRs, edit them by hand or in the canvas.
@@ -31,7 +33,7 @@ These are plain files. Commit them, review them in PRs, edit them by hand or in 
 #### Design vs. port — the design leads, the implementation ships
 
 The design files are always the **source of truth for design** — tokens, component
-intent, and principles — and are framework-agnostic. `components.jsx` is design
+intent, and principles — and are framework-agnostic. `components.jsonc` is design
 intent for the canvas preview, **not** shipping code. What varies is how a design
 becomes shipping code, which `design.json` records in an `authority` block:
 
@@ -46,13 +48,14 @@ source of truth (web/JSX repos) — Colophon's original behavior, unchanged. Sca
 a repo with no web styling (a native/XAML app) pre-fills a port target for you to
 complete. The skill, the injected context, and the `AGENTS.md` pointer all reflect
 these port targets, so agents know what each surface ships as and which skill to
-port the design with — they never ship `components.jsx` verbatim.
+port the design with — they never ship `components.jsonc` verbatim.
 
 ### 2. The canvas renders + edits it
 Open the **Design System** canvas to see the system rendered live:
 - Brand board, color palette, type scale, spacing/radii/shadows, principles.
-- **Live component previews** — `components.jsx` is compiled (React + Babel) and rendered
-  using the system's own tokens, so you see real UI, not just code.
+- **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM
+  interpreter (no React, no Babel, works offline) using the system's own tokens, so you see
+  real UI, not just code.
 - **Inline editing** — change a color/font/brand text and **Save to repo** writes
   `design.json` back. File edits stream back into the canvas via SSE.
 
@@ -68,7 +71,7 @@ When there's no `.agents/design/`, choose how to start; refine everything in the
 | **Scan codebase** | Walks the repo's CSS/JSX/styles and extracts colors (prefers named CSS vars), fonts, spacing, radii, shadows — classifying unnamed colors into ink/paper/accent. Loads as a **proposal** to refine, then Save. |
 
 Starter/scratch write straight to `.agents/design/`; import/scan load an **unsaved proposal** with a
-review bar (**Save to repo** / **Discard**). Any first save also scaffolds `components.jsx` +
+review bar (**Save to repo** / **Discard**). Any first save also scaffolds `components.jsonc` +
 `principles.md`, and drops an idempotent **`AGENTS.md` pointer** at the repo root (see below).
 
 ### 2c. Seeding also writes an `AGENTS.md` pointer
@@ -91,10 +94,45 @@ the block in place otherwise — never touching your other content. The block is
   UI-related prompts ("build a settings page", "fix the button styling") and injects the
   design system so the model honors your tokens, patterns, and anti-references.
 
+### 4. Prototype canvas: click-through mockups from the design system
+A second canvas turns the design system into **click-through prototypes** — so a team can
+shape a flow by talking to Copilot instead of redlining in Figma, review it visually, then
+convert a screen to code.
+
+- **Format** — prototypes live at `.agents/design/prototypes.jsonc`: a framework-agnostic
+  **scene graph** (layout primitives + references to your `components.jsonc` by name +
+  **navigation as data**), never shipping code. It's pure data, so it renders safely and
+  Copilot can patch a single node by id without rewriting the file. Every save re-emits a
+  stable, key-ordered file plus a Markdown flow outline for painless PR review.
+- **Device frames** — preview each screen in web breakpoints, desktop-app windows
+  (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with
+  custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including
+  native app chrome.
+- **Interactions (v1)** — navigate between screens, simple state (toggles, tabs),
+  open/close modals, and visibility bound to state. Click through it live in the canvas,
+  rendered with your real tokens + components in Light/Dark/High-contrast.
+- **Convert to code** — a first-pass `codegen` action emits code for the screen: faithful
+  React/JSX (using your `ds-*` classes + components) when the design *is* the
+  implementation, or a native hand-off scaffold + porting notes when `authority.port`
+  targets WinUI/SwiftUI — reusing the same port mechanism as the design system.
+- **`prototype` tool** — Copilot authors and reads prototypes from conversation:
+  `action` of `read` (flow outline), `validate` (dangling navigation / unknown components or
+  tokens), `patch` (surgical scene-graph ops), or `codegen` (convert a screen).
+
 ## Agent/host-facing actions
+**Colophon canvas:**
 - `read` — return the current system as a text summary.
 - `init` — scaffold `.agents/design/` (non-destructive); `mode: "starter" | "scratch"`.
 - `scan` — scan existing UI and return a proposed system (text + evidence); writes nothing.
+- `validate` — schema/parse + component checks; writes nothing.
+- `refresh` — tell the open canvas to reload from disk.
+
+**Prototype canvas:**
+- `read` / `outline` — return the Markdown flow outline (screens, nodes, navigation).
+- `patch` — apply surgical scene-graph ops (`upsertScreen`, `setNode`, `patchNode`,
+  `setNav`, …) and save.
+- `validate` — dangling navigation targets, unknown component/token references.
+- `codegen` — convert a screen to code for the configured port target.
 - `refresh` — tell the open canvas to reload from disk.
 
 ## Repo layout
@@ -103,21 +141,31 @@ plugin.json                       plugin manifest (skills + extensions)
 .github/plugin/marketplace.json   makes this repo its own plugin marketplace
 skills/colophon/SKILL.md          the "build UI from .agents/design/" skill
 extensions/colophon/              the canvas extension:
-  extension.mjs   wiring: canvas + tool + hooks + loopback server + file IO
+  extension.mjs   wiring: canvases + tools + hooks + loopback server + file IO
   designio.mjs    locate / load / scaffold / save .agents/design/ ; AGENTS.md pointer ; token → CSS vars
   context.mjs     UI-intent detection + the summary/context text Copilot receives
   sources.mjs     seed generators: scratch skeleton, token importer, codebase scanner
-  renderer.mjs    tiny iframe shell
+  renderer.mjs    tiny iframe shell (design canvas)
   client.js       the in-canvas inspector app (onboarding, render, edit, live previews)
   styles.css      canvas chrome + the ds-* component runtime (from tokens)
-  sample/         bundled starter design system
+  prototypeio.mjs  load / save / surgically patch / validate prototypes.jsonc (scene graph)
+  proto-render.js  in-canvas JSON→DOM interpreter + interaction/state runtime
+  proto-client.js  the Prototype canvas app (device frames, screen switcher, click-through)
+  proto-renderer.mjs / proto.css   prototype iframe shell + device-frame styles
+  proto-outline.mjs                Markdown flow-outline generator
+  protocodegen.mjs                 convert a screen to code for the port target
+  sample/         bundled starter design system + sample prototypes.jsonc
 ```
 
 ## Notes & limitations (experimental)
-- Live component previews load React + Babel from a CDN; offline, previews fall back to
-  showing source. (Vendoring these locally is a possible next step.)
-- Editing currently covers tokens (colors, fonts, brand). Editing `components.jsx` /
+- Component and prototype previews render with a pure in-canvas JSON→DOM interpreter, so
+  they work fully offline — no CDN, no React/Babel.
+- Editing currently covers tokens (colors, fonts, brand). Editing `components.jsonc` /
   `principles.md` is done in your editor for now.
+- Prototypes are authored by Copilot (via the `prototype` tool) or by hand-editing
+  `prototypes.jsonc`; the canvas is preview + click-through, not yet a drag-and-drop
+  editor. Native `codegen` is a best-effort hand-off scaffold; the web/React target is
+  deterministic.
 - Canvas APIs are an experimental SDK surface and may change.
 
 ## Install
@@ -141,7 +189,8 @@ You can also declare it in `~/.copilot/settings.json` (all repos) or a repo's
 `~/.copilot/extensions/colophon/`, or point the `install_extension` tool at
 `https://github.com/karkarl/colophon/tree/main/extensions/colophon`.
 
-After installing, reload Copilot (or restart it) and open the **Colophon** canvas.
+After installing, reload Copilot (or restart it) and open the **Colophon** canvas — or
+the **Prototype** canvas to build click-through mockups.
 
 ## License
 

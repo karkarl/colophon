@@ -1,9 +1,9 @@
 // designio.mjs — locate, load, scaffold, and save the in-repo design system.
 //
 // The design system lives at <workspace>/.agents/design/:
-//   design.json     tokens (brand, colors, typography, spacing, radii, shadows, principles)
-//   components.jsx  pseudocode-React component patterns
-//   principles.md   prose voice / do & don't
+//   design.json       tokens (brand, colors, typography, spacing, radii, shadows, principles)
+//   components.jsonc   component patterns as a framework-agnostic element tree
+//   principles.md      prose voice / do & don't
 //
 // When a workspace has no .agents/design/ yet, we fall back to the bundled
 // sample so the canvas always renders something and `init` can seed a repo.
@@ -11,6 +11,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { COMPONENTS_FILENAME, parseComponents, emptyComponents } from "./componentsio.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_DIR = path.join(HERE, "sample");
@@ -64,7 +65,7 @@ export async function loadDesign(workspacePath) {
     tokens = JSON.parse(await fs.readFile(path.join(SAMPLE_DIR, "design.json"), "utf8"));
   }
 
-  const components = await readIfPresent(path.join(baseDir, "components.jsx"));
+  const compInfo = await loadComponentsFrom(baseDir);
   const principles = await readIfPresent(path.join(baseDir, "principles.md"));
 
   return {
@@ -73,15 +74,38 @@ export async function loadDesign(workspacePath) {
     workspacePath: workspacePath || null,
     parseError,
     tokens,
-    componentsSource: components || "",
+    componentsSource: compInfo.text,
+    componentsDoc: compInfo.doc,
+    componentsFormat: compInfo.format,
+    componentsError: compInfo.error,
     principlesMarkdown: principles || "",
   };
 }
 
-// Ensure the sibling scaffold files (components.jsx, principles.md) exist so any
+// Read the components definition, preferring the current components.jsonc format and
+// falling back to a legacy components.jsx (exposed as raw text with format "jsx" and a
+// null doc, so the canvas can show it read-only and prompt a migration). Returns
+// { text, format: "jsonc" | "jsx" | null, doc, error }.
+async function loadComponentsFrom(baseDir) {
+  const jsoncRaw = await readIfPresent(path.join(baseDir, COMPONENTS_FILENAME));
+  if (jsoncRaw != null) {
+    try {
+      return { text: jsoncRaw, format: "jsonc", doc: parseComponents(jsoncRaw), error: null };
+    } catch (err) {
+      return { text: jsoncRaw, format: "jsonc", doc: emptyComponents(), error: String(err && err.message ? err.message : err) };
+    }
+  }
+  const jsxRaw = await readIfPresent(path.join(baseDir, "components.jsx"));
+  if (jsxRaw != null) {
+    return { text: jsxRaw, format: "jsx", doc: null, error: null };
+  }
+  return { text: "", format: null, doc: emptyComponents(), error: null };
+}
+
+// Ensure the sibling scaffold files (components.jsonc, principles.md) exist so any
 // first save/init yields a complete .agents/design/. Returns the names written.
 async function ensureSiblings(dir, { force = false, only } = {}) {
-  const files = only || ["components.jsx", "principles.md"];
+  const files = only || [COMPONENTS_FILENAME, "principles.md"];
   const written = [];
   for (const name of files) {
     const dest = path.join(dir, name);
@@ -94,7 +118,7 @@ async function ensureSiblings(dir, { force = false, only } = {}) {
 
 // Scaffold <workspace>/.agents/design/ (non-destructive). By default copies the
 // bundled starter. Pass `tokens` to seed design.json from a specific token object
-// (used by "from scratch", import, and scan). components.jsx + principles.md are
+// (used by "from scratch", import, and scan). components.jsonc + principles.md are
 // always scaffolded from the sample so teams have patterns/prose to edit.
 export async function initDesign(workspacePath, { force = false, tokens = null } = {}) {
   const dir = designDirFor(workspacePath);
@@ -115,7 +139,7 @@ export async function initDesign(workspacePath, { force = false, tokens = null }
     written.push("design.json");
   }
 
-  for (const name of ["components.jsx", "principles.md"]) {
+  for (const name of [COMPONENTS_FILENAME, "principles.md"]) {
     const dest = path.join(dir, name);
     if (!force && (await exists(dest))) { skipped.push(name); continue; }
     await fs.copyFile(path.join(SAMPLE_DIR, name), dest);
@@ -126,7 +150,7 @@ export async function initDesign(workspacePath, { force = false, tokens = null }
 }
 
 // Persist edited tokens back to design.json (repo if present, else scaffold first).
-// Also ensures components.jsx + principles.md exist so a first save is complete.
+// Also ensures components.jsonc + principles.md exist so a first save is complete.
 export async function saveTokens(workspacePath, tokens) {
   let dir = designDirFor(workspacePath);
   if (!dir) throw new Error("No workspace path available to save design.json");
@@ -154,10 +178,10 @@ function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portO
     ? [
         "This repository has a living design system at [`.agents/design/`](.agents/design/). " +
           "These files are the **source of truth for design** — tokens, component intent, and " +
-          "principles — and are framework-agnostic. `components.jsx` shows design intent for preview; " +
+          "principles — and are framework-agnostic. `components.jsonc` shows design intent for preview; " +
           "it is **not** shipping code.",
         "**Read it before creating or changing any UI.** To ship, port the design into this app's " +
-          "implementation using the port target(s) below — don't copy `components.jsx` verbatim.",
+          "implementation using the port target(s) below — don't copy `components.jsonc` verbatim.",
       ]
     : [
         "This repository has a living design system at [`.agents/design/`](.agents/design/).",
@@ -170,7 +194,7 @@ function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portO
     ...lead,
     "",
     "- `.agents/design/design.json` — design tokens: brand, colors, typography, spacing, radii, shadows, principles.",
-    "- `.agents/design/components.jsx` — the component patterns to reuse (structure, variants, states).",
+    "- `.agents/design/components.jsonc` — the component patterns to reuse (structure, variants, states).",
     "- `.agents/design/principles.md` — voice, information hierarchy, and do/don't guidance.",
     "",
     "Generate UI from these tokens and patterns: use token names (e.g. `accent`, `ink`, spacing step " +
@@ -189,7 +213,7 @@ function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portO
       "",
       "Colors in `design.json` are **preview-only** swatches. When a color has a `resource` (e.g. a WinUI " +
         "`ThemeResource` key), bind that resource in code — never hard-code the preview hex — so light, dark, " +
-        "and high-contrast themes stay correct. The shipping implementation is canonical; treat `components.jsx` " +
+        "and high-contrast themes stay correct. The shipping implementation is canonical; treat `components.jsonc` " +
         "and the token values as derived visual examples, not a parallel upstream source.",
     );
   }
@@ -297,8 +321,8 @@ export async function ensureAgentsPointer(workspacePath) {
 //
 //   1. Design authority — the files in .agents/design/ are the source of truth for
 //      DESIGN (tokens, component intent, principles). They are framework-agnostic:
-//      the React in components.jsx is a canvas rendering convenience, NOT shipping
-//      code. `designSource` defaults to "self" (these files).
+//      the JSON element tree in components.jsonc is a canvas rendering convenience,
+//      NOT shipping code. `designSource` defaults to "self" (these files).
 //
 //   2. Implementation / port authority — how a design becomes shipping code, which
 //      is framework-specific and can vary per surface. A `port` target names:

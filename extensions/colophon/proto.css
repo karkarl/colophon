@@ -1,0 +1,190 @@
+/* proto.css — chrome for the Prototype canvas: top bar, device toolbar, the device
+   frames (browser / Windows / macOS / phone / tablet), the scene-graph node styles, and
+   the design system's own ds-* component runtime (so component nodes render on-brand).
+   Color/space/radius/font come from :root vars injected by proto-client from the tokens. */
+
+:root {
+  --border-color-default: #d0d7de;
+  --text-color-muted: #656d76;
+  --canvas-bg: #f2f1ee;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color: #1c1a17;
+  background: var(--canvas-bg);
+  display: flex; flex-direction: column;
+}
+
+/* ---------- top bar + device toolbar ---------- */
+.topbar, .devbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; background: #fff; border-bottom: 1px solid var(--border-color-default);
+}
+.topbar h1 { font-size: 14px; margin: 0; font-weight: 600; }
+.devbar { gap: 8px; font-size: 12px; color: #3a3a3a; flex-wrap: wrap; }
+.grow { flex: 1; }
+.source-pill {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: #eef1f4; color: #57606a; border: 1px solid var(--border-color-default);
+}
+.source-pill.repo { background: color-mix(in srgb, #3f6b4c 14%, #fff); color: #2f5238; border-color: #cfe0d4; }
+
+.btn {
+  font: inherit; font-size: 12px; cursor: pointer; padding: 5px 10px;
+  border-radius: 7px; border: 1px solid var(--border-color-default);
+  background: #fff; color: #24292f;
+}
+.btn:hover { background: #f6f8fa; }
+.btn.primary { background: #1c1a17; color: #fff; border-color: #1c1a17; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.devbar label { display: inline-flex; align-items: center; gap: 5px; color: #57606a; }
+.devbar select, .devbar input {
+  font: inherit; font-size: 12px; padding: 4px 6px;
+  border-radius: 6px; border: 1px solid var(--border-color-default); background: #fff;
+}
+.devbar input.size { width: 58px; text-align: right; }
+.devbar .seg { display: inline-flex; }
+.devbar .dim { color: #8b949e; }
+
+/* segmented theme switch (matches the design canvas) */
+.theme-switch { display: inline-flex; border: 1px solid var(--border-color-default); border-radius: 8px; overflow: hidden; }
+.theme-btn { font: inherit; font-size: 11px; padding: 5px 9px; border: 0; background: #fff; cursor: pointer; color: #57606a; }
+.theme-btn + .theme-btn { border-left: 1px solid var(--border-color-default); }
+.theme-btn.is-active { background: #1c1a17; color: #fff; }
+
+/* ---------- stage + device frames ---------- */
+.stage {
+  flex: 1; overflow: auto; padding: 28px;
+  display: flex; align-items: flex-start; justify-content: center;
+}
+.frame-wrap { transform-origin: top center; }
+
+.device { background: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.14); }
+.device .viewport { overflow: hidden; background: var(--color-paper, #f7f4ee); }
+.screen-surface { position: relative; min-height: 100%; }
+
+/* browser chrome */
+.device.browser { border-radius: 10px; border: 1px solid #d7d7d7; }
+.chrome-browser {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  background: #e9ebee; border-bottom: 1px solid #d7d7d7; border-radius: 10px 10px 0 0;
+}
+.chrome-browser .dots { display: flex; gap: 6px; }
+.chrome-browser .dot { width: 11px; height: 11px; border-radius: 50%; }
+.chrome-browser .addr {
+  flex: 1; font-size: 11px; color: #57606a; background: #fff;
+  border-radius: 999px; padding: 4px 12px; border: 1px solid #d7d7d7;
+}
+
+/* Windows (WinUI) title bar */
+.device.windows { border-radius: 8px; border: 1px solid #c8c8c8; }
+.chrome-windows {
+  display: flex; align-items: center; padding: 0 0 0 12px; height: 32px;
+  background: #f3f3f3; border-bottom: 1px solid #e0e0e0; border-radius: 8px 8px 0 0;
+  font-size: 12px; color: #1a1a1a;
+}
+.chrome-windows .title { flex: 1; }
+.chrome-windows .wbtns { display: flex; height: 100%; }
+.chrome-windows .wbtn { width: 44px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #444; }
+.chrome-windows .wbtn.close:hover { background: #e81123; color: #fff; }
+.chrome-windows .wbtn:hover { background: #e6e6e6; }
+
+/* macOS title bar */
+.device.macos { border-radius: 12px; border: 1px solid #cfcfcf; }
+.chrome-macos {
+  display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 30px;
+  background: linear-gradient(#ececec, #dcdcdc); border-bottom: 1px solid #c4c4c4;
+  border-radius: 12px 12px 0 0; font-size: 12px; color: #4a4a4a;
+}
+.chrome-macos .lights { display: flex; gap: 8px; }
+.chrome-macos .light { width: 12px; height: 12px; border-radius: 50%; }
+.chrome-macos .light.r { background: #ff5f57; }
+.chrome-macos .light.y { background: #febc2e; }
+.chrome-macos .light.g { background: #28c840; }
+.chrome-macos .title { flex: 1; text-align: center; }
+
+/* phone */
+.device.phone { border-radius: 44px; border: 10px solid #111; background: #111; padding: 0; }
+.device.phone .viewport { border-radius: 34px; }
+.chrome-phone-status {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 22px 2px; font-size: 11px; font-weight: 600; color: var(--color-ink, #1c1a17);
+}
+.device.phone .notch {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  width: 120px; height: 26px; background: #111; border-radius: 0 0 16px 16px; z-index: 5;
+}
+.chrome-phone-home { display: flex; justify-content: center; padding: 6px 0 8px; }
+.chrome-phone-home .bar { width: 130px; height: 5px; border-radius: 3px; background: var(--color-ink, #1c1a17); opacity: .5; }
+
+/* tablet */
+.device.tablet { border-radius: 26px; border: 12px solid #1a1a1a; background: #1a1a1a; }
+.device.tablet .viewport { border-radius: 14px; }
+
+.device.responsive { border-radius: 8px; border: 1px dashed #c0c0c0; }
+
+/* ---------- scene-graph nodes ---------- */
+.proto-tappable { cursor: pointer; }
+.proto-tappable:hover { outline: 2px solid color-mix(in srgb, var(--color-accent, #b5502a) 55%, transparent); outline-offset: 1px; }
+.proto-err { color: #cf222e; font: 12px/1.4 ui-monospace, monospace; padding: 6px 8px; border: 1px solid #ffd7d5; border-radius: 6px; background: #fff5f5; }
+.proto-empty { padding: 40px; color: var(--color-muted, #6b6459); text-align: center; }
+.proto-fallback { display: inline-flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px dashed var(--color-line, #d7d7d7); border-radius: var(--radius-md, 8px); background: var(--color-surface, #fff); }
+.proto-fallback-name { font: 600 11px ui-monospace, monospace; color: var(--color-muted, #6b6459); }
+.proto-fallback-label { font-size: 13px; color: var(--color-ink, #1c1a17); }
+
+.proto-modal-backdrop {
+  position: absolute; inset: 0; background: rgba(0,0,0,.32);
+  display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 20;
+}
+.proto-modal-panel { max-width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,.28); }
+
+/* validation + outline slots */
+#validation-slot:not(:empty), #outline-slot:not(:empty) { padding: 10px 14px; background: #fff; border-bottom: 1px solid var(--border-color-default); }
+.vmsg { font-size: 12px; padding: 6px 10px; border-radius: 6px; margin: 4px 0; }
+.vmsg.err { background: #fff5f5; color: #cf222e; border: 1px solid #ffd7d5; }
+.vmsg.warn { background: #fff8e6; color: #7a5b00; border: 1px solid #f5e2a3; }
+.vmsg.ok { background: #eafaef; color: #2f5238; border: 1px solid #cfe0d4; }
+#outline-slot pre { margin: 0; font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; max-height: 40vh; overflow: auto; }
+
+/* ---------- ds-* component runtime (design system's own look) ---------- */
+.ds-btn {
+  font-family: var(--font-body); font-weight: 500; cursor: pointer; font-size: 14px;
+  padding: var(--space-3, 12px) var(--space-5, 24px);
+  border-radius: var(--radius-md, 8px); border: 1px solid transparent;
+  transition: filter 160ms ease-out, background 160ms ease-out;
+}
+.ds-btn-primary { background: var(--color-accent, #b5502a); color: var(--color-accentInk, #fff); }
+.ds-btn-primary:hover { filter: brightness(1.05); }
+.ds-btn-secondary { background: transparent; color: var(--color-ink); border-color: var(--color-line, #e4ddd0); }
+.ds-btn-secondary:hover { background: var(--color-surface, #fff); }
+
+.ds-field { display: grid; gap: var(--space-2, 8px); }
+.ds-field-label { font-size: 13px; color: var(--color-muted, #6b6459); font-family: var(--font-body); }
+.ds-input {
+  font-family: var(--font-body); font-size: 14px; padding: var(--space-3, 12px) var(--space-4, 16px);
+  border-radius: var(--radius-md, 8px); border: 1px solid var(--color-line, #e4ddd0);
+  background: var(--color-surface, #fff); color: var(--color-ink); width: 100%;
+}
+.ds-input:focus { outline: 2px solid var(--color-accent, #b5502a); outline-offset: 1px; }
+
+.ds-card {
+  background: var(--color-surface, #fff); border: 1px solid var(--color-line, #e4ddd0);
+  border-radius: var(--radius-lg, 14px); padding: var(--space-5, 24px);
+  display: grid; gap: var(--space-2, 8px);
+}
+.ds-card-title { font-family: var(--font-display, serif); font-size: 20px; margin: 0; font-weight: 600; color: var(--color-ink); }
+.ds-card-body { margin: 0; color: var(--color-muted, #6b6459); font-family: var(--font-body); }
+.ds-link { color: var(--color-accent, #b5502a); text-decoration: none; font-weight: 500; font-family: var(--font-body); }
+.ds-link:hover { text-decoration: underline; }
+
+.ds-badge { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: var(--radius-pill, 999px); display: inline-block; font-family: var(--font-body); }
+.ds-badge-positive { background: color-mix(in srgb, var(--color-positive, #3f6b4c) 15%, transparent); color: var(--color-positive, #3f6b4c); }
+.ds-badge-warning  { background: color-mix(in srgb, var(--color-warning, #a8791f) 15%, transparent); color: var(--color-warning, #a8791f); }
+.ds-badge-critical { background: color-mix(in srgb, var(--color-critical, #8f2f2a) 15%, transparent); color: var(--color-critical, #8f2f2a); }
+
+.ds-screen { display: grid; gap: var(--space-5, 24px); }
+.ds-eyebrow { font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--color-muted, #6b6459); margin: 0 0 4px; }
