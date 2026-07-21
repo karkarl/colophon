@@ -631,6 +631,7 @@ const hooks = {
     setWorkdir(input?.workingDirectory);
     try {
       const design = await loadDesign(input?.workingDirectory || sessionWorkdir);
+      if (design.source !== "repo") return {};
       return { additionalContext: sessionStartContext(design) };
     } catch { return {}; }
   },
@@ -639,6 +640,7 @@ const hooks = {
     if (!looksLikeUiWork(input?.prompt)) return {};
     try {
       const design = await loadDesign(input?.workingDirectory || sessionWorkdir);
+      if (design.source !== "repo") return {};
       return { additionalContext: promptContext(design) };
     } catch { return {}; }
   },

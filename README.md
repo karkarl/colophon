@@ -17,7 +17,7 @@ Colophon ships two halves in one plugin:
 - a **canvas extension** (`extensions/colophon/`) with two canvases — one that renders
   and edits the system live, and a **Prototype** canvas that generates device-framed,
   click-through mockups from it — plus `colophon`/`prototype` tools and hooks so the
-  agent always has the design system in context.
+  agent has an initialized design system in context.
 
 ## How it works
 
@@ -90,9 +90,11 @@ the block in place otherwise — never touching your other content. The block is
 - **`colophon` tool** — the agent calls it to get the system as text before UI work.
   `init=true` scaffolds `.agents/design/` from the starter; `scan=true` proposes one from the
   repo's existing UI when none exists yet.
-- **Hooks** — `onSessionStart` announces the system exists; `onUserPromptSubmitted` detects
-  UI-related prompts ("build a settings page", "fix the button styling") and injects the
-  design system so the model honors your tokens, patterns, and anti-references.
+- **Hooks** — when a repository contains `.agents/design/design.json`, `onSessionStart`
+  announces the system exists and `onUserPromptSubmitted` detects UI-related prompts
+  ("build a settings page", "fix the button styling") to inject it. Repositories without
+  an initialized design system receive no Colophon prompt context; use the canvas or
+  `colophon` tool explicitly to seed one.
 
 ### 4. Prototype canvas: click-through mockups from the design system
 A second canvas turns the design system into **click-through prototypes** — so a team can
