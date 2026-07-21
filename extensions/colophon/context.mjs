@@ -2,8 +2,8 @@
 //
 // buildSummary()      -> compact text of the design system (used by the tool + hooks)
 // looksLikeUiWork()   -> heuristic: is this prompt about building/changing UI?
-// sessionStartContext -> one-time announcement the design system exists
-// promptContext()     -> per-turn nudge to consult it before writing UI
+// sessionStartContext -> one-time announcement for repository-backed systems
+// promptContext()     -> per-turn nudge for repository-backed systems
 
 import { colorList, readAuthority, portLines, DESIGN_SUBPATH } from "./designio.mjs";
 
@@ -127,34 +127,31 @@ export function buildSummary(design) {
 }
 
 export function sessionStartContext(design) {
+  if (design.source !== "repo") return "";
   const brand = design.tokens?.brand || {};
   const authority = readAuthority(design.tokens);
-  if (design.source === "repo") {
-    if (authority.hasPort) {
-      const targets = portLines(authority, { bullet: "" }).join("; ");
-      return [
-        `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}). These files are the source of truth for DESIGN and are framework-agnostic — components.jsonc is design intent for preview, not shipping code, and the color hex values are preview-only swatches.`,
-        `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
-        `You can open the "Colophon" canvas to view/edit it (with Light/Dark/High-contrast preview), or call the colophon tool for a text summary.`,
-      ].join(" ");
-    }
+  if (authority.hasPort) {
+    const targets = portLines(authority, { bullet: "" }).join("; ");
     return [
       `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
-      `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
-      `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
+      `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
+      `You can open the "Colophon" canvas to view/edit it (with Light/Dark/High-contrast preview), or call the colophon tool for a text summary.`,
     ].join(" ");
   }
-  return `A "Colophon" canvas is available (via the colophon plugin). This repo has no ${DESIGN_SUBPATH}/ yet; if the user does UI work, offer to seed one with the colophon tool or the canvas "init" action.`;
+  return [
+    `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
+    `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
+    `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
+  ].join(" ");
 }
 
 export function promptContext(design) {
+  if (design.source !== "repo") return "";
   const brand = design.tokens?.brand || {};
   const authority = readAuthority(design.tokens);
-  const head = design.source !== "repo"
-    ? `The user's request looks UI-related. There's no ${DESIGN_SUBPATH}/ in this repo yet, but a starter design system is available.`
-    : authority.hasPort
-      ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's canonical implementation via the configured port target(s); the color hex is preview-only, so bind each color's mapped resource key instead.`
-      : `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/.`;
+  const head = authority.hasPort
+    ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's canonical implementation via the configured port target(s); the color hex is preview-only, so bind each color's mapped resource key instead.`
+    : `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/.`;
   return [
     head,
     "Consult it before writing UI: use the colophon tool (or read the files) and honor its color, typography, spacing, radius tokens, component patterns, principles, and anti-references.",
