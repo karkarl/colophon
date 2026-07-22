@@ -19,6 +19,12 @@ Colophon ships two halves in one plugin:
   click-through mockups from it — plus `colophon`/`prototype` tools and hooks so the
   agent has an initialized design system in context.
 
+<img width="1867" height="1058" alt="image" src="https://github.com/user-attachments/assets/2b8f85e7-6d3c-447a-aafa-4dc2d0fcc97f" />
+<img width="1860" height="1053" alt="image" src="https://github.com/user-attachments/assets/7c8c97f2-6686-4c6b-9472-d0492386fd5d" />
+
+
+
+
 ## How it works
 
 ### 1. The design system lives in the repo: `.agents/design/`
