@@ -139,7 +139,15 @@
       style.push(`flex-direction:${horizontal ? "row" : "column"}`);
       if (kind === "row") style.push("flex-wrap:wrap");
       if (node.wrap) style.push("flex-wrap:wrap");
-      if (kind === "scroll") style.push("overflow:auto");
+      // A node scrolls internally when it's an explicit `layout:"scroll"` region, or
+      // (only inside a `fit:"screen"` app shell) when it opts in with `scroll:true`.
+      const wantsScroll = kind === "scroll" || (node.scroll === true && ctx.fitScreen);
+      if (wantsScroll) {
+        style.push("overflow:auto");
+        // Let the scroll region shrink below its content so the overflow actually
+        // scrolls instead of stretching its flex parent (the min-*:0 flexbox gotcha).
+        if (ctx.fitScreen) style.push("min-height:0", "min-width:0");
+      }
     }
     if (node.gap != null) style.push(`gap:${spaceVar(node.gap)}`);
     if (node.padding != null) style.push(`padding:${spaceVar(node.padding)}`);
@@ -147,7 +155,17 @@
     if (node.justify) style.push(`justify-content:${node.justify}`);
     if (node.background) style.push(`background:var(--color-${node.background})`);
     if (node.radius) style.push(`border-radius:var(--radius-${node.radius})`);
-    if (node.grow) style.push("flex:1");
+    if (node.grow) {
+      style.push("flex:1");
+      // Inside a pinned app shell, grown regions must be allowed to shrink so their
+      // scrolling children bound to the viewport instead of growing the whole surface.
+      if (ctx.fitScreen) style.push("min-height:0", "min-width:0");
+    }
+    // Fixed sizes on a layout node (e.g. a caption-button reserve spacer). Numbers are px.
+    // A width/height without `grow` holds its basis so it doesn't collapse in a flex row.
+    const dim = (v) => (typeof v === "number" ? `${v}px` : v);
+    if (node.width != null) { style.push(`width:${dim(node.width)}`); if (!node.grow) style.push("flex:0 0 auto"); }
+    if (node.height != null) style.push(`height:${dim(node.height)}`);
     style.push("box-sizing:border-box");
     const box = el("div", { class: "proto-node proto-layout", style: style.join(";") });
     for (const child of node.children || []) {
@@ -231,8 +249,27 @@
     if (!screen) { surface.append(el("div", { class: "proto-empty" }, "No screen selected.")); return; }
     const ctx = { state: runtime.state, componentsDoc: runtime.componentsDoc, componentNames: runtime.componentNames, dispatch: (a) => runtime.dispatch(a), type: buildTypeScale(tokens) };
 
+    // Opt-in "app shell" mode: when a screen sets `fit:"screen"`, the surface becomes a
+    // bounded flex column that never scrolls as a whole. Pinned chrome (titlebar, nav)
+    // stays put while only regions marked `scroll:true` (or `layout:"scroll"`) scroll.
+    const fitScreen = screen.fit === "screen";
+    ctx.fitScreen = fitScreen;
+    if (fitScreen) {
+      surface.style.display = "flex";
+      surface.style.flexDirection = "column";
+      surface.style.overflow = "hidden";
+    } else {
+      surface.style.removeProperty("display");
+      surface.style.removeProperty("flex-direction");
+      surface.style.removeProperty("overflow");
+    }
+
     const root = renderNode(screen.root, ctx);
-    if (root) { root.classList.add("proto-screen-root"); surface.append(root); }
+    if (root) {
+      root.classList.add("proto-screen-root");
+      if (fitScreen) { root.style.flex = "1 1 auto"; root.style.minHeight = "0"; }
+      surface.append(root);
+    }
 
     if (runtime.openModalId) {
       const modal = (screen.modals || []).find((m) => m.id === runtime.openModalId);
