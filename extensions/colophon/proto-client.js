@@ -31,6 +31,8 @@ const DEVICES = [
   { group: "Desktop app", items: [
     { id: "winui", label: "Windows (WinUI)", w: 1024, h: 640, chrome: "windows", title: "App" },
     { id: "winui-sm", label: "Windows compact", w: 800, h: 560, chrome: "windows", title: "App" },
+    { id: "winui-modern", label: "Windows (WinUI, modern titlebar)", w: 1024, h: 640, chrome: "windows-modern", title: "App" },
+    { id: "winui-modern-sm", label: "Windows modern compact", w: 800, h: 560, chrome: "windows-modern", title: "App" },
     { id: "macos", label: "macOS window", w: 1024, h: 640, chrome: "macos", title: "App" },
     { id: "macos-sm", label: "macOS compact", w: 820, h: 560, chrome: "macos", title: "App" },
   ]},
@@ -117,9 +119,17 @@ function chromeBrowser() {
       el("span", { class: "dot", style: "background:#28c840" })),
     el("div", { class: "addr" }, "localhost:3000"));
 }
-// Windows "ExtendsContentIntoTitleBar": the app content fills the whole window and the
-// caption buttons (min/max/close) float over the top-right. Screens reserve room for them
-// on their titlebar's right (see the `tb-caption-reserve` convention in prototypes.jsonc).
+// Classic Windows title bar: a caption strip above the content with the app title and the
+// min/max/close buttons on the right. This is the default `windows` chrome.
+function chromeWindows(title) {
+  return el("div", { class: "chrome-windows" },
+    el("span", { class: "title" }, title || "App"),
+    el("div", { class: "wbtns" }, el("span", { class: "wbtn" }, "—"), el("span", { class: "wbtn" }, "▢"), el("span", { class: "wbtn close" }, "✕")));
+}
+// Modern Windows "ExtendsContentIntoTitleBar": the app content fills the whole window and the
+// caption buttons (min/max/close) float over the top-right. Opt in via the `windows-modern`
+// chrome; screens reserve room for the buttons on their titlebar's right (the
+// `tb-caption-reserve` convention in prototypes.jsonc).
 function winCaption() {
   return el("div", { class: "win-caption" },
     el("span", { class: "wbtn" }, "\uE921"),
@@ -141,7 +151,11 @@ function buildDevice(preset, w, h) {
     device.append(chromeBrowser());
     device.append(el("div", { class: "viewport", style: `width:${w}px;height:${h}px` }, surface));
   } else if (preset.chrome === "windows") {
-    // No caption strip above the content — the content extends into the titlebar and the
+    // Classic frame: caption strip above the content.
+    device.append(chromeWindows(preset.title));
+    device.append(el("div", { class: "viewport", style: `width:${w}px;height:${h}px` }, surface));
+  } else if (preset.chrome === "windows-modern") {
+    // Modern frame: no caption strip — the content extends into the titlebar and the
     // caption buttons float on top (top-right). The device box clips the overlay.
     device.append(el("div", { class: "viewport", style: `width:${w}px;height:${h}px` }, surface));
     device.append(winCaption());
