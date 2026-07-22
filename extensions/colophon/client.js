@@ -15,7 +15,7 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 
-let state = { design: null, tokens: null, dirty: false, mode: "normal", proposal: null, theme: "light", validation: null };
+let state = { design: null, tokens: null, dirty: false, mode: "normal", proposal: null, theme: "light", validation: null, page: "brand" };
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -318,18 +318,23 @@ function whenDSComp(timeoutMs = 3000) {
   });
 }
 
-async function renderComponents(t, doc) {
-  const section = el("section", { class: "block" }, el("h2", {}, "Components"));
+async function renderComponents(t, doc, { names = null, heading = "Components" } = {}) {
+  const section = el("section", { class: "block" }, el("h2", {}, heading));
   const DS = window.DSComp;
-  const names = DS && doc ? DS.componentNames(doc) : [];
-  if (!doc || !names.length) {
+  const availableNames = DS && doc ? DS.componentNames(doc) : [];
+  if (!doc || !availableNames.length) {
     section.append(el("div", { class: "muted" }, "No components.jsonc yet."));
     return section;
   }
+  const previewNames = Array.isArray(names)
+    ? names.filter((name) => availableNames.includes(name))
+    : availableNames;
+  if (!previewNames.length) {
+    section.append(el("div", { class: "muted" }, "No components selected for this page."));
+    return section;
+  }
 
-  state.componentBuildError = null;
-
-  for (const name of names) {
+  for (const name of previewNames) {
     const card = el("div", { class: "preview" });
     card.append(el("div", { class: "head" }, el("span", { class: "cname" }, name)));
     const stage = el("div", { class: "stage" });
@@ -342,7 +347,6 @@ async function renderComponents(t, doc) {
       if (dom) surface.append(dom);
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);
-      state.componentBuildError = msg;
       surface.append(el("div", { class: "err" }, "Render error: " + msg));
     }
 
@@ -352,6 +356,218 @@ async function renderComponents(t, doc) {
     section.append(card);
   }
   return section;
+}
+
+function checkComponentPreviews(doc) {
+  state.componentBuildError = null;
+  const DS = window.DSComp;
+  if (!DS || !doc) return;
+  for (const name of DS.componentNames(doc)) {
+    try { DS.renderComponent(doc, name, {}); }
+    catch (error) {
+      state.componentBuildError = String(error && error.message ? error.message : error);
+      return;
+    }
+  }
+}
+
+function renderBrandPage(t) {
+  const page = document.createDocumentFragment();
+  if (state.design.parseError) {
+    page.append(el("div", { class: "banner warn" }, "design.json has a JSON error and could not be parsed — showing the starter tokens. Fix: " + state.design.parseError));
+  }
+  if (state.mode === "proposal") page.append(proposalBar());
+  else if (state.design.source === "sample") page.append(onboarding());
+  page.append(renderBrand(t), renderColors(t), renderTypography(t), renderScales(t), renderPrinciples(t));
+  return page;
+}
+
+const BUILTIN_PAGES = Object.freeze([
+  {
+    id: "brand",
+    label: "Brand",
+    description: "Identity, tokens, and principles",
+    render: (tokens) => renderBrandPage(tokens),
+  },
+  {
+    id: "components",
+    label: "Components",
+    description: "Live patterns and definitions",
+    render: (tokens) => renderComponents(tokens, state.design.componentsDoc || null),
+  },
+]);
+
+function userPages() {
+  return Array.isArray(state.tokens?.pages)
+    ? state.tokens.pages.filter((page) => page && typeof page === "object" && typeof page.id === "string" && page.id && typeof page.name === "string")
+    : [];
+}
+
+function pageRegistry() {
+  return [
+    ...BUILTIN_PAGES,
+    ...userPages().map((page) => ({
+      id: page.id,
+      label: page.name || "Untitled page",
+      description: page.description || "Custom design-system page",
+      render: (tokens) => renderUserPage(tokens, page),
+    })),
+  ];
+}
+
+function activePage() {
+  return pageRegistry().find((page) => page.id === state.page) || BUILTIN_PAGES[0];
+}
+
+function selectPage(id) {
+  if (!pageRegistry().some((page) => page.id === id) || state.page === id) return;
+  state.page = id;
+  render();
+}
+
+function availableComponentNames() {
+  const DS = window.DSComp;
+  const doc = state.design?.componentsDoc;
+  return DS && doc ? DS.componentNames(doc) : [];
+}
+
+function selectedPageComponents(page, names) {
+  return Array.isArray(page.components) ? page.components : names;
+}
+
+function pageId() {
+  const suffix = window.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `page-${suffix}`;
+}
+
+function createPage() {
+  const pages = Array.isArray(state.tokens.pages) ? state.tokens.pages : (state.tokens.pages = []);
+  const existing = new Set(pages.map((page) => page?.id));
+  let id = pageId();
+  while (existing.has(id)) id = pageId();
+  const number = pages.length + 1;
+  pages.push({
+    id,
+    name: `Untitled page ${number}`,
+    description: "",
+    content: "",
+    components: availableComponentNames(),
+  });
+  state.page = id;
+  markDirty();
+  render();
+}
+
+function deletePage(page) {
+  if (!window.confirm(`Delete "${page.name || "this page"}"? This change will be saved with your next save.`)) return;
+  const pages = Array.isArray(state.tokens.pages) ? state.tokens.pages : [];
+  const index = pages.indexOf(page);
+  if (index < 0) return;
+  pages.splice(index, 1);
+  state.page = "brand";
+  markDirty();
+  render();
+}
+
+function updateCurrentPageNavigation(page) {
+  const link = $(".page-nav-link.is-active");
+  const label = $(".page-nav-label", link);
+  const description = $(".page-nav-description", link);
+  if (label) label.textContent = page.name || "Untitled page";
+  if (description) description.textContent = page.description || "Custom design-system page";
+}
+
+function renderPageNavigation() {
+  const nav = el("nav", { class: "page-nav", "aria-label": "Design system pages" },
+    el("div", { class: "page-nav-title" }, "Design system"),
+    el("div", { class: "page-nav-list" }));
+  const list = $(".page-nav-list", nav);
+  for (const page of pageRegistry()) {
+    const active = page.id === state.page;
+    list.append(el("button", {
+      type: "button",
+      class: "page-nav-link" + (active ? " is-active" : ""),
+      "aria-current": active ? "page" : undefined,
+      onclick: () => selectPage(page.id),
+    },
+    el("span", { class: "page-nav-label" }, page.label),
+    el("span", { class: "page-nav-description" }, page.description)));
+  }
+  nav.append(el("button", {
+    type: "button",
+    class: "page-add",
+    onclick: createPage,
+  }, "+ Add page"));
+  return nav;
+}
+
+async function renderUserPage(t, page) {
+  const content = document.createDocumentFragment();
+  const names = availableComponentNames();
+  const selected = selectedPageComponents(page, names);
+  const selectedSet = new Set(selected);
+  const title = el("input", {
+    type: "text",
+    class: "page-title-input",
+    value: page.name || "",
+    "aria-label": "Page title",
+    oninput: (event) => { page.name = event.target.value; updateCurrentPageNavigation(page); markDirty(); },
+  });
+  const description = el("textarea", {
+    class: "page-description-input",
+    rows: "2",
+    placeholder: "Describe what this page helps the team understand.",
+    oninput: (event) => { page.description = event.target.value; updateCurrentPageNavigation(page); markDirty(); },
+  });
+  description.value = page.description || "";
+  const notes = el("textarea", {
+    class: "page-notes-input",
+    rows: "8",
+    placeholder: "Add decisions, guidance, links, or other working notes for this page.",
+    oninput: (event) => { page.content = event.target.value; markDirty(); },
+  });
+  notes.value = page.content || "";
+  const choices = el("div", { class: "page-component-list" });
+  if (names.length) {
+    for (const name of names) {
+      const box = el("input", {
+        type: "checkbox",
+        checked: selectedSet.has(name) ? "checked" : undefined,
+        onchange: (event) => {
+          const next = new Set(selectedPageComponents(page, names));
+          if (event.target.checked) next.add(name);
+          else next.delete(name);
+          page.components = names.filter((component) => next.has(component));
+          markDirty();
+          render();
+        },
+      });
+      choices.append(el("label", { class: "page-component-option" }, box, el("span", {}, name)));
+    }
+  } else {
+    choices.append(el("div", { class: "muted" }, "Add component patterns to components.jsonc to organize them here."));
+  }
+
+  content.append(
+    el("section", { class: "page-editor" },
+      el("div", { class: "page-editor-head" },
+        el("div", { class: "page-editor-heading" }, title),
+        el("button", { type: "button", class: "btn page-delete", onclick: () => deletePage(page) }, "Delete page"),
+      ),
+      el("div", { class: "editable" }, el("label", {}, "Description"), description),
+      el("div", { class: "editable" }, el("label", {}, "Notes"), notes),
+    ),
+    el("section", { class: "page-organization" },
+      el("h2", {}, "Components"),
+      el("p", { class: "muted" }, "Choose the component previews this page should collect. Changes appear when you save the design system."),
+      choices,
+    ),
+  );
+  content.append(await renderComponents(t, state.design.componentsDoc || null, {
+    names: selectedPageComponents(page, names),
+    heading: "Selected previews",
+  }));
+  return content;
 }
 
 // Pretty-print just one component's JSON definition for the collapsible source view.
@@ -542,7 +758,10 @@ function validationPanel() {
 function positionValidationSlot() {
   const slot = $("#validation-slot");
   const bar = $(".topbar");
-  if (slot && bar) slot.style.top = (bar.offsetHeight + 14) + "px";
+  if (!bar) return;
+  const offset = (bar.offsetHeight + 14) + "px";
+  document.documentElement.style.setProperty("--canvas-topbar-offset", offset);
+  if (slot) slot.style.top = offset;
 }
 
 function renderValidation() {
@@ -590,26 +809,14 @@ async function render() {
   const root = $("#app");
   root.textContent = "";
 
-  if (state.design.parseError) {
-    root.append(el("div", { class: "banner warn" }, "design.json has a JSON error and could not be parsed — showing the starter tokens. Fix: " + state.design.parseError));
-  }
-
-  if (state.mode === "proposal") {
-    root.append(proposalBar());
-  } else if (state.design.source === "sample") {
-    root.append(onboarding());
-  }
-
   renderValidation();
-
-  root.append(renderBrand(t));
-  root.append(renderColors(t));
-  root.append(renderTypography(t));
-  root.append(renderScales(t));
-  root.append(renderPrinciples(t));
-  const components = await renderComponents(t, state.design.componentsDoc || null);
+  const page = activePage();
+  const content = el("div", { class: "page-content", tabindex: "-1" });
+  const pageContent = await page.render(t);
   if (gen !== renderSeq) return; // a newer render superseded this one
-  root.append(components);
+  content.append(pageContent);
+  root.append(el("div", { class: "canvas-layout" }, renderPageNavigation(), content));
+  positionValidationSlot();
 }
 
 async function doInit(mode) {
@@ -663,7 +870,9 @@ async function load() {
   await whenDSComp();
   state.design = data.design;
   state.tokens = JSON.parse(JSON.stringify(data.design.tokens || {}));
+  if (!pageRegistry().some((page) => page.id === state.page)) state.page = "brand";
   state.dirty = false;
+  checkComponentPreviews(state.design.componentsDoc || null);
   applyVars();
   updateSourcePill();
   await render();

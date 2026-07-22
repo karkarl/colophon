@@ -2,28 +2,36 @@
 
 > *A colophon is the note at the back of a book naming its typefaces, materials, and makers. This is that — for your app's UI.*
 
-An **experimental** GitHub Copilot **plugin** that turns a repo's design system
-into a live, editable canvas — and makes Copilot generate UI from it whenever it
-builds or fixes UI. Inspired by Anthropic's `frontend-design` skill and
-[pbakaus/impeccable](https://github.com/pbakaus/impeccable).
-
-The distinguishing idea: the design system is a **shared, human-readable artifact in
-the repo** that designers and developers refine together, and that the agent reads
-automatically.
-
-Colophon ships two halves in one plugin:
-- a **skill** (`skills/colophon/`) that tells Copilot to treat `.agents/design/` as
-  the design source and build UI from its tokens, components, and principles; and
-- a **canvas extension** (`extensions/colophon/`) with two canvases — one that renders
-  and edits the system live, and a **Prototype** canvas that generates device-framed,
-  click-through mockups from it — plus `colophon`/`prototype` tools and hooks so the
-  agent has an initialized design system in context.
-
 <img width="1867" height="1058" alt="image" src="https://github.com/user-attachments/assets/2b8f85e7-6d3c-447a-aafa-4dc2d0fcc97f" />
 <img width="1860" height="1053" alt="image" src="https://github.com/user-attachments/assets/7c8c97f2-6686-4c6b-9472-d0492386fd5d" />
 
+Colophon gives AI coding agents a shared, living design system for every repo — seed it, edit it in a live canvas, prototype flows, 
+and turn approved designs into production code.
 
 
+Colophon ships two halves in one plugin:
+- a **skill** (`skills/colophon/`) that tells Copilot to treat `.agents/design/` as the design source and build UI from its defined tokens, components, and principles; and
+- a **canvas extension** (`extensions/colophon/`) with two canvases: 
+     - **Colophon canvas**: that renders and edits the defined design system live, and 
+     - **Prototype canvas**: that renders device-framed, click-through mockups, including `colophon`/`prototype` tools and hooks so the agent has an initialized design system in context.
+
+
+## Quick start
+
+### Github Copilot App
+
+In a repository you want to design or prototype:
+
+1. Install the plugin: 
+`copilot plugin install karkarl/colophon`
+2. Reload or restart Copilot so it discovers the plugin.
+3. Open the **Colophon** canvas. If the repository has no design system yet, choose
+   **Start fresh**, **Import tokens**, or **Scan codebase**.
+4. Save the proposal to create `.agents/design/`. From then on, Colophon supplies that
+   shared design context when you ask Copilot to build or change UI.
+
+Open the **Prototype** canvas when you are ready to create or preview a click-through
+flow. Commit `.agents/design/` so the rest of the team works from the same system.
 
 ## How it works
 
@@ -31,7 +39,7 @@ Colophon ships two halves in one plugin:
 | File | What it is |
 | --- | --- |
 | `design.json` | Tokens: authority, brand, colors, typography, spacing, radii, shadows, principles |
-| `components.jsonc` | A structured element-tree (JSON + comments) — the component patterns your team has agreed on |
+| `components.jsonc` | A structured element-tree — the component patterns your team has agreed on |
 | `principles.md` | Prose voice / information hierarchy / do & don't |
 
 These are plain files. Commit them, review them in PRs, edit them by hand or in the canvas.
@@ -165,7 +173,7 @@ to overwrite a GitHub Pages configuration that is not already based on `gh-pages
 - `refresh` — tell the open canvas to reload from disk.
 
 ## Repo layout
-```
+````javascript
 plugin.json                       plugin manifest (skills + extensions)
 .github/plugin/marketplace.json   makes this repo its own plugin marketplace
 skills/colophon/SKILL.md          the "build UI from .agents/design/" skill
@@ -200,30 +208,40 @@ extensions/colophon/              the canvas extension:
   deterministic.
 - Canvas APIs are an experimental SDK surface and may change.
 
-## Install
+## Installation and team setup
 
 Colophon is a Copilot plugin **and** its own marketplace, so there are a few ways in.
 
-**As a plugin (recommended — gets the skill + canvas together):**
+**Install it as a plugin (recommended — includes the skill and both canvases):**
 ```bash
 copilot plugin install karkarl/colophon
 ```
-Or register the marketplace, then install by name:
+
+**Or register Colophon's marketplace, then install by name:**
 ```bash
 copilot plugin marketplace add karkarl/colophon
 copilot plugin install colophon@colophon
 ```
-You can also declare it in `~/.copilot/settings.json` (all repos) or a repo's
-`.github/copilot/settings.json` (whole team) via the `enabledPlugins` field.
 
-**Just the canvas extension (no plugin):** the extension lives in
+Restart or reload Copilot after installation, then open the **Colophon** or
+**Prototype** canvas in the workspace.
+
+**Configure it for a team:** declare the plugin in the repository's
+`.github/copilot/settings.json` through the `enabledPlugins` field and commit that
+file. Each teammate also needs repository access and a Copilot environment that
+supports plugins. Use `~/.copilot/settings.json` instead to enable it across all of
+your own repositories.
+
+**Install only the canvas extension (no skill):** the extension lives in
 `extensions/colophon/`. Install that subdirectory into
 `~/.copilot/extensions/colophon/`, or point the `install_extension` tool at
 `https://github.com/karkarl/colophon/tree/main/extensions/colophon`.
 
-After installing, reload Copilot (or restart it) and open the **Colophon** canvas — or
-the **Prototype** canvas to build click-through mockups.
+The standalone extension is useful for canvas-only evaluation. Prefer the plugin for
+normal use because it also provides the UI-design skill and automatic design-system
+context.
 
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+````

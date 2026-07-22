@@ -55,7 +55,7 @@
                 "gap": "1",
                 "children": [
                   { "id": "home-eyebrow", "text": "Workspace", "style": "eyebrow" },
-                  { "id": "home-title", "text": "Good morning, Rowan", "style": "title" }
+                  { "id": "home-title", "text": "Good morning, Karen", "style": "title" }
                 ]
               },
               { "id": "home-status", "component": "Badge", "props": { "children": "All systems normal", "tone": "positive" } }

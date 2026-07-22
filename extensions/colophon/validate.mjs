@@ -53,6 +53,38 @@ export function validateTokens(tokens) {
   if (!Array.isArray(tokens.spacing?.scale) || !tokens.spacing.scale.length) warnings.push("spacing.scale is empty.");
   if (!Array.isArray(tokens.principles) || !tokens.principles.length) warnings.push("principles[] is empty.");
 
+  // Pages are optional so existing design systems need no migration. When present,
+  // they are durable canvas-authored documents with stable IDs, freeform content,
+  // and an ordered selection of component previews.
+  if (tokens.pages != null) {
+    if (!Array.isArray(tokens.pages)) {
+      errors.push("pages must be an array when provided.");
+    } else {
+      const ids = new Set();
+      for (let i = 0; i < tokens.pages.length; i++) {
+        const page = tokens.pages[i];
+        const where = `Page #${i + 1}`;
+        if (!page || typeof page !== "object" || Array.isArray(page)) {
+          errors.push(`${where} must be an object.`);
+          continue;
+        }
+        if (typeof page.id !== "string" || !page.id.trim()) errors.push(`${where} needs a stable string id.`);
+        else if (ids.has(page.id)) errors.push(`Duplicate page id: "${page.id}".`);
+        else ids.add(page.id);
+        if (typeof page.name !== "string" || !page.name.trim()) errors.push(`${where} needs a non-empty name.`);
+        if (page.description != null && typeof page.description !== "string") errors.push(`${where} description must be a string.`);
+        if (page.content != null && typeof page.content !== "string") errors.push(`${where} content must be a string.`);
+        if (page.components != null) {
+          if (!Array.isArray(page.components) || page.components.some((name) => typeof name !== "string" || !name.trim())) {
+            errors.push(`${where} components must be an array of component names.`);
+          } else if (new Set(page.components).size !== page.components.length) {
+            errors.push(`${where} components contains duplicate names.`);
+          }
+        }
+      }
+    }
+  }
+
   // Port / theme contract. When a port target exists, the shipping implementation is
   // canonical: preview hex must map to a `resource` key, and an owner + sync process
   // must be named so the derived examples stay aligned.
@@ -81,6 +113,18 @@ export function validateTokens(tokens) {
   }
 
   return { ok: errors.length === 0, errors, warnings };
+}
+
+export function validatePageComponents(tokens, names = []) {
+  const warnings = [];
+  if (!Array.isArray(tokens?.pages) || !Array.isArray(names)) return warnings;
+  const known = new Set(names);
+  for (const page of tokens.pages) {
+    if (!page || typeof page !== "object" || !Array.isArray(page.components)) continue;
+    const unknown = page.components.filter((name) => !known.has(name));
+    if (unknown.length) warnings.push(`Page "${page.name || page.id || "unnamed"}" selects component(s) not defined in components.jsonc: ${unknown.join(", ")}.`);
+  }
+  return warnings;
 }
 
 // ---- components.jsonc ------------------------------------------------------
@@ -119,6 +163,7 @@ export async function validateDesignDir(dir) {
   let csrc = "";
   try { csrc = await fs.readFile(path.join(dir, COMPONENTS_FILENAME), "utf8"); } catch { /* optional */ }
   out.components = validateComponents(csrc);
+  out.design.warnings.push(...validatePageComponents(tokens, out.components.exports));
 
   out.ok = !out.parseError && out.design.ok && out.components.ok;
   return out;

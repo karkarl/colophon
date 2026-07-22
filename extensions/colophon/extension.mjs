@@ -19,7 +19,7 @@ import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/exte
 import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, readAuthority, colorList, DESIGN_SUBPATH } from "./designio.mjs";
 import { buildSummary, looksLikeUiWork, sessionStartContext, promptContext } from "./context.mjs";
 import { scratchTokens, normalizeTokens, scanCodebase } from "./sources.mjs";
-import { validateTokens, validateComponents, flattenResult } from "./validate.mjs";
+import { validateTokens, validateComponents, validatePageComponents, flattenResult } from "./validate.mjs";
 import { renderShell } from "./renderer.mjs";
 import { renderProtoShell } from "./proto-renderer.mjs";
 import { loadPrototypes, savePrototypes, applyOps, validatePrototypes, findScreen, PROTO_SUBPATH } from "./prototypeio.mjs";
@@ -59,10 +59,13 @@ async function pkgNameFor(workdir) {
 // system). Merges the JSON parse error, design.json schema checks, and the
 // components.jsonc structural check into one { ok, errors, warnings } result.
 function validateLoaded(design) {
+  const components = validateComponents(design.componentsSource || "");
+  const designResult = validateTokens(design.tokens);
+  designResult.warnings.push(...validatePageComponents(design.tokens, components.exports));
   return flattenResult({
     parseError: design.parseError || null,
-    design: validateTokens(design.tokens),
-    components: validateComponents(design.componentsSource || ""),
+    design: designResult,
+    components,
   });
 }
 

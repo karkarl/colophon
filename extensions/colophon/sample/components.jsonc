@@ -86,7 +86,7 @@
                 "el": "div",
                 "children": [
                   { "el": "p", "class": "ds-eyebrow", "children": ["Workspace"] },
-                  { "el": "h2", "class": "ds-screen-title", "children": ["Good morning, Rowan"] }
+                  { "el": "h2", "class": "ds-screen-title", "children": ["Good morning, Karen"] }
                 ]
               },
               { "component": "Badge", "props": { "children": "All systems normal", "tone": "positive" } }
