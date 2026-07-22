@@ -117,10 +117,14 @@ function chromeBrowser() {
       el("span", { class: "dot", style: "background:#28c840" })),
     el("div", { class: "addr" }, "localhost:3000"));
 }
-function chromeWindows(title) {
-  return el("div", { class: "chrome-windows" },
-    el("span", { class: "title" }, title || "App"),
-    el("div", { class: "wbtns" }, el("span", { class: "wbtn" }, "—"), el("span", { class: "wbtn" }, "▢"), el("span", { class: "wbtn close" }, "✕")));
+// Windows "ExtendsContentIntoTitleBar": the app content fills the whole window and the
+// caption buttons (min/max/close) float over the top-right. Screens reserve room for them
+// on their titlebar's right (see the `tb-caption-reserve` convention in prototypes.jsonc).
+function winCaption() {
+  return el("div", { class: "win-caption" },
+    el("span", { class: "wbtn" }, "\uE921"),
+    el("span", { class: "wbtn" }, "\uE922"),
+    el("span", { class: "wbtn close" }, "\uE8BB"));
 }
 function chromeMac(title) {
   return el("div", { class: "chrome-macos" },
@@ -137,8 +141,10 @@ function buildDevice(preset, w, h) {
     device.append(chromeBrowser());
     device.append(el("div", { class: "viewport", style: `width:${w}px;height:${h}px` }, surface));
   } else if (preset.chrome === "windows") {
-    device.append(chromeWindows(preset.title));
+    // No caption strip above the content — the content extends into the titlebar and the
+    // caption buttons float on top (top-right). The device box clips the overlay.
     device.append(el("div", { class: "viewport", style: `width:${w}px;height:${h}px` }, surface));
+    device.append(winCaption());
   } else if (preset.chrome === "macos") {
     device.append(chromeMac(preset.title));
     device.append(el("div", { class: "viewport", style: `width:${w}px;height:${h}px` }, surface));
