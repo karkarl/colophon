@@ -46,18 +46,12 @@ These are plain files. Commit them, review them in PRs, edit them by hand or in 
 
 #### `design.json`: the design contract and agent hand-off
 
-`design.json` is the durable contract between people, the canvas, and agents: it names the visual system **and** tells an agent how that
-system becomes production UI.
+`design.json` is the durable contract between people, the canvas, and agents: it names the visual system **and** tells an agent how that system becomes production UI.
 
-The core design fields—`brand`, `colors`, `typography`, `spacing`, `radii`,
-`shadows`, and `principles`—are framework-agnostic design intent. Agents use their
-names and usage guidance rather than inventing ad-hoc values. `components.jsonc`
-describes reusable patterns for canvas preview and implementation guidance; it is
+The core design fields—`brand`, `colors`, `typography`, `spacing`, `radii`,`shadows`, and `principles`—are framework-agnostic design intent. Agents use their names and usage guidance rather than inventing ad-hoc values. `components.jsonc`describes reusable patterns for canvas preview and implementation guidance; it is
 not automatically shipping code.
 
-The `authority` block is the production hand-off. It removes the ambiguity that
-normally exists when a design-system preview and the app's implementation use
-different technologies:
+The `authority` block is the production hand-off. It removes the ambiguity that normally exists when a design-system preview and the app's implementation use different technologies:
 
 | Field | What it tells people and agents |
 | --- | --- |
@@ -90,13 +84,7 @@ explicitly directing agents to the implementation that ships:
 }
 ```
 
-With no `port` or overrides, `design.json` and `components.jsonc` remain the
-framework-agnostic design contract and an agent implements that contract in the
-repository's chosen production technology. With a port target, the skill,
-injected context, and managed `AGENTS.md` pointer tell agents what is canonical,
-what reference to use, and what **not** to copy verbatim. This keeps the canvas
-useful without turning `components.jsonc` into a competing source of production
-code.
+With no `port` or overrides, `design.json` and `components.jsonc` remain the framework-agnostic design contract and an agent implements that contract in the repository's chosen production technology. With a port target, the skill, injected context, and managed `AGENTS.md` pointer tell agents what is canonical, what reference to use, and what **not** to copy verbatim. This keeps the canvas useful without turning `components.jsonc` into a competing source of production code.
 
 ### 2. The canvas renders + edits it
 Open the **Design System** canvas to see the system rendered live:
@@ -124,30 +112,13 @@ When it seeds a repository, Colophon idempotently adds a managed `AGENTS.md` blo
 - **Hooks** — when a repository contains `.agents/design/design.json`, `onSessionStart`announces the system exists and `onUserPromptSubmitted` detects UI-related prompts ("build a settings page", "fix the button styling") to inject it. Repositories without an initialized design system receive no Colophon prompt context; use the canvas or`colophon` tool explicitly to seed one.
 
 ### 4. Prototype canvas: click-through mockups from the design system
-A second canvas turns the design system into **click-through prototypes** — so a team can
-shape a flow by talking to Copilot instead of redlining in Figma, review it visually, then
-convert a screen to code.
+A second canvas turns the design system into **click-through prototypes** — so a team can shape a flow by talking to Copilot instead of redlining in Figma, review it visually, then convert a screen to code.
 
-- **Format** — prototypes live at `.agents/design/prototypes.jsonc`: a framework-agnostic
-  **scene graph** (layout primitives + references to your `components.jsonc` by name +
-  **navigation as data**), never shipping code. It's pure data, so it renders safely and
-  Copilot can patch a single node by id without rewriting the file. Every save re-emits a
-  stable, key-ordered file plus a Markdown flow outline for painless PR review.
-- **Device frames** — preview each screen in web breakpoints, desktop-app windows
-  (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with
-  custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including
-  native app chrome.
-- **Interactions (v1)** — navigate between screens, simple state (toggles, tabs),
-  open/close modals, and visibility bound to state. Click through it live in the canvas,
-  rendered with your real tokens + components in Light/Dark/High-contrast.
-- **Convert to code** — a first-pass `codegen` action turns the JSONC scene graph and
-  component intent into code for the configured production target. The current web target
-  emits React/JSX using `ds-*` conventions; a native port target emits a hand-off scaffold
-  and porting notes for WinUI/SwiftUI through the same authority mechanism.
-- **`prototype` tool** — Copilot authors and reads prototypes from conversation:
-  `action` of `read` (flow outline), `validate` (dangling navigation / unknown components or
-  tokens), `patch` (surgical scene-graph ops), `codegen` (convert a screen), `export`
-  (standalone browser artifact), or `publish` (explicit GitHub Pages deployment).
+- **Format** — prototypes live at `.agents/design/prototypes.jsonc`: a framework-agnostic **scene graph** (layout primitives + references to your `components.jsonc` by name + **navigation as data**), never shipping code. It's pure data, so it renders safely and Copilot can patch a single node by id without rewriting the file. Every save re-emits a stable, key-ordered file plus a Markdown flow outline for painless PR review.
+- **Device frames** — preview each screen in web breakpoints, desktop-app windows (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including native app chrome.
+- **Interactions (v1)** — navigate between screens, simple state (toggles, tabs), open/close modals, and visibility bound to state. Click through it live in the canvas, rendered with your real tokens + components in Light/Dark/High-contrast.
+- **Convert to code** — a first-pass `codegen` action turns the JSONC scene graph and component intent into code for the configured production target. The current web target emits React/JSX using `ds-*` conventions; a native port target emits a hand-off scaffold and porting notes for WinUI/SwiftUI through the same authority mechanism.
+- **`prototype` tool** — Copilot authors and reads prototypes from conversation: `action` of `read` (flow outline), `validate` (dangling navigation / unknown components or tokens), `patch` (surgical scene-graph ops), `codegen` (convert a screen), `export`(standalone browser artifact), or `publish` (explicit GitHub Pages deployment).
 
 ### Sharing a design system or prototype
 
@@ -159,11 +130,7 @@ convert a screen to code.
 | A broad browser audience | Use **Publish** in the Prototype canvas | GitHub authentication with repository admin access. Colophon writes only its generated file to `gh-pages` and opens the resulting GitHub Pages URL. |
 | A team adopting the canvas extension | Share the extension as a private GitHub gist | The recipient can install the gist through Copilot, then open it in their own workspace. |
 
-**Export** is the safe default: it preserves screens, device frames, themes, click-through
-interactions, and component rendering without a Copilot session, a loopback server, or an
-internet connection. **Publish** is intentionally separate and asks for confirmation. It uses
-the authenticated GitHub CLI/API, never stages or commits the active working tree, and refuses
-to overwrite a GitHub Pages configuration that is not already based on `gh-pages`.
+**Export** is the safe default: it preserves screens, device frames, themes, click-through interactions, and component rendering without a Copilot session, a loopback server, or an internet connection. **Publish** is intentionally separate and asks for confirmation. It uses the authenticated GitHub CLI/API, never stages or commits the active working tree, and refuses to overwrite a GitHub Pages configuration that is not already based on `gh-pages`.
 
 ## Agent/host-facing actions
 **Colophon canvas:**
