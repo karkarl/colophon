@@ -1,7 +1,9 @@
 // designio.mjs — locate, load, scaffold, and save the in-repo design system.
 //
 // The design system lives at <workspace>/.agents/design/:
-//   design.json       tokens (brand, colors, typography, spacing, radii, shadows, principles)
+//   design.json       tokens (brand, colors, typography, spacing, radii, shadows, principles,
+//                     and optional user-managed pages)
+//                     pages[] entries are { id, name, description?, content?, components? }.
 //   components.jsonc   component patterns as a framework-agnostic element tree
 //   principles.md      prose voice / do & don't
 //
