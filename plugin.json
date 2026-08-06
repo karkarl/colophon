@@ -12,5 +12,6 @@
   "keywords": ["design-system", "design", "ui", "tokens", "frontend", "canvas", "skill"],
   "category": "design",
   "skills": "skills/",
+  "commands": "commands/",
   "extensions": "extensions/"
 }

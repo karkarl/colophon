@@ -33,6 +33,19 @@ copilot plugin install karkarl/colophon
 
 Open the **Prototype** canvas when you are ready to create or preview a click-through flow. Commit `.agents/design/` so the rest of the team works from the same system.
 
+## Slash commands
+
+| Command | What it does |
+| --- | --- |
+| `/colophon` | Opens the Colophon design-system canvas. |
+| `/prototype` | Opens the Prototype canvas for the repository's click-through flow. |
+| `/design-validate` | Validates the design system and reports every error and warning without modifying files. |
+| `/design-scan` | Scans existing UI sources and reports an unsaved design-system proposal with its evidence. |
+| `/prototype-validate` | Validates prototype parsing, navigation, component, and design-token references without modifying files. |
+| `/prototype-export` | Validates and writes a standalone interactive prototype export, or reports why export was blocked. |
+
+The five workflow commands are declarative plugin commands in `commands/`, so hosts can discover them consistently. `/colophon` is supplied by the Colophon canvas.
+
 ## How it works
 
 ### 1. The design system lives in the repo: `.agents/design/`
