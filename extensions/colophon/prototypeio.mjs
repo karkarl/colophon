@@ -206,6 +206,42 @@ export function findNode(screen, nodeId) {
   return found;
 }
 
+export function prototypeValueAtPath(doc, pathSegments) {
+  if (!Array.isArray(pathSegments) || !pathSegments.length) throw new Error("selection requires a non-empty JSON path");
+  let value = doc;
+  for (const segment of pathSegments) {
+    if (typeof segment !== "string" && !Number.isInteger(segment)) throw new Error("selection path contains an invalid segment");
+    if (value == null || (typeof value !== "object" && !Array.isArray(value)) || !(segment in value)) {
+      throw new Error(`selection path does not exist at ${JSON.stringify(segment)}`);
+    }
+    value = value[segment];
+  }
+  return value;
+}
+
+export function prototypePointerForPath(pathSegments) {
+  if (!Array.isArray(pathSegments) || !pathSegments.length) throw new Error("selection requires a non-empty JSON path");
+  return "/" + pathSegments.map((segment) => String(segment).replace(/~/g, "~0").replace(/\//g, "~1")).join("/");
+}
+
+export function resolvePrototypeSelection(doc, selection) {
+  const screenId = selection?.screenId;
+  const pathSegments = selection?.path;
+  const value = prototypeValueAtPath(doc, pathSegments);
+  if (!value || typeof value !== "object" || Array.isArray(value) || !nodeKind(value)) {
+    throw new Error("selection path must resolve to a prototype node");
+  }
+  const screenIndex = pathSegments[0] === "screens" && Number.isInteger(pathSegments[1]) ? pathSegments[1] : -1;
+  const screen = doc?.screens?.[screenIndex];
+  if (!screen || screen.id !== screenId) throw new Error(`selection does not belong to screen "${screenId || "?"}"`);
+  return {
+    screen,
+    node: value,
+    path: pathSegments.slice(),
+    jsonPointer: prototypePointerForPath(pathSegments),
+  };
+}
+
 function findNodeParent(screen, nodeId) {
   let hit = null;
   walkScreen(screen, (n, parent) => { if (!hit && n.id === nodeId) hit = { node: n, parent }; });

@@ -104,6 +104,9 @@ Open the **Design System** canvas to see the system rendered live:
 - **Design system** - Brand board, color palette, type scale, spacing/radii/shadows, principles.
 - **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM interpreter (no framework runtime, works offline) using the system's own tokens, so you see real UI, not just code.
 - **Inline editing** — change a color/font/brand text and **Save to repo** writes`design.json` back. File edits stream back into the canvas via SSE.
+- **Exact inspection** — toggle **Inspect** to select brand, color, typography, spacing,
+  radius, shadow, principle, or component objects by their exact JSON Pointer path. Edit
+  the object inline, save it to `design.json` / `components.jsonc`, or attach it to chat.
 If a repo has no `.agents/design/` yet, the canvas shows a bundled **starter** system plus a 3-way **onboarding** panel (below).
 
 ### 2b. Seeding a repo — three ways
@@ -130,6 +133,8 @@ A second canvas turns the design system into **click-through prototypes** — so
 - **Format** — prototypes live at `.agents/design/prototypes.jsonc`: a framework-agnostic **scene graph** (layout primitives + references to your `components.jsonc` by name + **navigation as data**), never shipping code. It's pure data, so it renders safely and Copilot can patch a single node by id without rewriting the file. Every save re-emits a stable, key-ordered file plus a Markdown flow outline for painless PR review.
 - **Device frames** — preview each screen in web breakpoints, desktop-app windows (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including native app chrome.
 - **Interactions (v1)** — navigate between screens, simple state (toggles, tabs), open/close modals, and visibility bound to state. Click through it live in the canvas, rendered with your real tokens + components in Light/Dark/High-contrast.
+- **Inspect and edit** — toggle Inspect to select the exact rendered JSON element, edit its object in place, drag layers to reorder or reparent them, and save the resulting scene graph back to `prototypes.jsonc`.
+- **Attach to chat** — selected elements can be added to the next Copilot message as a structured object containing the source, screen, exact JSON Pointer path, and element payload.
 - **Convert to code** — a first-pass `codegen` action turns the JSONC scene graph and component intent into code for the configured production target. The current web target emits React/JSX using `ds-*` conventions; a native port target emits a hand-off scaffold and porting notes for WinUI/SwiftUI through the same authority mechanism.
 - **`prototype` tool** — Copilot authors and reads prototypes from conversation: `action` of `read` (flow outline), `validate` (dangling navigation / unknown components or tokens), `patch` (surgical scene-graph ops), `codegen` (convert a screen), `export`(standalone browser artifact), or `publish` (explicit GitHub Pages deployment).
 
@@ -147,6 +152,9 @@ A second canvas turns the design system into **click-through prototypes** — so
 
 ## Agent/host-facing actions
 **Colophon canvas:**
+- `inspect_selection` — return the exact selected `design.json` or `components.jsonc`
+  object and its JSON Pointer path.
+- `attach_selection` — add that object to the next chat message as structured context.
 - `read` — return the current system as a text summary.
 - `init` — scaffold `.agents/design/` (non-destructive); `mode: "starter" | "scratch"`.
 - `scan` — scan existing UI and return a proposed system (text + evidence); writes nothing.
@@ -155,6 +163,8 @@ A second canvas turns the design system into **click-through prototypes** — so
 
 **Prototype canvas:**
 - `read` / `outline` — return the Markdown flow outline (screens, nodes, navigation).
+- `inspect_selection` — return the exact selected JSON element and its JSON Pointer path.
+- `attach_selection` — add that selection to the next chat message as structured extension context.
 - `patch` — apply surgical scene-graph ops (`upsertScreen`, `setNode`, `patchNode`,
   `setNav`, …) and save.
 - `validate` — dangling navigation targets, unknown component/token references.
@@ -181,7 +191,7 @@ extensions/colophon/              the canvas extension:
   prototypeio.mjs  load / save / surgically patch / validate prototypes.jsonc (scene graph)
   proto-render.js  in-canvas JSON→DOM interpreter + interaction/state runtime
   components-runtime.js  browser-only component runtime used by standalone exports
-  proto-client.js  the Prototype canvas app (device frames, screen switcher, click-through)
+  proto-client.js  the Prototype canvas app (device frames, inspect/edit/layers, click-through)
   proto-renderer.mjs / proto.css   prototype iframe shell + device-frame styles
   proto-outline.mjs                Markdown flow-outline generator
   protocodegen.mjs                 convert a screen to code for the port target
@@ -195,10 +205,9 @@ extensions/colophon/              the canvas extension:
   they work fully offline — no CDN, no React/Babel.
 - Editing currently covers tokens (colors, fonts, brand). Editing `components.jsonc` /
   `principles.md` is done in your editor for now.
-- Prototypes are authored by Copilot (via the `prototype` tool) or by hand-editing
-  `prototypes.jsonc`; the canvas is preview + click-through, not yet a drag-and-drop
-  editor. Native `codegen` is a best-effort hand-off scaffold; the web/React target is
-  deterministic.
+- Prototype layers can be selected, edited as JSON, reordered/reparented by dragging, and
+  saved in the canvas. Native `codegen` remains a best-effort hand-off scaffold; the
+  web/React target is deterministic.
 - Canvas APIs are an experimental SDK surface and may change.
 
 ## Installation and team setup

@@ -168,8 +168,8 @@
     if (node.height != null) style.push(`height:${dim(node.height)}`);
     style.push("box-sizing:border-box");
     const box = el("div", { class: "proto-node proto-layout", style: style.join(";") });
-    for (const child of node.children || []) {
-      const rendered = renderNode(child, ctx);
+    for (const [index, child] of (node.children || []).entries()) {
+      const rendered = renderNode(child, { ...ctx, path: [...ctx.path, "children", index] });
       if (rendered) box.append(rendered);
     }
     return box;
@@ -233,6 +233,10 @@
     else if (kind === "component") dom = renderComponent(node, ctx);
     else dom = el("div", { class: "proto-err" }, `Unknown node "${node.id || "?"}"`);
 
+    dom.dataset.protoPath = JSON.stringify(ctx.path || []);
+    if (node.id) dom.dataset.protoNodeId = node.id;
+    dom.dataset.protoKind = kind || "unknown";
+
     const tap = node.on?.tap;
     if (tap) {
       dom.classList.add("proto-tappable");
@@ -247,7 +251,8 @@
     surface.innerHTML = "";
     const screen = runtime.screen();
     if (!screen) { surface.append(el("div", { class: "proto-empty" }, "No screen selected.")); return; }
-    const ctx = { state: runtime.state, componentsDoc: runtime.componentsDoc, componentNames: runtime.componentNames, dispatch: (a) => runtime.dispatch(a), type: buildTypeScale(tokens) };
+    const screenIndex = runtime.screens.indexOf(screen);
+    const ctx = { state: runtime.state, componentsDoc: runtime.componentsDoc, componentNames: runtime.componentNames, dispatch: (a) => runtime.dispatch(a), type: buildTypeScale(tokens), path: ["screens", screenIndex, "root"] };
 
     // Opt-in "app shell" mode: when a screen sets `fit:"screen"`, the surface becomes a
     // bounded flex column that never scrolls as a whole. Pinned chrome (titlebar, nav)
@@ -276,7 +281,8 @@
       if (modal) {
         const backdrop = el("div", { class: "proto-modal-backdrop" });
         backdrop.addEventListener("click", () => runtime.dispatch({ closeModal: true }));
-        const panel = renderNode(modal.root, ctx);
+        const modalIndex = (screen.modals || []).indexOf(modal);
+        const panel = renderNode(modal.root, { ...ctx, path: ["screens", screenIndex, "modals", modalIndex, "root"] });
         if (panel) { panel.classList.add("proto-modal-panel"); panel.addEventListener("click", (e) => e.stopPropagation()); backdrop.append(panel); }
         surface.append(backdrop);
       }

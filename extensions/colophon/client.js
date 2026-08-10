@@ -15,12 +15,18 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 
-let state = { design: null, tokens: null, dirty: false, mode: "normal", proposal: null, theme: "light", validation: null, page: "brand" };
+let state = {
+  design: null, tokens: null, componentsDoc: null,
+  dirty: false, componentsDirty: false, mode: "normal", proposal: null,
+  theme: "light", validation: null, page: "brand",
+  inspectMode: false, selection: null,
+};
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
-  return res.headers.get("content-type")?.includes("json") ? res.json() : res.text();
+  const payload = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(payload?.error || `${path} -> ${res.status}`);
+  return payload;
 }
 
 const THEMES = ["light", "dark", "highContrast"];
@@ -107,10 +113,177 @@ function applyVars() {
   document.body.setAttribute("data-ds-theme", state.theme);
 }
 
+function updateSaveButton() {
+  const save = $("#save-btn");
+  if (save) {
+    save.disabled = !(state.dirty || state.componentsDirty);
+    save.textContent = state.dirty || state.componentsDirty ? "Save changes" : (state.design?.source === "repo" ? "Saved" : "Save to repo");
+  }
+}
+
 function markDirty() {
   state.dirty = true;
-  const save = $("#save-btn");
-  if (save) { save.disabled = false; save.textContent = "Save changes"; }
+  updateSaveButton();
+}
+
+function markComponentsDirty() {
+  state.componentsDirty = true;
+  updateSaveButton();
+}
+
+function pointerFor(path) {
+  return "/" + path.map((part) => String(part).replace(/~/g, "~0").replace(/\//g, "~1")).join("/");
+}
+
+function valueAtPath(root, path) {
+  let value = root;
+  for (const part of path) {
+    if (value == null || !(part in value)) return undefined;
+    value = value[part];
+  }
+  return value;
+}
+
+function replaceAtPath(root, path, value) {
+  if (!path.length) throw new Error("The root document cannot be replaced here.");
+  const parent = valueAtPath(root, path.slice(0, -1));
+  if (parent == null) throw new Error("The selected element no longer exists.");
+  parent[path[path.length - 1]] = value;
+}
+
+function inspectable(node, file, path, label) {
+  if (!node?.dataset) return node;
+  node.dataset.designInspect = "true";
+  node.dataset.designFile = file;
+  node.dataset.designPath = JSON.stringify(path);
+  node.dataset.designLabel = label;
+  return node;
+}
+
+function selectionRoot(file) {
+  return file === "components.jsonc" ? state.componentsDoc : state.tokens;
+}
+
+function selectDesignElement(target) {
+  const file = target.dataset.designFile;
+  const path = JSON.parse(target.dataset.designPath || "[]");
+  const value = valueAtPath(selectionRoot(file), path);
+  if (value === undefined) return;
+  state.selection = { file, path, label: target.dataset.designLabel || path.at(-1), value };
+  renderInspector();
+  applyInspectHighlight();
+  postDesignSelection();
+}
+
+function renderInspector() {
+  const selection = state.selection;
+  const valid = !!selection;
+  $("#inspect-title").textContent = valid ? selection.label : "No selection";
+  $("#inspect-path").textContent = valid ? `${selection.file}${pointerFor(selection.path)}` : "";
+  $("#inspect-path").title = valid ? `${selection.file}${pointerFor(selection.path)}` : "";
+  $("#inspect-json").disabled = !valid;
+  $("#inspect-json").value = valid ? JSON.stringify(valueAtPath(selectionRoot(selection.file), selection.path), null, 2) : "";
+  $("#inspect-apply-btn").disabled = !valid;
+  $("#inspect-attach-btn").disabled = !valid;
+  $("#inspect-error").textContent = "";
+}
+
+function applyInspectHighlight() {
+  for (const node of document.querySelectorAll("[data-design-inspect]")) {
+    const selected = state.selection
+      && node.dataset.designFile === state.selection.file
+      && node.dataset.designPath === JSON.stringify(state.selection.path);
+    node.classList.toggle("is-inspected", !!selected);
+  }
+}
+
+function selectionPayload() {
+  if (!state.selection) return null;
+  const value = valueAtPath(selectionRoot(state.selection.file), state.selection.path);
+  return {
+    file: state.selection.file,
+    path: state.selection.path,
+    jsonPointer: pointerFor(state.selection.path),
+    label: state.selection.label,
+    value,
+    draft: state.selection.file === "components.jsonc" ? state.componentsDirty : state.dirty,
+  };
+}
+
+function postDesignSelection() {
+  const selection = selectionPayload();
+  if (!selection) return;
+  api("/api/design/select", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(selection),
+  }).catch(() => {});
+}
+
+async function applyInspectorJson() {
+  let root;
+  let previous;
+  const priorDirty = state.dirty;
+  const priorComponentsDirty = state.componentsDirty;
+  try {
+    if (!state.selection) return;
+    const next = JSON.parse($("#inspect-json").value);
+    root = selectionRoot(state.selection.file);
+    previous = valueAtPath(root, state.selection.path);
+    replaceAtPath(root, state.selection.path, next);
+    if (state.selection.file === "components.jsonc") {
+      const validation = window.DSComp?.validateComponentsDoc?.(state.componentsDoc);
+      if (validation && !validation.ok) {
+        replaceAtPath(root, state.selection.path, previous);
+        throw new Error(validation.errors.join(" "));
+      }
+      state.design.componentsDoc = state.componentsDoc;
+      markComponentsDirty();
+    } else {
+      await api("/api/design/validate-draft", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tokens: state.tokens }),
+      });
+      markDirty();
+    }
+    await render();
+    renderInspector();
+    applyInspectHighlight();
+    postDesignSelection();
+  } catch (error) {
+    if (root && previous !== undefined) {
+      replaceAtPath(root, state.selection.path, previous);
+      if (state.selection.file === "components.jsonc") state.design.componentsDoc = state.componentsDoc;
+      state.dirty = priorDirty;
+      state.componentsDirty = priorComponentsDirty;
+      updateSaveButton();
+      await render().catch(() => {});
+      renderInspector();
+      applyInspectHighlight();
+    }
+    $("#inspect-error").textContent = error.message || String(error);
+  }
+}
+
+async function attachDesignSelection() {
+  const selection = selectionPayload();
+  if (!selection) return;
+  const button = $("#inspect-attach-btn");
+  try {
+    button.disabled = true;
+    const result = await api("/api/design/attach", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(selection),
+    });
+    button.textContent = "Attached";
+    setTimeout(() => { button.textContent = "Attach to chat"; button.disabled = false; }, 1400);
+    return result;
+  } catch (error) {
+    button.disabled = false;
+    $("#inspect-error").textContent = error.message || String(error);
+  }
 }
 
 /* ---------- section renderers ---------- */
@@ -202,7 +375,7 @@ function renderBrand(t) {
   const descIn = el("textarea", { class: "otextarea", rows: "3", placeholder: "What is this app/project? Who is it for? What does it do? (codegen reads this for context)",
     oninput: (e) => { b.description = e.target.value; markDirty(); const d = $("#brand-desc"); if (d) { d.textContent = e.target.value; d.style.display = e.target.value ? "" : "none"; } } });
   descIn.value = b.description || "";
-  return el("section", { class: "block" },
+  return inspectable(el("section", { class: "block" },
     el("h2", {}, "Brand"),
     el("div", { class: "brand" },
       el("div", { class: "name", id: "brand-name" }, b.name || "Untitled"),
@@ -218,13 +391,13 @@ function renderBrand(t) {
     ),
     el("div", { class: "editable", style: "margin-top:12px" }, el("label", {}, "Description (app / project context for codegen)"), descIn),
     renderAuthority(t),
-  );
+  ), "design.json", ["brand"], "Brand");
 }
 
 function renderColors(t) {
   const list = colorList(t);
   const previewOnly = hasPort(t);
-  const section = el("section", { class: "block" }, el("h2", {}, "Color"));
+  const section = inspectable(el("section", { class: "block" }, el("h2", {}, "Color")), "design.json", ["colors"], "Colors");
   section.append(el("div", { class: "muted", style: "margin:-6px 0 12px" },
     previewOnly
       ? el("span", {}, "Previewing ", el("strong", {}, THEME_LABEL[state.theme]),
@@ -251,14 +424,14 @@ function renderColors(t) {
           el("span", { class: "dot", style: `background:${v}` }), th === "highContrast" ? "HC" : THEME_LABEL[th]));
       }
     }
-    grid.append(el("div", { class: "swatch" }, fill,
+    grid.append(inspectable(el("div", { class: "swatch" }, fill,
       el("div", { class: "meta" },
         el("div", { class: "row" }, el("span", { class: "name" }, c.name), colorIn),
         el("div", { class: "row" }, valEl),
         c.resource ? el("div", { class: "resource mono", title: "Canonical implementation resource key" }, "→ " + c.resource) : "",
         themeChips.childNodes.length ? themeChips : "",
         c.usage ? el("div", { class: "usage" }, c.usage) : "",
-      )));
+      )), "design.json", Array.isArray(t.colors) ? ["colors", i] : ["colors", c.name], `Color: ${c.name}`));
   });
   section.append(grid);
   return section;
@@ -276,32 +449,34 @@ function renderTypography(t) {
     facesWrap.append(el("div", { class: "face" }, el("div", { class: "k" }, role), el("div", { class: "editable" }, sample, input)));
   }
   const scaleWrap = el("div", {});
-  for (const s of ty.scale || []) {
+  for (const [index, s] of (ty.scale || []).entries()) {
     const fam = s.role === "display" ? "var(--font-display)" : s.role === "mono" ? "var(--font-mono)" : "var(--font-body)";
-    scaleWrap.append(el("div", { class: "type-row" },
+    scaleWrap.append(inspectable(el("div", { class: "type-row" },
       el("div", { class: "tag mono" }, `${s.name} · ${s.size}/${s.lineHeight} · ${s.weight}`),
       el("div", { style: `font-family:${fam};font-size:${s.size};line-height:${s.lineHeight};font-weight:${s.weight};letter-spacing:${s.tracking || "normal"}` }, "Design is how it works"),
-    ));
+    ), "design.json", ["typography", "scale", index], `Type style: ${s.name}`));
   }
-  return el("section", { class: "block" }, el("h2", {}, "Typography"), facesWrap, scaleWrap);
+  return inspectable(el("section", { class: "block" }, el("h2", {}, "Typography"), facesWrap, scaleWrap), "design.json", ["typography"], "Typography");
 }
 
 function renderScales(t) {
   const sp = el("div", { class: "scale-strip" });
-  for (const s of t.spacing?.scale || []) sp.append(el("div", { class: "space-demo" }, el("div", { class: "bar", style: `width:${s.value}` }), el("span", { class: "tag mono" }, `${s.name}·${s.value}`)));
+  for (const [index, s] of (t.spacing?.scale || []).entries()) sp.append(inspectable(el("div", { class: "space-demo" }, el("div", { class: "bar", style: `width:${s.value}` }), el("span", { class: "tag mono" }, `${s.name}·${s.value}`)), "design.json", ["spacing", "scale", index], `Spacing: ${s.name}`));
   const rad = el("div", { class: "scale-strip" });
-  for (const r of t.radii || []) rad.append(el("div", { class: "radius-demo" }, el("div", { class: "box", style: `border-radius:${r.value}` }), el("span", { class: "tag mono" }, `${r.name}·${r.value}`)));
+  for (const [index, r] of (t.radii || []).entries()) rad.append(inspectable(el("div", { class: "radius-demo" }, el("div", { class: "box", style: `border-radius:${r.value}` }), el("span", { class: "tag mono" }, `${r.name}·${r.value}`)), "design.json", ["radii", index], `Radius: ${r.name}`));
   const sh = el("div", { class: "scale-strip" });
-  for (const s of t.shadows || []) sh.append(el("div", { class: "shadow-demo" }, el("div", { class: "box", style: `box-shadow:${s.value}` }), el("span", { class: "tag mono" }, s.name)));
-  return el("section", { class: "block" }, el("h2", {}, "Spacing"), sp,
-    el("h2", { style: "margin-top:22px" }, "Radii"), rad,
-    el("h2", { style: "margin-top:22px" }, "Shadows"), sh);
+  for (const [index, s] of (t.shadows || []).entries()) sh.append(inspectable(el("div", { class: "shadow-demo" }, el("div", { class: "box", style: `box-shadow:${s.value}` }), el("span", { class: "tag mono" }, s.name)), "design.json", ["shadows", index], `Shadow: ${s.name}`));
+  return el("section", { class: "block" },
+    inspectable(el("div", {}, el("h2", {}, "Spacing"), sp), "design.json", ["spacing"], "Spacing"),
+    inspectable(el("div", {}, el("h2", { style: "margin-top:22px" }, "Radii"), rad), "design.json", ["radii"], "Radii"),
+    inspectable(el("div", {}, el("h2", { style: "margin-top:22px" }, "Shadows"), sh), "design.json", ["shadows"], "Shadows"));
 }
 
 function renderPrinciples(t) {
   if (!(t.principles || []).length) return "";
-  return el("section", { class: "block" }, el("h2", {}, "Principles"),
-    el("ul", { class: "principles" }, ...t.principles.map((p) => el("li", {}, p))));
+  return inspectable(el("section", { class: "block" }, el("h2", {}, "Principles"),
+    el("ul", { class: "principles" }, ...t.principles.map((p, index) => inspectable(el("li", {}, p), "design.json", ["principles", index], `Principle ${index + 1}`)))),
+    "design.json", ["principles"], "Principles");
 }
 
 /* ---------- component previews (pure JSON interpreter, no React/Babel) ---------- */
@@ -335,7 +510,8 @@ async function renderComponents(t, doc, { names = null, heading = "Components" }
   }
 
   for (const name of previewNames) {
-    const card = el("div", { class: "preview" });
+    const componentIndex = doc.components.findIndex((component) => component?.name === name);
+    const card = inspectable(el("div", { class: "preview" }), "components.jsonc", ["components", componentIndex], `Component: ${name}`);
     card.append(el("div", { class: "head" }, el("span", { class: "cname" }, name)));
     const stage = el("div", { class: "stage" });
     const surface = el("div", { class: "ds-preview-surface", style: "padding:20px" });
@@ -393,7 +569,7 @@ const BUILTIN_PAGES = Object.freeze([
     id: "components",
     label: "Components",
     description: "Live patterns and definitions",
-    render: (tokens) => renderComponents(tokens, state.design.componentsDoc || null),
+    render: (tokens) => renderComponents(tokens, state.componentsDoc || null),
   },
 ]);
 
@@ -427,7 +603,7 @@ function selectPage(id) {
 
 function availableComponentNames() {
   const DS = window.DSComp;
-  const doc = state.design?.componentsDoc;
+  const doc = state.componentsDoc;
   return DS && doc ? DS.componentNames(doc) : [];
 }
 
@@ -563,7 +739,7 @@ async function renderUserPage(t, page) {
       choices,
     ),
   );
-  content.append(await renderComponents(t, state.design.componentsDoc || null, {
+  content.append(await renderComponents(t, state.componentsDoc || null, {
     names: selectedPageComponents(page, names),
     heading: "Selected previews",
   }));
@@ -816,7 +992,9 @@ async function render() {
   if (gen !== renderSeq) return; // a newer render superseded this one
   content.append(pageContent);
   root.append(el("div", { class: "canvas-layout" }, renderPageNavigation(), content));
+  applyInspectHighlight();
   positionValidationSlot();
+  renderInspector();
 }
 
 async function doInit(mode) {
@@ -828,9 +1006,23 @@ async function doSave() {
   const btn = $("#save-btn");
   btn.disabled = true; btn.textContent = "Saving…";
   try {
-    const out = await api("/api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokens: state.tokens }) });
-    state.design.source = "repo"; state.design.dir = out.dir; state.dirty = false;
+    let out = null;
+    if (state.dirty || state.design.source !== "repo") {
+      out = await api("/api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokens: state.tokens }) });
+    }
+    if (state.componentsDirty) {
+      await api("/api/components/save", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ doc: state.componentsDoc }),
+      });
+    }
+    state.design.source = "repo";
+    if (out?.dir) state.design.dir = out.dir;
+    state.dirty = false;
+    state.componentsDirty = false;
     btn.textContent = "Saved ✓";
+    btn.disabled = true;
     updateSourcePill();
   } catch (e) { btn.disabled = false; btn.textContent = "Save changes"; alert("Save failed: " + e.message); }
 }
@@ -870,9 +1062,12 @@ async function load() {
   await whenDSComp();
   state.design = data.design;
   state.tokens = JSON.parse(JSON.stringify(data.design.tokens || {}));
+  state.componentsDoc = JSON.parse(JSON.stringify(data.design.componentsDoc || { meta: { version: 1 }, components: [] }));
   if (!pageRegistry().some((page) => page.id === state.page)) state.page = "brand";
   state.dirty = false;
-  checkComponentPreviews(state.design.componentsDoc || null);
+  state.componentsDirty = false;
+  state.selection = null;
+  checkComponentPreviews(state.componentsDoc);
   applyVars();
   updateSourcePill();
   await render();
@@ -890,6 +1085,25 @@ window.addEventListener("DOMContentLoaded", () => {
   $("#save-btn").addEventListener("click", doSave);
   $("#reload-btn").addEventListener("click", () => load());
   $("#validate-btn")?.addEventListener("click", doValidate);
+  $("#inspect-btn")?.addEventListener("click", () => {
+    state.inspectMode = !state.inspectMode;
+    $("#inspect-btn").classList.toggle("is-active", state.inspectMode);
+    $("#inspect-btn").setAttribute("aria-pressed", String(state.inspectMode));
+    $("#design-inspector").hidden = !state.inspectMode;
+    document.body.classList.toggle("inspect-mode", state.inspectMode);
+    document.body.classList.toggle("inspect-open", state.inspectMode);
+    positionValidationSlot();
+  });
+  $("#app").addEventListener("click", (event) => {
+    if (!state.inspectMode) return;
+    const target = event.target.closest("[data-design-inspect]");
+    if (!target) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    selectDesignElement(target);
+  }, true);
+  $("#inspect-apply-btn")?.addEventListener("click", applyInspectorJson);
+  $("#inspect-attach-btn")?.addEventListener("click", attachDesignSelection);
   $("#export-btn")?.addEventListener("click", doExport);
   $("#publish-btn")?.addEventListener("click", () => {
     $("#export-menu").hidden = true;

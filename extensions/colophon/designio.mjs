@@ -13,7 +13,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { COMPONENTS_FILENAME, parseComponents, emptyComponents } from "./componentsio.mjs";
+import { COMPONENTS_FILENAME, parseComponents, emptyComponents, serializeComponents } from "./componentsio.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_DIR = path.join(HERE, "sample");
@@ -165,6 +165,16 @@ export async function saveTokens(workspacePath, tokens) {
   const scaffolded = await ensureSiblings(dir);
   const agents = await ensureAgentsPointer(workspacePath);
   return { dir, tokens: next, scaffolded, agents };
+}
+
+export async function saveComponents(workspacePath, doc) {
+  const dir = designDirFor(workspacePath);
+  if (!dir) throw new Error("No workspace path available to save components.jsonc");
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, COMPONENTS_FILENAME);
+  await fs.writeFile(file, serializeComponents(doc), "utf8");
+  const agents = await ensureAgentsPointer(workspacePath);
+  return { dir, file, doc: parseComponents(serializeComponents(doc)), agents };
 }
 
 // The managed AGENTS.md block, from the start marker to the end marker inclusive

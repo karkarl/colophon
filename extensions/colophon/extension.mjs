@@ -16,16 +16,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { loadDesign, initDesign, saveTokens, tokensToCssVars, designDirFor, readAuthority, colorList, DESIGN_SUBPATH } from "./designio.mjs";
+import { loadDesign, initDesign, saveTokens, saveComponents, tokensToCssVars, designDirFor, readAuthority, colorList, DESIGN_SUBPATH } from "./designio.mjs";
 import { buildSummary, looksLikeUiWork, sessionStartContext, promptContext } from "./context.mjs";
 import { scratchTokens, normalizeTokens, scanCodebase } from "./sources.mjs";
 import { validateTokens, validateComponents, validatePageComponents, flattenResult } from "./validate.mjs";
 import { renderShell } from "./renderer.mjs";
 import { renderProtoShell } from "./proto-renderer.mjs";
-import { loadPrototypes, savePrototypes, applyOps, validatePrototypes, findScreen, PROTO_SUBPATH } from "./prototypeio.mjs";
+import { loadPrototypes, savePrototypes, applyOps, validatePrototypes, findScreen, nodeKind, resolvePrototypeSelection, prototypePointerForPath, PROTO_SUBPATH } from "./prototypeio.mjs";
 import { buildOutline } from "./proto-outline.mjs";
 import { codegenScreen } from "./protocodegen.mjs";
-import { componentNames, COMPONENTS_FILENAME } from "./componentsio.mjs";
+import { componentNames, validateComponentsDoc, COMPONENTS_FILENAME } from "./componentsio.mjs";
 import { buildPrototypeExportHtml, writePrototypeExport } from "./prototypeexport.mjs";
 import { publishPrototypeToPages } from "./pagespublish.mjs";
 
@@ -101,6 +101,85 @@ async function loadProtoBundle(workdir) {
     tokenNames: tokenNamesFrom(design.tokens),
   });
   return { design, proto, validation };
+}
+
+async function selectedPrototypeElement(entry, selection = entry?.selection) {
+  if (!entry) throw new Error("Prototype canvas instance is not open");
+  if (!selection) throw new Error("No prototype element is selected");
+  const proto = await loadPrototypes(entry.workdir);
+  if (selection.element != null) {
+    if (!selection.element || typeof selection.element !== "object" || Array.isArray(selection.element) || !nodeKind(selection.element)) {
+      throw new Error("Selected element snapshot is not a prototype node");
+    }
+    const screen = findScreen(proto.doc, selection.screenId);
+    return {
+      source: proto.source === "repo" ? PROTO_SUBPATH : "bundled starter",
+      screen: { id: selection.screenId, name: screen?.name || selection.screenId },
+      jsonPath: prototypePointerForPath(selection.path),
+      element: selection.element,
+      draft: selection.draft === true,
+    };
+  }
+  const resolved = resolvePrototypeSelection(proto.doc, selection);
+  return {
+    source: proto.source === "repo" ? PROTO_SUBPATH : "bundled starter",
+    screen: { id: resolved.screen.id, name: resolved.screen.name || resolved.screen.id },
+    jsonPath: resolved.jsonPointer,
+    element: resolved.node,
+  };
+}
+
+async function attachPrototypeElement(entry, selection) {
+  const selected = await selectedPrototypeElement(entry, selection);
+  const title = `Prototype: ${selected.element.id || selected.element.component || "element"}`;
+  const sendAttachments = sessionRef?.rpc?.session?.extensions?.sendAttachmentsToMessage;
+  if (typeof sendAttachments !== "function") throw new Error("This Copilot host does not support composer attachments from canvases");
+  await sendAttachments({
+    instanceId: entry.instanceId,
+    attachments: [{
+      type: "extension_context",
+      title,
+      payload: {
+        kind: "colophon.prototype.element",
+        source: selected.source,
+        screen: selected.screen,
+        jsonPath: selected.jsonPath,
+        element: selected.element,
+        draft: selected.draft,
+      },
+    }],
+  });
+  return { ok: true, title, ...selected };
+}
+
+function designSelectionPayload(selection) {
+  if (!selection || !["design.json", "components.jsonc"].includes(selection.file)) throw new Error("No design-system element is selected");
+  if (!Array.isArray(selection.path) || !selection.path.length) throw new Error("Design selection requires a non-empty JSON path");
+  if (selection.value === undefined) throw new Error("Design selection is missing its JSON value");
+  return {
+    file: selection.file,
+    jsonPath: typeof selection.jsonPointer === "string" ? selection.jsonPointer : prototypePointerForPath(selection.path),
+    label: typeof selection.label === "string" && selection.label ? selection.label : String(selection.path.at(-1)),
+    value: selection.value,
+    draft: selection.draft === true,
+  };
+}
+
+async function attachDesignElement(entry, selection = entry?.selection) {
+  if (!entry) throw new Error("Colophon canvas instance is not open");
+  const selected = designSelectionPayload(selection);
+  const title = `Design: ${selected.label}`;
+  const sendAttachments = sessionRef?.rpc?.session?.extensions?.sendAttachmentsToMessage;
+  if (typeof sendAttachments !== "function") throw new Error("This Copilot host does not support composer attachments from canvases");
+  await sendAttachments({
+    instanceId: entry.instanceId,
+    attachments: [{
+      type: "extension_context",
+      title,
+      payload: { kind: "colophon.design.element", ...selected },
+    }],
+  });
+  return { ok: true, title, ...selected };
 }
 
 // ---- per-instance loopback servers ----------------------------------------
@@ -179,10 +258,50 @@ async function handle(entry, req, res) {
   if (pathname === "/api/save" && req.method === "POST") {
     try {
       const { tokens } = await readBody(req);
+      const validation = validateTokens(tokens);
+      if (!validation.ok) return sendJson(res, 400, { error: `Design tokens are invalid: ${validation.errors.join(" ")}`, validation });
       const out = await saveTokens(entry.workdir, tokens);
       if (!entry.watcher) watchDesign(entry); // arm now that the dir exists
       log(`Saved design tokens to ${out.dir}${out.agents?.file ? `; AGENTS.md pointer ${out.agents.action}` : ""}`);
       return sendJson(res, 200, { ok: true, dir: out.dir, agents: out.agents });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/design/validate-draft" && req.method === "POST") {
+    try {
+      const { tokens } = await readBody(req);
+      const validation = validateTokens(tokens);
+      if (!validation.ok) return sendJson(res, 400, { error: `Design tokens are invalid: ${validation.errors.join(" ")}`, validation });
+      return sendJson(res, 200, validation);
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/components/save" && req.method === "POST") {
+    try {
+      const { doc } = await readBody(req);
+      const validation = validateComponentsDoc(doc);
+      if (!validation.ok) return sendJson(res, 400, { error: `Components are invalid: ${validation.errors.join(" ")}`, validation });
+      const out = await saveComponents(entry.workdir, doc);
+      if (!entry.watcher) watchDesign(entry);
+      broadcast(entry, "changed");
+      log(`Saved component definitions to ${out.file}`);
+      return sendJson(res, 200, { ok: true, file: out.file });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/design/select" && req.method === "POST") {
+    try {
+      const selection = await readBody(req);
+      entry.selection = { ...selection, path: Array.isArray(selection.path) ? selection.path.slice() : [] };
+      return sendJson(res, 200, { ok: true, ...designSelectionPayload(entry.selection) });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/design/attach" && req.method === "POST") {
+    try {
+      const selection = await readBody(req);
+      entry.selection = { ...selection, path: Array.isArray(selection.path) ? selection.path.slice() : [] };
+      return sendJson(res, 200, await attachDesignElement(entry));
     } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
   }
 
@@ -249,6 +368,12 @@ async function handle(entry, req, res) {
   if (pathname === "/api/prototypes/save" && req.method === "POST") {
     try {
       const { doc } = await readBody(req);
+      const design = await loadDesign(entry.workdir);
+      const validation = validatePrototypes(doc, {
+        componentNames: componentNamesFrom(design),
+        tokenNames: tokenNamesFrom(design.tokens),
+      });
+      if (!validation.ok) return sendJson(res, 400, { error: `Prototype is invalid: ${validation.errors.join(" ")}`, validation });
       const out = await savePrototypes(entry.workdir, doc);
       if (!entry.watcher) watchDesign(entry);
       broadcast(entry, "changed");
@@ -262,12 +387,39 @@ async function handle(entry, req, res) {
       const { ops } = await readBody(req);
       const current = await loadPrototypes(entry.workdir);
       const { doc, applied, errors } = applyOps(current.doc, Array.isArray(ops) ? ops : []);
-      if (errors.length) return sendJson(res, 400, { error: errors.join("; "), applied });
+      if (errors.length) return sendJson(res, 400, { error: errors.map((item) => `${item.op}: ${item.error}`).join("; "), applied });
       const out = await savePrototypes(entry.workdir, doc);
       if (!entry.watcher) watchDesign(entry);
       broadcast(entry, "changed");
       log(`Patched prototypes (${applied} op(s)) at ${out.path}`);
       return sendJson(res, 200, { ok: true, applied, path: out.path });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/prototypes/select" && req.method === "POST") {
+    try {
+      const selection = await readBody(req);
+      const selected = await selectedPrototypeElement(entry, selection);
+      entry.selection = {
+        screenId: selection.screenId,
+        path: selection.path.slice(),
+        element: selected.element,
+        draft: selection.draft === true,
+      };
+      return sendJson(res, 200, { ok: true, ...selected });
+    } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
+  }
+
+  if (pathname === "/api/prototypes/attach" && req.method === "POST") {
+    try {
+      const selection = await readBody(req);
+      entry.selection = {
+        screenId: selection.screenId,
+        path: Array.isArray(selection.path) ? selection.path.slice() : [],
+        element: selection.element,
+        draft: selection.draft === true,
+      };
+      return sendJson(res, 200, await attachPrototypeElement(entry, entry.selection));
     } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
   }
 
@@ -320,7 +472,7 @@ async function handle(entry, req, res) {
 }
 
 async function startServer(instanceId, workdir, kind = "design") {
-  const entry = { workdir, kind, sse: new Set(), watcher: null };
+  const entry = { instanceId, workdir, kind, selection: null, sse: new Set(), watcher: null };
   const server = createServer((req, res) => {
     handle(entry, req, res).catch((err) => {
       log(`request error: ${err.message || err}`, "error");
@@ -338,7 +490,7 @@ async function startServer(instanceId, workdir, kind = "design") {
 const canvas = createCanvas({
   id: "colophon",
   displayName: "Colophon",
-  description: "View, edit, and live-preview this repo's design system (.agents/design/): brand, color, type, spacing, components. Previews Light, Dark, and High-contrast themes and validates the system for drift.",
+  description: "Inspect, edit, attach, and live-preview exact token and component JSON from this repo's design system.",
   inputSchema: { type: "object", properties: { workingDirectory: { type: "string", description: "Repo/working directory whose .agents/design/ to load" } }, additionalProperties: true },
 
   open: async (ctx) => {
@@ -360,6 +512,24 @@ const canvas = createCanvas({
   },
 
   actions: [
+    {
+      name: "inspect_selection",
+      description: "Return the exact design.json or components.jsonc object currently selected in the Colophon canvas, including its JSON Pointer path.",
+      handler: async (ctx) => {
+        const entry = servers.get(ctx.instanceId);
+        try { return designSelectionPayload(entry?.selection); }
+        catch (err) { throw new CanvasError("selection_unavailable", String(err.message || err)); }
+      },
+    },
+    {
+      name: "attach_selection",
+      description: "Attach the exact selected design-system JSON object to the user's next Copilot chat message as structured extension context.",
+      handler: async (ctx) => {
+        const entry = servers.get(ctx.instanceId);
+        try { return await attachDesignElement(entry); }
+        catch (err) { throw new CanvasError("attach_failed", String(err.message || err)); }
+      },
+    },
     {
       name: "read",
       description: "Return the current design system as a text summary the agent can follow.",
@@ -447,7 +617,7 @@ async function closeInstance(instanceId) {
 const protoCanvas = createCanvas({
   id: "prototype",
   displayName: "Prototype",
-  description: "Device-framed, click-through prototypes generated from this repo's design system (.agents/design/prototypes.jsonc). Pick web/desktop/mobile/tablet frames, navigate between screens, and convert a screen to code for the configured port target.",
+  description: "Inspect, edit, reorder, attach, and preview exact JSON layers from this repo's device-framed click-through prototype.",
   inputSchema: { type: "object", properties: { workingDirectory: { type: "string", description: "Repo/working directory whose .agents/design/prototypes.jsonc to load" } }, additionalProperties: true },
 
   open: async (ctx) => {
@@ -471,6 +641,24 @@ const protoCanvas = createCanvas({
 
   actions: [
     {
+      name: "inspect_selection",
+      description: "Return the exact JSON element currently selected in this canvas, including its screen and JSON Pointer path.",
+      handler: async (ctx) => {
+        const entry = servers.get(ctx.instanceId);
+        try { return await selectedPrototypeElement(entry); }
+        catch (err) { throw new CanvasError("selection_unavailable", String(err.message || err)); }
+      },
+    },
+    {
+      name: "attach_selection",
+      description: "Attach the exact currently selected prototype JSON element to the user's next Copilot chat message as structured extension context.",
+      handler: async (ctx) => {
+        const entry = servers.get(ctx.instanceId);
+        try { return await attachPrototypeElement(entry); }
+        catch (err) { throw new CanvasError("attach_failed", String(err.message || err)); }
+      },
+    },
+    {
       name: "read",
       description: "Return the current prototypes as a Markdown flow outline (screens, nodes, navigation) the agent can follow without parsing JSON.",
       handler: async (ctx) => {
@@ -490,7 +678,7 @@ const protoCanvas = createCanvas({
         try {
           const current = await loadPrototypes(workdir);
           const { doc, applied, errors } = applyOps(current.doc, ctx.input?.ops || []);
-          if (errors.length) throw new CanvasError("patch_failed", errors.join("; "));
+          if (errors.length) throw new CanvasError("patch_failed", errors.map((item) => `${item.op}: ${item.error}`).join("; "));
           const out = await savePrototypes(workdir, doc);
           const entry = servers.get(ctx.instanceId);
           if (entry) { entry.workdir = workdir; if (!entry.watcher) watchDesign(entry); broadcast(entry, "changed"); }
@@ -727,6 +915,6 @@ const hooks = {
 
 sessionRef = await joinSession({
   canvases: [canvas, protoCanvas],
-  tools: [designTool, protoTool],
-  hooks,
+  tools: globalThis.__COLOPHON_CANVAS_PREVIEW__ ? [] : [designTool, protoTool],
+  hooks: globalThis.__COLOPHON_CANVAS_PREVIEW__ ? {} : hooks,
 });

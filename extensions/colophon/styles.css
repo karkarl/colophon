@@ -65,6 +65,7 @@ button.btn {
 }
 button.btn:hover { background: color-mix(in srgb, var(--color-muted, #6b6459) 8%, var(--color-surface, #fff)); }
 button.btn.primary { background: var(--color-accent, #b5502a); color: var(--color-accentInk, #fff); border-color: var(--color-accent, #b5502a); }
+button.btn.is-active { background: var(--color-ink, #1c1a17); color: var(--color-accentInk, #fff); border-color: var(--color-ink, #1c1a17); }
 button.btn:disabled { opacity: .5; cursor: default; }
 .icon-btn { width: 30px; padding: 5px; font-size: 16px; line-height: 1; }
 .split-button { position: relative; display: inline-flex; }
@@ -172,6 +173,36 @@ section.block > h2 {
   font-family: var(--font-display, Georgia, serif); font-size: 20px; line-height: 26px;
   letter-spacing: -.01em; color: var(--color-ink, #1c1a17); margin: 0 0 16px; font-weight: 600;
 }
+.inspect-mode [data-design-inspect] { cursor: crosshair; }
+.inspect-mode [data-design-inspect]:hover,
+[data-design-inspect].is-inspected {
+  outline: 2px solid var(--color-accent, #b5502a);
+  outline-offset: 3px;
+}
+.design-inspector {
+  position: fixed; z-index: 25; top: var(--canvas-topbar-offset, 54px); right: 0; bottom: 0;
+  width: min(380px, 44vw); padding: 14px; display: flex; flex-direction: column; gap: 12px;
+  border-left: 1px solid var(--color-line, #e4ddd0); background: var(--color-surface, #fff);
+  box-shadow: -10px 0 30px color-mix(in srgb, var(--color-ink, #1c1a17) 10%, transparent);
+}
+.design-inspector[hidden] { display: none; }
+.design-inspector-head, .design-inspector-actions {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+}
+.inspect-title { font-size: 13px; font-weight: 600; color: var(--color-ink, #1c1a17); }
+.inspect-path {
+  display: block; max-width: 230px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis;
+  color: var(--color-muted, #6b6459); font: 10px var(--font-mono, monospace); white-space: nowrap;
+}
+#inspect-json {
+  flex: 1; min-height: 220px; resize: none; padding: 10px;
+  border: 1px solid var(--color-line, #e4ddd0); border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--color-muted, #6b6459) 7%, var(--color-surface, #fff));
+  color: var(--color-ink, #1c1a17); font: 11px/1.5 var(--font-mono, monospace);
+}
+#inspect-json:focus { outline: 2px solid var(--color-accent, #b5502a); outline-offset: 1px; }
+#inspect-error { color: var(--color-critical, #8f2f2a); font-size: 11px; }
+body.inspect-open .wrap { padding-right: min(404px, calc(44vw + 24px)); }
 .muted { color: var(--text-color-muted, #656d76); }
 .mono { font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); }
 

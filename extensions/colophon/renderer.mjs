@@ -16,6 +16,7 @@ export function renderShell() {
       <h1>Design System</h1>
       <span id="source-pill" class="source-pill">loading…</span>
       <span class="grow"></span>
+      <button type="button" id="inspect-btn" class="btn" title="Inspect and edit exact design-system JSON" aria-pressed="false">Inspect</button>
       <button type="button" id="reload-btn" class="btn icon-btn" aria-label="Reload from disk" title="Reload from disk">↻</button>
       <div id="theme-switch" class="theme-switch" role="group" aria-label="Preview theme">
         <button type="button" class="theme-btn is-active" data-theme="light" aria-pressed="true" title="Light theme preview">Light</button>
@@ -34,6 +35,20 @@ export function renderShell() {
     </div>
     <div id="validation-slot" aria-live="polite"></div>
     <div class="wrap"><div id="app"></div></div>
+    <aside id="design-inspector" class="design-inspector" hidden>
+      <div class="design-inspector-head">
+        <div>
+          <div id="inspect-title" class="inspect-title">No selection</div>
+          <code id="inspect-path" class="inspect-path"></code>
+        </div>
+        <button type="button" id="inspect-attach-btn" class="btn" disabled>Attach to chat</button>
+      </div>
+      <textarea id="inspect-json" aria-label="Selected design-system JSON" spellcheck="false" disabled></textarea>
+      <div class="design-inspector-actions">
+        <span id="inspect-error" role="alert"></span>
+        <button type="button" id="inspect-apply-btn" class="btn primary" disabled>Apply JSON</button>
+      </div>
+    </aside>
     <script type="module" src="/components-render.mjs"></script>
     <script src="/client.js"></script>
   </body>
