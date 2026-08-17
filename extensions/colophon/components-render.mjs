@@ -24,6 +24,14 @@ function specToDom(spec, inSvg = false) {
     if (svg) node.setAttribute("class", spec.class);
     else node.className = spec.class;
   }
+  for (const [property, value] of Object.entries(spec.style || {})) {
+    node.style.setProperty(property, String(value));
+  }
+  if (spec.source) {
+    node.dataset.dsComponent = spec.source.component || "";
+    node.dataset.dsNodePath = JSON.stringify(spec.source.path || []);
+    if (spec.source.nodeId) node.dataset.dsNodeId = spec.source.nodeId;
+  }
   for (const [k, v] of Object.entries(spec.attrs || {})) {
     if (v != null) node.setAttribute(k, String(v));
   }

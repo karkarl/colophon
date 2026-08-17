@@ -167,9 +167,13 @@ function selectionRoot(file) {
 function selectDesignElement(target) {
   const file = target.dataset.designFile;
   const path = JSON.parse(target.dataset.designPath || "[]");
+  selectDesignPath(file, path, target.dataset.designLabel || path.at(-1));
+}
+
+function selectDesignPath(file, path, label) {
   const value = valueAtPath(selectionRoot(file), path);
   if (value === undefined) return;
-  state.selection = { file, path, label: target.dataset.designLabel || path.at(-1), value };
+  state.selection = { file, path, label, value };
   renderInspector();
   applyInspectHighlight();
   postDesignSelection();
@@ -189,10 +193,10 @@ function renderInspector() {
 }
 
 function applyInspectHighlight() {
-  for (const node of document.querySelectorAll("[data-design-inspect]")) {
-    const selected = state.selection
-      && node.dataset.designFile === state.selection.file
-      && node.dataset.designPath === JSON.stringify(state.selection.path);
+  for (const node of document.querySelectorAll("[data-design-inspect], [data-ds-node-path]")) {
+    const file = node.dataset.designFile || (node.dataset.dsNodePath ? "components.jsonc" : "");
+    const path = node.dataset.designPath || node.dataset.dsNodePath;
+    const selected = state.selection && file === state.selection.file && path === JSON.stringify(state.selection.path);
     node.classList.toggle("is-inspected", !!selected);
   }
 }
@@ -1096,6 +1100,14 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   $("#app").addEventListener("click", (event) => {
     if (!state.inspectMode) return;
+    const renderedNode = event.target.closest("[data-ds-node-path]");
+    if (renderedNode) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const path = JSON.parse(renderedNode.dataset.dsNodePath || "[]");
+      selectDesignPath("components.jsonc", path, `Layer: ${renderedNode.dataset.dsNodeId || renderedNode.localName}`);
+      return;
+    }
     const target = event.target.closest("[data-design-inspect]");
     if (!target) return;
     event.preventDefault();

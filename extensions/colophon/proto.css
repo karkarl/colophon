@@ -242,7 +242,6 @@ body {
 /* ---------- ds-* component runtime (design system's own look) ---------- */
 .ds-btn {
   font-family: var(--font-body); font-weight: 500; cursor: pointer; font-size: 14px;
-  padding: var(--space-3, 12px) var(--space-5, 24px);
   border-radius: var(--radius-md, 8px); border: 1px solid transparent;
   transition: filter 160ms ease-out, background 160ms ease-out;
 }
@@ -251,29 +250,26 @@ body {
 .ds-btn-secondary { background: transparent; color: var(--color-ink); border-color: var(--color-line, #e4ddd0); }
 .ds-btn-secondary:hover { background: var(--color-surface, #fff); }
 
-.ds-field { display: grid; gap: var(--space-2, 8px); }
 .ds-field-label { font-size: 13px; color: var(--color-muted, #6b6459); font-family: var(--font-body); }
 .ds-input {
-  font-family: var(--font-body); font-size: 14px; padding: var(--space-3, 12px) var(--space-4, 16px);
+  font-family: var(--font-body); font-size: 14px;
   border-radius: var(--radius-md, 8px); border: 1px solid var(--color-line, #e4ddd0);
-  background: var(--color-surface, #fff); color: var(--color-ink); width: 100%;
+  background: var(--color-surface, #fff); color: var(--color-ink);
 }
 .ds-input:focus { outline: 2px solid var(--color-accent, #b5502a); outline-offset: 1px; }
 
 .ds-card {
   background: var(--color-surface, #fff); border: 1px solid var(--color-line, #e4ddd0);
-  border-radius: var(--radius-lg, 14px); padding: var(--space-5, 24px);
-  display: grid; gap: var(--space-2, 8px);
+  border-radius: var(--radius-lg, 14px);
 }
 .ds-card-title { font-family: var(--font-display, serif); font-size: 20px; margin: 0; font-weight: 600; color: var(--color-ink); }
 .ds-card-body { margin: 0; color: var(--color-muted, #6b6459); font-family: var(--font-body); }
 .ds-link { color: var(--color-accent, #b5502a); text-decoration: none; font-weight: 500; font-family: var(--font-body); }
 .ds-link:hover { text-decoration: underline; }
 
-.ds-badge { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: var(--radius-pill, 999px); display: inline-block; font-family: var(--font-body); }
+.ds-badge { font-size: 12px; font-weight: 500; border-radius: var(--radius-pill, 999px); font-family: var(--font-body); }
 .ds-badge-positive { background: color-mix(in srgb, var(--color-positive, #3f6b4c) 15%, transparent); color: var(--color-positive, #3f6b4c); }
 .ds-badge-warning  { background: color-mix(in srgb, var(--color-warning, #a8791f) 15%, transparent); color: var(--color-warning, #a8791f); }
 .ds-badge-critical { background: color-mix(in srgb, var(--color-critical, #8f2f2a) 15%, transparent); color: var(--color-critical, #8f2f2a); }
 
-.ds-screen { display: grid; gap: var(--space-5, 24px); }
-.ds-eyebrow { font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--color-muted, #6b6459); margin: 0 0 4px; }
+.ds-eyebrow { font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--color-muted, #6b6459); margin: 0; }

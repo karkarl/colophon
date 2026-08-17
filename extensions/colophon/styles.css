@@ -173,9 +173,12 @@ section.block > h2 {
   font-family: var(--font-display, Georgia, serif); font-size: 20px; line-height: 26px;
   letter-spacing: -.01em; color: var(--color-ink, #1c1a17); margin: 0 0 16px; font-weight: 600;
 }
-.inspect-mode [data-design-inspect] { cursor: crosshair; }
+.inspect-mode [data-design-inspect],
+.inspect-mode [data-ds-node-path] { cursor: crosshair; }
 .inspect-mode [data-design-inspect]:hover,
-[data-design-inspect].is-inspected {
+.inspect-mode [data-ds-node-path]:hover,
+[data-design-inspect].is-inspected,
+[data-ds-node-path].is-inspected {
   outline: 2px solid var(--color-accent, #b5502a);
   outline-offset: 3px;
 }
@@ -361,7 +364,6 @@ details.src pre { margin: 0; padding: 0 12px 12px; overflow: auto; font-size: 12
 }
 .ds-btn {
   font: inherit; font-family: var(--font-body); font-weight: 500; cursor: pointer;
-  padding: var(--space-3, 12px) var(--space-5, 24px);
   border-radius: var(--radius-md, 8px); border: 1px solid transparent;
   transition: filter 160ms ease-out, background 160ms ease-out;
 }
@@ -370,10 +372,9 @@ details.src pre { margin: 0; padding: 0 12px 12px; overflow: auto; font-size: 12
 .ds-btn-secondary { background: transparent; color: var(--color-ink); border-color: var(--color-line, #e4ddd0); }
 .ds-btn-secondary:hover { background: var(--color-surface, #fff); }
 
-.ds-field { display: grid; gap: var(--space-2, 8px); }
 .ds-field-label { font-size: 13px; color: var(--color-muted, #6b6459); }
 .ds-input {
-  font: inherit; font-family: var(--font-body); padding: var(--space-3, 12px) var(--space-4, 16px);
+  font: inherit; font-family: var(--font-body);
   border-radius: var(--radius-md, 8px); border: 1px solid var(--color-line, #e4ddd0);
   background: var(--color-surface, #fff); color: var(--color-ink);
 }
@@ -381,26 +382,21 @@ details.src pre { margin: 0; padding: 0 12px 12px; overflow: auto; font-size: 12
 
 .ds-card {
   background: var(--color-surface, #fff); border: 1px solid var(--color-line, #e4ddd0);
-  border-radius: var(--radius-lg, 14px); padding: var(--space-5, 24px);
-  display: grid; gap: var(--space-2, 8px);
+  border-radius: var(--radius-lg, 14px);
 }
 .ds-card-title { font-family: var(--font-display, serif); font-size: 20px; margin: 0; font-weight: 600; }
 .ds-card-body { margin: 0; color: var(--color-muted, #6b6459); }
 .ds-link { color: var(--color-accent, #b5502a); text-decoration: none; font-weight: 500; }
 .ds-link:hover { text-decoration: underline; }
 
-.ds-badge { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: var(--radius-pill, 999px); display: inline-block; }
+.ds-badge { font-size: 12px; font-weight: 500; border-radius: var(--radius-pill, 999px); }
 .ds-badge-positive { background: color-mix(in srgb, var(--color-positive, #3f6b4c) 15%, transparent); color: var(--color-positive, #3f6b4c); }
 .ds-badge-warning  { background: color-mix(in srgb, var(--color-warning, #a8791f) 15%, transparent); color: var(--color-warning, #a8791f); }
 .ds-badge-critical { background: color-mix(in srgb, var(--color-critical, #8f2f2a) 15%, transparent); color: var(--color-critical, #8f2f2a); }
 
-.ds-screen { display: grid; gap: var(--space-5, 24px); }
-.ds-screen-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4, 16px); }
-.ds-eyebrow { font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--color-muted, #6b6459); margin: 0 0 4px; }
+.ds-eyebrow { font-family: var(--font-mono, monospace); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--color-muted, #6b6459); margin: 0; }
 .ds-screen-title { font-family: var(--font-display, serif); font-size: 28px; margin: 0; font-weight: 600; }
-.ds-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4, 16px); }
-.ds-row { display: flex; gap: var(--space-4, 16px); align-items: flex-end; flex-wrap: wrap; }
-.ds-row .ds-field { flex: 1; min-width: 220px; }
+.ds-row .ds-field { min-width: 220px; }
 
 @media (max-width: 720px) {
   .wrap { padding: 16px 16px 56px; }

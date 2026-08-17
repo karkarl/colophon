@@ -52,7 +52,7 @@ The five workflow commands are declarative plugin commands in `commands/`, so ho
 | File | What it is |
 | --- | --- |
 | `design.json` | Tokens: authority, brand, colors, typography, spacing, radii, shadows, principles |
-| `components.jsonc` | A structured element-tree — the component patterns your team has agreed on |
+| `components.jsonc` | A structured element-tree with token-bound Auto Layout — the component patterns your team has agreed on |
 | `principles.md` | Prose voice / information hierarchy / do & don't |
 
 These are plain files. Commit them, review them in PRs, edit them by hand or in the canvas.
@@ -102,11 +102,38 @@ With no `port` or overrides, `design.json` and `components.jsonc` remain the fra
 ### 2. The canvas renders + edits it
 Open the **Design System** canvas to see the system rendered live:
 - **Design system** - Brand board, color palette, type scale, spacing/radii/shadows, principles.
-- **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM interpreter (no framework runtime, works offline) using the system's own tokens, so you see real UI, not just code.
+- **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM interpreter (no framework runtime, works offline) using the system's own tokens, so you see real UI, not just code. Format v2 gives every object layer a stable `id` and supports semantic `layout` / `margin` fields for vertical, horizontal, and grid Auto Layout.
 - **Inline editing** — change a color/font/brand text and **Save to repo** writes`design.json` back. File edits stream back into the canvas via SSE.
 - **Exact inspection** — toggle **Inspect** to select brand, color, typography, spacing,
-  radius, shadow, principle, or component objects by their exact JSON Pointer path. Edit
-  the object inline, save it to `design.json` / `components.jsonc`, or attach it to chat.
+  radius, shadow, principle, component, or individual rendered component layer by its
+  exact JSON Pointer path. Edit the object inline, save it to `design.json` /
+  `components.jsonc`, or attach it to chat.
+
+`components.jsonc` v2 uses stable IDs and token names instead of raw CSS lengths:
+
+```json
+{
+  "id": "card-root",
+  "el": "article",
+  "class": "ds-card",
+  "layout": {
+    "mode": "vertical",
+    "gap": "2",
+    "padding": "5",
+    "align": "stretch",
+    "width": "fill"
+  },
+  "margin": { "top": "2" },
+  "children": []
+}
+```
+
+`layout.mode` accepts `vertical`, `horizontal`, `grid`, or `none`. Layout also
+supports `gap`, `padding`, `align`, `justify`, `wrap`, `grow`, `columns`, `width`,
+and `height`; `margin` lives on the node. Spacing values reference keys in
+`design.json` (plus `0` and `auto`). Format v1 remains readable, while v2 requires
+unique stable IDs within each component so canvas selections and future layer moves
+remain durable.
 If a repo has no `.agents/design/` yet, the canvas shows a bundled **starter** system plus a 3-way **onboarding** panel (below).
 
 ### 2b. Seeding a repo — three ways
@@ -203,8 +230,8 @@ extensions/colophon/              the canvas extension:
 ## Notes & limitations (experimental)
 - Component and prototype previews render with a pure in-canvas JSON→DOM interpreter, so
   they work fully offline — no CDN, no React/Babel.
-- Editing currently covers tokens (colors, fonts, brand). Editing `components.jsonc` /
-  `principles.md` is done in your editor for now.
+- Design-system inspection supports editing tokens and exact `components.jsonc`
+  layers. Direct drag/reparent manipulation for component layers is not yet exposed.
 - Prototype layers can be selected, edited as JSON, reordered/reparented by dragging, and
   saved in the canvas. Native `codegen` remains a best-effort hand-off scaffold; the
   web/React target is deterministic.
