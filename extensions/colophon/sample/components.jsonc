@@ -7,9 +7,9 @@
 // Every object node has a stable `id`, used for selection, layer moves, and surgical
 // edits. Node kinds:
 //   element   { "id": "...", "el": "button", "class": "...", "attrs": {},
-//               "layout": {}, "margin": {}, "children": [] }
+//               "layout": {}, "margin": {}, "appearance": {}, "children": [] }
 //   component { "id": "...", "component": "Badge", "props": {},
-//               "layout": {}, "margin": {} }
+//               "layout": {}, "margin": {}, "appearance": {} }
 //   string    "Save changes" or "{prop}" for interpolation
 //
 // Auto Layout:
@@ -26,9 +26,20 @@
 //   layout.height    "fill" | "hug"
 //   margin           spacing token, or { x, y, top, right, bottom, left }
 //
+// Appearance inherits from the parent and component class by default. Add only the
+// token-bound values that intentionally differ:
+//   appearance.fontFamily  "display" | "body" | "mono"
+//   appearance.textStyle   typography scale name from design.json
+//   appearance.color /
+//   appearance.background /
+//   appearance.borderColor color-token name from design.json
+//   appearance.radius      radius-token name from design.json
+//   appearance.shadow      shadow-token name from design.json
+//   appearance.textAlign   "start" | "center" | "end" | "left" | "right"
+//
 // Spacing always references design.json tokens (`"2"`, `"5"`), never raw pixels.
-// Classes own visual styling (color, type, border, radius, states); this JSON owns
-// component structure and spacing.
+// Classes and parents provide inherited visual styling; sparse `appearance` values
+// override that styling without copying raw CSS into the component definition.
 {
   "meta": {
     "version": 2,

@@ -6,9 +6,9 @@
 //
 // A component is a named template with declared prop defaults and one root node:
 //   { "name": "Button", "props": { "variant": "primary" }, "root": <node> }
-// Node kinds: element { id, el, class, attrs, layout, margin, children },
-// component { id, component, props, layout, margin }, string (literal or "{prop}").
-// Layout spacing values are design.json spacing-token names, never raw CSS lengths.
+// Node kinds: element { id, el, class, attrs, layout, margin, appearance, children },
+// component { id, component, props, layout, margin, appearance }, string (literal or "{prop}").
+// Layout and appearance values reference design.json tokens, never raw CSS values.
 
 export const COMPONENTS_FILENAME = "components.jsonc";
 
@@ -77,12 +77,121 @@ export function getComponentMap(doc) {
   return map;
 }
 
+// ---- layer editing ---------------------------------------------------------
+
+function valueAtPath(root, path) {
+  let value = root;
+  for (const part of path || []) {
+    if (value == null || !(part in value)) return undefined;
+    value = value[part];
+  }
+  return value;
+}
+
+function isPathPrefix(parent, child) {
+  return parent.length <= child.length && parent.every((part, index) => part === child[index]);
+}
+
+export function findComponentNodePath(doc, componentIndex, match) {
+  const root = normalizeDoc(doc).components[componentIndex]?.root;
+  if (root == null) return null;
+  const visit = (node, path) => {
+    if (node === match || (typeof match === "string" && node && typeof node === "object" && node.id === match)) return path;
+    if (!node || typeof node !== "object" || !Array.isArray(node.children)) return null;
+    for (const [index, child] of node.children.entries()) {
+      const found = visit(child, [...path, "children", index]);
+      if (found) return found;
+    }
+    return null;
+  };
+  return visit(root, ["components", componentIndex, "root"]);
+}
+
+function editableChild(doc, path) {
+  if (!Array.isArray(path) || path.length < 5 || path[path.length - 2] !== "children") {
+    throw new Error("Component roots cannot be moved, duplicated, or deleted.");
+  }
+  const parent = valueAtPath(doc, path.slice(0, -1));
+  const node = valueAtPath(doc, path);
+  if (!Array.isArray(parent) || !node || typeof node !== "object") throw new Error("The selected component layer no longer exists.");
+  return { parent, node };
+}
+
+export function moveComponentNode(doc, sourcePath, targetPath, placement = "before") {
+  if (!["before", "after", "inside"].includes(placement)) throw new Error(`Unsupported layer placement "${placement}".`);
+  if (sourcePath?.[1] !== targetPath?.[1]) throw new Error("Layers can only move within the same component.");
+  const { parent: sourceParent, node: sourceNode } = editableChild(doc, sourcePath);
+  if (isPathPrefix(sourcePath, targetPath)) throw new Error("A layer cannot move into itself.");
+  const targetNode = valueAtPath(doc, targetPath);
+  if (!targetNode || typeof targetNode !== "object") throw new Error("Layers can only be dropped on element or component layers.");
+  if (placement === "inside" && !("el" in targetNode)) throw new Error("Only element layers can contain children.");
+  if (placement !== "inside") {
+    const targetParent = valueAtPath(doc, targetPath.slice(0, -1));
+    if (!Array.isArray(targetParent)) throw new Error("Component roots cannot be reordered.");
+  }
+
+  sourceParent.splice(sourceParent.indexOf(sourceNode), 1);
+  if (placement === "inside") {
+    const children = Array.isArray(targetNode.children) ? targetNode.children : (targetNode.children = []);
+    children.push(sourceNode);
+  } else {
+    const freshTargetPath = findComponentNodePath(doc, targetPath[1], targetNode);
+    const targetParent = freshTargetPath && valueAtPath(doc, freshTargetPath.slice(0, -1));
+    if (!freshTargetPath || !Array.isArray(targetParent)) throw new Error("The target layer no longer exists.");
+    const targetIndex = targetParent.indexOf(targetNode);
+    targetParent.splice(targetIndex + (placement === "after" ? 1 : 0), 0, sourceNode);
+  }
+  return findComponentNodePath(doc, sourcePath[1], sourceNode);
+}
+
+function collectNodeIds(node, ids) {
+  if (!node || typeof node !== "object") return;
+  if (typeof node.id === "string" && node.id) ids.add(node.id);
+  for (const child of Array.isArray(node.children) ? node.children : []) collectNodeIds(child, ids);
+}
+
+function uniqueCopyId(id, ids) {
+  const base = `${id || "layer"}-copy`;
+  let next = base;
+  let suffix = 2;
+  while (ids.has(next)) next = `${base}-${suffix++}`;
+  ids.add(next);
+  return next;
+}
+
+export function duplicateComponentNode(doc, sourcePath) {
+  const { parent, node } = editableChild(doc, sourcePath);
+  const component = normalizeDoc(doc).components[sourcePath[1]];
+  const ids = new Set();
+  collectNodeIds(component?.root, ids);
+  const copy = JSON.parse(JSON.stringify(node));
+  const refreshIds = (value) => {
+    if (!value || typeof value !== "object") return;
+    value.id = uniqueCopyId(value.id, ids);
+    for (const child of Array.isArray(value.children) ? value.children : []) refreshIds(child);
+  };
+  refreshIds(copy);
+  parent.splice(parent.indexOf(node) + 1, 0, copy);
+  return findComponentNodePath(doc, sourcePath[1], copy);
+}
+
+export function removeComponentNode(doc, sourcePath) {
+  const { parent, node } = editableChild(doc, sourcePath);
+  const index = parent.indexOf(node);
+  parent.splice(index, 1);
+  const parentPath = sourcePath.slice(0, -2);
+  return valueAtPath(doc, parentPath) ? parentPath : ["components", sourcePath[1], "root"];
+}
+
 // ---- validation -----------------------------------------------------------
 
 const LAYOUT_MODES = new Set(["none", "vertical", "horizontal", "grid"]);
 const ALIGN_VALUES = new Set(["start", "center", "end", "stretch", "baseline"]);
 const JUSTIFY_VALUES = new Set(["start", "center", "end", "space-between", "space-around", "space-evenly"]);
 const SIZE_VALUES = new Set(["fill", "hug"]);
+const FONT_FAMILY_VALUES = new Set(["display", "body", "mono"]);
+const TEXT_ALIGN_VALUES = new Set(["start", "center", "end", "left", "right"]);
+const APPEARANCE_KEYS = new Set(["fontFamily", "textStyle", "color", "background", "borderColor", "radius", "shadow", "textAlign"]);
 
 function validSpace(value) {
   return typeof value === "string" && (value === "0" || value === "auto" || /^[A-Za-z0-9_-]+$/.test(value));
@@ -102,8 +211,56 @@ function validateBox(value, where, errors) {
   }
 }
 
-function validateAutoLayout(node, where, errors) {
+function tokenNames(tokens, group) {
+  if (!tokens) return null;
+  if (group === "colors") {
+    const colors = tokens.colors;
+    return new Set(Array.isArray(colors) ? colors.map((item) => item?.name).filter(Boolean) : Object.keys(colors || {}));
+  }
+  if (group === "fontFamily") return new Set(Object.entries(tokens.typography || {}).filter(([key, value]) => key !== "scale" && value?.family).map(([key]) => key));
+  if (group === "textStyle") return new Set((tokens.typography?.scale || []).map((item) => item?.name).filter(Boolean));
+  return new Set((tokens[group] || []).map((item) => item?.name).filter(Boolean));
+}
+
+function validateAppearance(node, where, errors, tokens) {
+  if (node.appearance == null) return;
+  if (!node.appearance || typeof node.appearance !== "object" || Array.isArray(node.appearance)) {
+    errors.push(`${where}.appearance: must be an object.`);
+    return;
+  }
+  for (const [key, value] of Object.entries(node.appearance)) {
+    if (!APPEARANCE_KEYS.has(key)) {
+      errors.push(`${where}.appearance: unknown property "${key}".`);
+      continue;
+    }
+    if (typeof value !== "string" || !value) {
+      errors.push(`${where}.appearance.${key}: must be a token name.`);
+      continue;
+    }
+    if (key === "fontFamily" && !FONT_FAMILY_VALUES.has(value)) errors.push(`${where}.appearance.fontFamily: must be display, body, or mono.`);
+    else if (key === "textAlign" && !TEXT_ALIGN_VALUES.has(value)) errors.push(`${where}.appearance.textAlign: unsupported value "${value}".`);
+    else if (!/^[A-Za-z0-9_-]+$/.test(value)) errors.push(`${where}.appearance.${key}: must be a token name.`);
+  }
+  if (!tokens) return;
+  const groups = {
+    fontFamily: "fontFamily",
+    textStyle: "textStyle",
+    color: "colors",
+    background: "colors",
+    borderColor: "colors",
+    radius: "radii",
+    shadow: "shadows",
+  };
+  for (const [key, group] of Object.entries(groups)) {
+    const value = node.appearance[key];
+    const names = tokenNames(tokens, group);
+    if (value && names && !names.has(value)) errors.push(`${where}.appearance.${key}: references unknown ${group} token "${value}".`);
+  }
+}
+
+function validateAutoLayout(node, where, errors, tokens) {
   validateBox(node.margin, `${where}.margin`, errors);
+  validateAppearance(node, where, errors, tokens);
   if (node.layout == null) return;
   if (!node.layout || typeof node.layout !== "object" || Array.isArray(node.layout)) {
     errors.push(`${where}.layout: must be an object.`);
@@ -130,7 +287,7 @@ function validateAutoLayout(node, where, errors) {
   }
 }
 
-export function validateComponentsDoc(doc, { text = null } = {}) {
+export function validateComponentsDoc(doc, { text = null, tokens = null } = {}) {
   const errors = [];
   const warnings = [];
   let d;
@@ -180,7 +337,7 @@ export function validateComponentsDoc(doc, { text = null } = {}) {
         if (ids.has(node.id)) errors.push(`${c.name}: duplicate node id "${node.id}".`);
         ids.add(node.id);
       }
-      validateAutoLayout(node, where, errors);
+      validateAutoLayout(node, where, errors, tokens);
       if ("component" in node) {
         if (!node.component || !nameSet.has(node.component)) {
           errors.push(`${where}: references component "${node.component}" which is not defined.`);
@@ -293,11 +450,37 @@ export function autoLayoutStyle(node) {
   return style;
 }
 
+export function appearanceStyle(node) {
+  const appearance = node?.appearance;
+  if (!appearance || typeof appearance !== "object") return {};
+  const style = {};
+  if (appearance.textStyle) {
+    const prefix = `var(--text-${appearance.textStyle}`;
+    style["font-family"] = `${prefix}-family)`;
+    style["font-size"] = `${prefix}-size)`;
+    style["line-height"] = `${prefix}-line-height)`;
+    style["font-weight"] = `${prefix}-weight)`;
+    style["letter-spacing"] = `${prefix}-tracking, normal)`;
+  }
+  if (appearance.fontFamily) style["font-family"] = `var(--font-${appearance.fontFamily})`;
+  if (appearance.color) style.color = `var(--color-${appearance.color})`;
+  if (appearance.background) style["background-color"] = `var(--color-${appearance.background})`;
+  if (appearance.borderColor) style["border-color"] = `var(--color-${appearance.borderColor})`;
+  if (appearance.radius) style["border-radius"] = `var(--radius-${appearance.radius})`;
+  if (appearance.shadow) style["box-shadow"] = `var(--shadow-${appearance.shadow})`;
+  if (appearance.textAlign) style["text-align"] = appearance.textAlign;
+  return style;
+}
+
+function nodeStyle(node) {
+  return { ...autoLayoutStyle(node), ...appearanceStyle(node) };
+}
+
 function mergeNodeStyle(spec, node, source) {
   if (!spec || typeof spec === "string") return spec;
   return {
     ...spec,
-    style: { ...(spec.style || {}), ...autoLayoutStyle(node) },
+    style: { ...(spec.style || {}), ...nodeStyle(node) },
     source,
   };
 }
@@ -333,7 +516,7 @@ export function expandNode(doc, node, props, seen = [], source = null) {
     tag: typeof node.el === "string" && node.el ? node.el : "div",
     class: null,
     attrs: {},
-    style: autoLayoutStyle(node),
+    style: nodeStyle(node),
     source: source ? { ...source, nodeId: node.id || null } : null,
     children: [],
   };

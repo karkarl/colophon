@@ -5,9 +5,14 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  appearanceStyle,
   autoLayoutStyle,
+  duplicateComponentNode,
   expandInstance,
+  findComponentNodePath,
+  moveComponentNode,
   parseComponents,
+  removeComponentNode,
   validateComponentsDoc,
 } from "./componentsio.mjs";
 
@@ -82,6 +87,62 @@ test("Auto Layout produces token-bound CSS", () => {
   });
 });
 
+test("appearance overrides produce token-bound CSS while omitted values inherit", () => {
+  assert.deepEqual(appearanceStyle({}), {});
+  assert.deepEqual(appearanceStyle({
+    appearance: {
+      textStyle: "heading",
+      fontFamily: "display",
+      color: "ink",
+      background: "surface",
+      borderColor: "line",
+      radius: "lg",
+      shadow: "sm",
+      textAlign: "center",
+    },
+  }), {
+    "font-family": "var(--font-display)",
+    "font-size": "var(--text-heading-size)",
+    "line-height": "var(--text-heading-line-height)",
+    "font-weight": "var(--text-heading-weight)",
+    "letter-spacing": "var(--text-heading-tracking, normal)",
+    color: "var(--color-ink)",
+    "background-color": "var(--color-surface)",
+    "border-color": "var(--color-line)",
+    "border-radius": "var(--radius-lg)",
+    "box-shadow": "var(--shadow-sm)",
+    "text-align": "center",
+  });
+});
+
+test("appearance overrides validate against design tokens", () => {
+  const tokens = {
+    colors: [{ name: "ink" }],
+    typography: {
+      body: { family: "system-ui" },
+      scale: [{ name: "body", role: "body", size: "16px" }],
+    },
+    radii: [{ name: "md" }],
+    shadows: [{ name: "sm" }],
+  };
+  const doc = {
+    meta: { version: 2 },
+    components: [{
+      name: "Text",
+      root: {
+        id: "text",
+        el: "p",
+        appearance: { color: "missing", textStyle: "body", fontFamily: "body", radius: "md", shadow: "sm" },
+      },
+    }],
+  };
+  const result = validateComponentsDoc(doc, { tokens });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /unknown colors token "missing"/);
+  doc.components[0].root.appearance.color = "ink";
+  assert.equal(validateComponentsDoc(doc, { tokens }).ok, true);
+});
+
 test("component references preserve exact source paths and apply instance layout", () => {
   const doc = {
     meta: { version: 2 },
@@ -105,6 +166,7 @@ test("component references preserve exact source paths and apply instance layout
             component: "Base",
             layout: { grow: true },
             margin: { top: "3" },
+            appearance: { color: "accent" },
           }],
         },
       },
@@ -120,11 +182,67 @@ test("component references preserve exact source paths and apply instance layout
   assert.equal(instance.style.display, "flex");
   assert.equal(instance.style["flex-grow"], "1");
   assert.equal(instance.style["margin-top"], "var(--space-3)");
+  assert.equal(instance.style.color, "var(--color-accent)");
   assert.deepEqual(instance.children[0].source, {
     component: "Base",
     path: ["components", 0, "root", "children", 0],
     nodeId: "base-label",
   });
+});
+
+test("component layers can be reordered, reparented, duplicated, and removed", () => {
+  const doc = {
+    meta: { version: 2 },
+    components: [{
+      name: "Stack",
+      root: {
+        id: "root",
+        el: "section",
+        children: [
+          { id: "group", el: "div", children: [{ id: "nested", el: "span" }] },
+          { id: "action", el: "button" },
+        ],
+      },
+    }],
+  };
+  const actionPath = ["components", 0, "root", "children", 1];
+  const groupPath = ["components", 0, "root", "children", 0];
+  assert.deepEqual(moveComponentNode(doc, actionPath, groupPath, "inside"), [
+    "components", 0, "root", "children", 0, "children", 1,
+  ]);
+  assert.equal(doc.components[0].root.children[0].children[1].id, "action");
+
+  const copyPath = duplicateComponentNode(doc, groupPath);
+  assert.equal(doc.components[0].root.children[1].id, "group-copy");
+  assert.equal(doc.components[0].root.children[1].children[0].id, "nested-copy");
+  assert.deepEqual(copyPath, ["components", 0, "root", "children", 1]);
+
+  const selectedAfterDelete = removeComponentNode(doc, copyPath);
+  assert.deepEqual(selectedAfterDelete, ["components", 0, "root"]);
+  assert.equal(findComponentNodePath(doc, 0, "group-copy"), null);
+  assert.equal(validateComponentsDoc(doc).ok, true);
+});
+
+test("component layer moves reject roots, cycles, and cross-component drops", () => {
+  const doc = {
+    meta: { version: 2 },
+    components: [
+      { name: "One", root: { id: "one", el: "div", children: [{ id: "child", el: "div", children: [] }] } },
+      { name: "Two", root: { id: "two", el: "div", children: [{ id: "other", el: "span" }] } },
+    ],
+  };
+  assert.throws(
+    () => moveComponentNode(doc, ["components", 0, "root"], ["components", 0, "root", "children", 0], "before"),
+    /roots cannot be moved/,
+  );
+  assert.throws(
+    () => moveComponentNode(doc, ["components", 0, "root", "children", 0], ["components", 0, "root", "children", 0], "inside"),
+    /cannot move into itself/,
+  );
+  assert.throws(
+    () => moveComponentNode(doc, ["components", 0, "root", "children", 0], ["components", 1, "root"], "inside"),
+    /same component/,
+  );
 });
 
 test("bundled sample is valid v2 Auto Layout", async () => {

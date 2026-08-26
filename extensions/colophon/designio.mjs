@@ -482,6 +482,15 @@ export function tokensToCssVars(tokens, theme = "light") {
   if (ty.display?.family) lines.push(`--font-display: ${ty.display.family};`);
   if (ty.body?.family) lines.push(`--font-body: ${ty.body.family};`);
   if (ty.mono?.family) lines.push(`--font-mono: ${ty.mono.family};`);
+  for (const style of ty.scale || []) {
+    if (!style?.name) continue;
+    const role = style.role || "body";
+    lines.push(`--text-${style.name}-family: var(--font-${role});`);
+    if (style.size) lines.push(`--text-${style.name}-size: ${style.size};`);
+    if (style.lineHeight) lines.push(`--text-${style.name}-line-height: ${style.lineHeight};`);
+    if (style.weight != null) lines.push(`--text-${style.name}-weight: ${style.weight};`);
+    lines.push(`--text-${style.name}-tracking: ${style.tracking || "normal"};`);
+  }
 
   for (const s of tokens?.spacing?.scale || []) lines.push(`--space-${s.name}: ${s.value};`);
   for (const r of tokens?.radii || []) lines.push(`--radius-${r.name}: ${r.value};`);

@@ -7,6 +7,10 @@ import {
   componentNames,
   getComponentMap,
   validateComponentsDoc,
+  findComponentNodePath,
+  moveComponentNode,
+  duplicateComponentNode,
+  removeComponentNode,
 } from "./componentsio.mjs";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -52,6 +56,10 @@ const DSComp = {
   componentNames,
   getComponentMap,
   validateComponentsDoc,
+  findComponentNodePath,
+  moveComponentNode,
+  duplicateComponentNode,
+  removeComponentNode,
   specToDom,
   renderComponent,
 };

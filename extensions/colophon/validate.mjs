@@ -132,12 +132,12 @@ export function validatePageComponents(tokens, names = []) {
 // name + root, node kinds are known, and component references resolve. The canvas
 // renders the same doc with a pure interpreter (no React/Babel), so what validates
 // here is what previews there.
-export function validateComponents(src) {
+export function validateComponents(src, tokens = null) {
   const text = typeof src === "string" ? src : "";
   if (!text.trim()) {
     return { ok: true, errors: [], warnings: ["components.jsonc is empty — no component patterns to preview."], exports: [] };
   }
-  const res = validateComponentsDoc(null, { text });
+  const res = validateComponentsDoc(null, { text, tokens });
   return { ok: res.ok, errors: res.errors, warnings: res.warnings, exports: res.names };
 }
 
@@ -162,7 +162,7 @@ export async function validateDesignDir(dir) {
 
   let csrc = "";
   try { csrc = await fs.readFile(path.join(dir, COMPONENTS_FILENAME), "utf8"); } catch { /* optional */ }
-  out.components = validateComponents(csrc);
+  out.components = validateComponents(csrc, tokens);
   out.design.warnings.push(...validatePageComponents(tokens, out.components.exports));
 
   out.ok = !out.parseError && out.design.ok && out.components.ok;

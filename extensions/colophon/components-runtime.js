@@ -86,9 +86,35 @@
     return style;
   }
 
+  function appearanceStyle(node) {
+    const appearance = node?.appearance;
+    if (!appearance || typeof appearance !== "object") return {};
+    const style = {};
+    if (appearance.textStyle) {
+      const prefix = `var(--text-${appearance.textStyle}`;
+      style["font-family"] = `${prefix}-family)`;
+      style["font-size"] = `${prefix}-size)`;
+      style["line-height"] = `${prefix}-line-height)`;
+      style["font-weight"] = `${prefix}-weight)`;
+      style["letter-spacing"] = `${prefix}-tracking, normal)`;
+    }
+    if (appearance.fontFamily) style["font-family"] = `var(--font-${appearance.fontFamily})`;
+    if (appearance.color) style.color = `var(--color-${appearance.color})`;
+    if (appearance.background) style["background-color"] = `var(--color-${appearance.background})`;
+    if (appearance.borderColor) style["border-color"] = `var(--color-${appearance.borderColor})`;
+    if (appearance.radius) style["border-radius"] = `var(--radius-${appearance.radius})`;
+    if (appearance.shadow) style["box-shadow"] = `var(--shadow-${appearance.shadow})`;
+    if (appearance.textAlign) style["text-align"] = appearance.textAlign;
+    return style;
+  }
+
+  function nodeStyle(node) {
+    return { ...autoLayoutStyle(node), ...appearanceStyle(node) };
+  }
+
   function mergeNodeStyle(spec, node, source) {
     if (!spec || typeof spec === "string") return spec;
-    return { ...spec, style: { ...(spec.style || {}), ...autoLayoutStyle(node) }, source };
+    return { ...spec, style: { ...(spec.style || {}), ...nodeStyle(node) }, source };
   }
 
   function expandInstance(doc, name, callerProps = {}, seen = []) {
@@ -121,7 +147,7 @@
       tag: typeof node.el === "string" && node.el ? node.el : "div",
       class: node.class == null ? null : interpolate(node.class, props),
       attrs: {},
-      style: autoLayoutStyle(node),
+      style: nodeStyle(node),
       source: source ? { ...source, nodeId: node.id || null } : null,
       children: [],
     };

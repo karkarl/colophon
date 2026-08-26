@@ -34,6 +34,23 @@ export function renderShell() {
       <button type="button" id="save-btn" class="btn primary" disabled>Save to repo</button>
     </div>
     <div id="validation-slot" aria-live="polite"></div>
+    <aside id="component-layers" class="component-layers" hidden>
+      <div class="inspector-panel-head">
+        <div>
+          <strong>Layers</strong>
+          <span class="panel-hint">components.jsonc</span>
+        </div>
+        <div class="history-actions">
+          <button type="button" id="layers-undo-btn" class="panel-icon-btn" title="Undo" aria-label="Undo" disabled>↶</button>
+          <button type="button" id="layers-redo-btn" class="panel-icon-btn" title="Redo" aria-label="Redo" disabled>↷</button>
+        </div>
+      </div>
+      <div id="component-layer-tree" class="component-layer-tree"></div>
+      <div class="layer-actions">
+        <button type="button" id="layers-duplicate-btn" class="btn" disabled>Duplicate</button>
+        <button type="button" id="layers-delete-btn" class="btn danger" disabled>Delete</button>
+      </div>
+    </aside>
     <div class="wrap"><div id="app"></div></div>
     <aside id="design-inspector" class="design-inspector" hidden>
       <div class="design-inspector-head">
@@ -43,10 +60,20 @@ export function renderShell() {
         </div>
         <button type="button" id="inspect-attach-btn" class="btn" disabled>Attach to chat</button>
       </div>
-      <textarea id="inspect-json" aria-label="Selected design-system JSON" spellcheck="false" disabled></textarea>
-      <div class="design-inspector-actions">
+      <div class="inspector-tabs" role="tablist" aria-label="Inspector view">
+        <button type="button" id="properties-tab" role="tab" aria-selected="true" class="is-active">Properties</button>
+        <button type="button" id="json-tab" role="tab" aria-selected="false">JSON</button>
+      </div>
+      <div id="inspect-properties" class="inspector-panel" role="tabpanel"></div>
+      <div id="inspect-json-panel" class="inspector-panel json-panel" role="tabpanel" hidden>
+        <textarea id="inspect-json" aria-label="Selected design-system JSON" spellcheck="false" disabled></textarea>
+        <div class="design-inspector-actions">
+          <span></span>
+          <button type="button" id="inspect-apply-btn" class="btn primary" disabled>Apply JSON</button>
+        </div>
+      </div>
+      <div class="inspector-status">
         <span id="inspect-error" role="alert"></span>
-        <button type="button" id="inspect-apply-btn" class="btn primary" disabled>Apply JSON</button>
       </div>
     </aside>
     <script type="module" src="/components-render.mjs"></script>

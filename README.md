@@ -108,6 +108,14 @@ Open the **Design System** canvas to see the system rendered live:
   radius, shadow, principle, component, or individual rendered component layer by its
   exact JSON Pointer path. Edit the object inline, save it to `design.json` /
   `components.jsonc`, or attach it to chat.
+- **Visual component editing** — Inspect opens a synchronized three-pane workspace:
+  component layers on the left, the live canvas in the center, and Properties / JSON
+  on the right. Select layers from the tree or rendered preview, then edit direction,
+  gap, padding, margin, alignment, justification, wrapping, growth, grid columns, and
+  fill/hug sizing through token-backed controls. Appearance controls inherit from the
+  parent/class by default and write sparse overrides for typography, colors, radius,
+  shadow, and text alignment. Drag layers before, after, or inside another element;
+  duplicate/delete layers; and undo/redo before saving.
 
 `components.jsonc` v2 uses stable IDs and token names instead of raw CSS lengths:
 
@@ -124,6 +132,12 @@ Open the **Design System** canvas to see the system rendered live:
     "width": "fill"
   },
   "margin": { "top": "2" },
+  "appearance": {
+    "textStyle": "heading",
+    "color": "ink",
+    "background": "surface",
+    "radius": "lg"
+  },
   "children": []
 }
 ```
@@ -134,6 +148,12 @@ and `height`; `margin` lives on the node. Spacing values reference keys in
 `design.json` (plus `0` and `auto`). Format v1 remains readable, while v2 requires
 unique stable IDs within each component so canvas selections and future layer moves
 remain durable.
+
+Visual values inherit through normal component classes and the element hierarchy.
+An omitted `appearance` key means **inherit**; selecting a different value in
+Properties writes only that token override. Supported overrides are `fontFamily`,
+`textStyle`, `color`, `background`, `borderColor`, `radius`, `shadow`, and
+`textAlign`.
 If a repo has no `.agents/design/` yet, the canvas shows a bundled **starter** system plus a 3-way **onboarding** panel (below).
 
 ### 2b. Seeding a repo — three ways
@@ -230,8 +250,10 @@ extensions/colophon/              the canvas extension:
 ## Notes & limitations (experimental)
 - Component and prototype previews render with a pure in-canvas JSON→DOM interpreter, so
   they work fully offline — no CDN, no React/Babel.
-- Design-system inspection supports editing tokens and exact `components.jsonc`
-  layers. Direct drag/reparent manipulation for component layers is not yet exposed.
+- Design-system inspection supports token editing plus visual Auto Layout controls,
+  drag/reparent, duplicate/delete, undo/redo, and exact JSON fallback for
+  `components.jsonc` layers. Fixed/min/max dimensions, absolute positioning,
+  responsive variants, and multi-selection are not yet part of the component schema.
 - Prototype layers can be selected, edited as JSON, reordered/reparented by dragging, and
   saved in the canvas. Native `codegen` remains a best-effort hand-off scaffold; the
   web/React target is deterministic.
