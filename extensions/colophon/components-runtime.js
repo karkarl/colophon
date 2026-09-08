@@ -36,6 +36,7 @@
   }
 
   function spacingValue(value) {
+    if (typeof value === "number") return `${value}px`;
     if (value === "0") return "0";
     if (value === "auto") return "auto";
     return `var(--space-${value})`;
@@ -43,7 +44,7 @@
 
   function applyBox(style, prefix, value) {
     if (value == null) return;
-    if (typeof value === "string") {
+    if (typeof value === "string" || typeof value === "number") {
       style[prefix] = spacingValue(value);
       return;
     }
@@ -99,9 +100,10 @@
       style["letter-spacing"] = `${prefix}-tracking, normal)`;
     }
     if (appearance.fontFamily) style["font-family"] = `var(--font-${appearance.fontFamily})`;
-    if (appearance.color) style.color = `var(--color-${appearance.color})`;
-    if (appearance.background) style["background-color"] = `var(--color-${appearance.background})`;
-    if (appearance.borderColor) style["border-color"] = `var(--color-${appearance.borderColor})`;
+    const colorValue = (value) => /^#[0-9a-f]{6}$/i.test(value) ? value : `var(--color-${value})`;
+    if (appearance.color) style.color = colorValue(appearance.color);
+    if (appearance.background) style["background-color"] = colorValue(appearance.background);
+    if (appearance.borderColor) style["border-color"] = colorValue(appearance.borderColor);
     if (appearance.radius) style["border-radius"] = `var(--radius-${appearance.radius})`;
     if (appearance.shadow) style["box-shadow"] = `var(--shadow-${appearance.shadow})`;
     if (appearance.textAlign) style["text-align"] = appearance.textAlign;

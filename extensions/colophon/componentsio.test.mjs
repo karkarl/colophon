@@ -36,7 +36,7 @@ test("v2 requires unique stable IDs and validates Auto Layout fields", () => {
         el: "div",
         layout: { mode: "diagonal", columns: 0, mystery: true },
         children: [
-          { id: "same", el: "span", margin: { top: 12 } },
+          { id: "same", el: "span", margin: { top: -12 } },
           { el: "span" },
         ],
       },
@@ -85,6 +85,33 @@ test("Auto Layout produces token-bound CSS", () => {
     "margin-bottom": "var(--space-1)",
     "margin-left": "auto",
   });
+});
+
+test("Auto Layout accepts unsnapped pixel spacing", () => {
+  const doc = {
+    meta: { version: 2 },
+    components: [{
+      name: "Free spacing",
+      root: {
+        id: "free-root",
+        el: "div",
+        layout: { mode: "vertical", gap: 10, padding: { x: 6.5, top: 3 } },
+        margin: { bottom: 7 },
+      },
+    }],
+  };
+  assert.equal(validateComponentsDoc(doc).ok, true);
+  assert.deepEqual(autoLayoutStyle(doc.components[0].root), {
+    display: "flex",
+    "flex-direction": "column",
+    gap: "10px",
+    "padding-top": "3px",
+    "padding-right": "6.5px",
+    "padding-left": "6.5px",
+    "margin-bottom": "7px",
+  });
+  doc.components[0].root.layout.gap = -1;
+  assert.match(validateComponentsDoc(doc).errors.join("\n"), /non-negative pixel number/);
 });
 
 test("appearance overrides produce token-bound CSS while omitted values inherit", () => {
@@ -141,6 +168,11 @@ test("appearance overrides validate against design tokens", () => {
   assert.match(result.errors.join("\n"), /unknown colors token "missing"/);
   doc.components[0].root.appearance.color = "ink";
   assert.equal(validateComponentsDoc(doc, { tokens }).ok, true);
+  doc.components[0].root.appearance.color = "#2f81f7";
+  assert.equal(validateComponentsDoc(doc, { tokens }).ok, true);
+  assert.equal(appearanceStyle(doc.components[0].root).color, "#2f81f7");
+  doc.components[0].root.appearance.color = "rgb(47, 129, 247)";
+  assert.match(validateComponentsDoc(doc, { tokens }).errors.join("\n"), /must be a token name/);
 });
 
 test("component references preserve exact source paths and apply instance layout", () => {

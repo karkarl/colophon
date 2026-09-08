@@ -112,9 +112,14 @@ Open the **Design System** canvas to see the system rendered live:
   component layers on the left, the live canvas in the center, and Properties / JSON
   on the right. Select layers from the tree or rendered preview, then edit direction,
   gap, padding, margin, alignment, justification, wrapping, growth, grid columns, and
-  fill/hug sizing through token-backed controls. Appearance controls inherit from the
-  parent/class by default and write sparse overrides for typography, colors, radius,
-  shadow, and text alignment. Drag layers before, after, or inside another element;
+  fill/hug sizing through token-backed controls. Spacing combo boxes step through the
+  design-system scale by default; **Snapped** switches them to free pixel values when
+  a composition needs an intentional exception. Typography pickers preview each
+  design-system text style and family in its own typeface. Color pickers expose the
+  full token palette plus a native spectrum control for an explicit custom override.
+  Appearance controls inherit from the parent/class by default and write sparse
+  overrides for typography, colors, radius, shadow, and text alignment. Drag layers
+  before, after, or inside another element;
   duplicate/delete layers; and undo/redo before saving.
 
 `components.jsonc` v2 uses stable IDs and token names instead of raw CSS lengths:
@@ -145,7 +150,8 @@ Open the **Design System** canvas to see the system rendered live:
 `layout.mode` accepts `vertical`, `horizontal`, `grid`, or `none`. Layout also
 supports `gap`, `padding`, `align`, `justify`, `wrap`, `grow`, `columns`, `width`,
 and `height`; `margin` lives on the node. Spacing values reference keys in
-`design.json` (plus `0` and `auto`). Format v1 remains readable, while v2 requires
+`design.json` (plus `0` and `auto`) by default. Unsnapped non-negative numbers are
+explicit pixel values. Format v1 remains readable, while v2 requires
 unique stable IDs within each component so canvas selections and future layer moves
 remain durable.
 
@@ -153,7 +159,8 @@ Visual values inherit through normal component classes and the element hierarchy
 An omitted `appearance` key means **inherit**; selecting a different value in
 Properties writes only that token override. Supported overrides are `fontFamily`,
 `textStyle`, `color`, `background`, `borderColor`, `radius`, `shadow`, and
-`textAlign`.
+`textAlign`. Color properties may also contain an explicit six-digit hex value when
+the palette's **Custom** control is used.
 If a repo has no `.agents/design/` yet, the canvas shows a bundled **starter** system plus a 3-way **onboarding** panel (below).
 
 ### 2b. Seeding a repo — three ways

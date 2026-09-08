@@ -8,7 +8,8 @@
 //   { "name": "Button", "props": { "variant": "primary" }, "root": <node> }
 // Node kinds: element { id, el, class, attrs, layout, margin, appearance, children },
 // component { id, component, props, layout, margin, appearance }, string (literal or "{prop}").
-// Layout and appearance values reference design.json tokens, never raw CSS values.
+// Layout spacing uses design.json tokens by default; non-negative numbers are
+// explicit unsnapped pixel values.
 
 export const COMPONENTS_FILENAME = "components.jsonc";
 
@@ -192,22 +193,25 @@ const SIZE_VALUES = new Set(["fill", "hug"]);
 const FONT_FAMILY_VALUES = new Set(["display", "body", "mono"]);
 const TEXT_ALIGN_VALUES = new Set(["start", "center", "end", "left", "right"]);
 const APPEARANCE_KEYS = new Set(["fontFamily", "textStyle", "color", "background", "borderColor", "radius", "shadow", "textAlign"]);
+const COLOR_KEYS = new Set(["color", "background", "borderColor"]);
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 function validSpace(value) {
-  return typeof value === "string" && (value === "0" || value === "auto" || /^[A-Za-z0-9_-]+$/.test(value));
+  return (typeof value === "number" && Number.isFinite(value) && value >= 0)
+    || (typeof value === "string" && (value === "0" || value === "auto" || /^[A-Za-z0-9_-]+$/.test(value)));
 }
 
 function validateBox(value, where, errors) {
   if (value == null) return;
   if (validSpace(value)) return;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    errors.push(`${where}: must be a spacing-token name or a box object.`);
+    errors.push(`${where}: must be a spacing-token name, a non-negative pixel number, or a box object.`);
     return;
   }
   const allowed = new Set(["x", "y", "top", "right", "bottom", "left"]);
   for (const [key, spacing] of Object.entries(value)) {
     if (!allowed.has(key)) errors.push(`${where}: unknown box edge "${key}".`);
-    else if (!validSpace(spacing)) errors.push(`${where}.${key}: must be a spacing-token name.`);
+    else if (!validSpace(spacing)) errors.push(`${where}.${key}: must be a spacing-token name or a non-negative pixel number.`);
   }
 }
 
@@ -239,6 +243,7 @@ function validateAppearance(node, where, errors, tokens) {
     }
     if (key === "fontFamily" && !FONT_FAMILY_VALUES.has(value)) errors.push(`${where}.appearance.fontFamily: must be display, body, or mono.`);
     else if (key === "textAlign" && !TEXT_ALIGN_VALUES.has(value)) errors.push(`${where}.appearance.textAlign: unsupported value "${value}".`);
+    else if (COLOR_KEYS.has(key) && HEX_COLOR.test(value)) continue;
     else if (!/^[A-Za-z0-9_-]+$/.test(value)) errors.push(`${where}.appearance.${key}: must be a token name.`);
   }
   if (!tokens) return;
@@ -254,7 +259,9 @@ function validateAppearance(node, where, errors, tokens) {
   for (const [key, group] of Object.entries(groups)) {
     const value = node.appearance[key];
     const names = tokenNames(tokens, group);
-    if (value && names && !names.has(value)) errors.push(`${where}.appearance.${key}: references unknown ${group} token "${value}".`);
+    if (value && names && !(COLOR_KEYS.has(key) && HEX_COLOR.test(value)) && !names.has(value)) {
+      errors.push(`${where}.appearance.${key}: references unknown ${group} token "${value}".`);
+    }
   }
 }
 
@@ -272,7 +279,7 @@ function validateAutoLayout(node, where, errors, tokens) {
     if (!allowed.has(key)) errors.push(`${where}.layout: unknown property "${key}".`);
   }
   if (layout.mode != null && !LAYOUT_MODES.has(layout.mode)) errors.push(`${where}.layout.mode: must be none, vertical, horizontal, or grid.`);
-  if (layout.gap != null && !validSpace(layout.gap)) errors.push(`${where}.layout.gap: must be a spacing-token name.`);
+  if (layout.gap != null && !validSpace(layout.gap)) errors.push(`${where}.layout.gap: must be a spacing-token name or a non-negative pixel number.`);
   validateBox(layout.padding, `${where}.layout.padding`, errors);
   if (layout.align != null && !ALIGN_VALUES.has(layout.align)) errors.push(`${where}.layout.align: unsupported value "${layout.align}".`);
   if (layout.justify != null && !JUSTIFY_VALUES.has(layout.justify)) errors.push(`${where}.layout.justify: unsupported value "${layout.justify}".`);
@@ -386,6 +393,7 @@ function resolveProps(rawProps, parentProps) {
 }
 
 function spacingValue(value) {
+  if (typeof value === "number") return `${value}px`;
   if (value === "0") return "0";
   if (value === "auto") return "auto";
   return `var(--space-${value})`;
@@ -393,7 +401,7 @@ function spacingValue(value) {
 
 function applyBox(style, prefix, value) {
   if (value == null) return;
-  if (typeof value === "string") {
+  if (typeof value === "string" || typeof value === "number") {
     style[prefix] = spacingValue(value);
     return;
   }
@@ -463,9 +471,10 @@ export function appearanceStyle(node) {
     style["letter-spacing"] = `${prefix}-tracking, normal)`;
   }
   if (appearance.fontFamily) style["font-family"] = `var(--font-${appearance.fontFamily})`;
-  if (appearance.color) style.color = `var(--color-${appearance.color})`;
-  if (appearance.background) style["background-color"] = `var(--color-${appearance.background})`;
-  if (appearance.borderColor) style["border-color"] = `var(--color-${appearance.borderColor})`;
+  const colorValue = (value) => HEX_COLOR.test(value) ? value : `var(--color-${value})`;
+  if (appearance.color) style.color = colorValue(appearance.color);
+  if (appearance.background) style["background-color"] = colorValue(appearance.background);
+  if (appearance.borderColor) style["border-color"] = colorValue(appearance.borderColor);
   if (appearance.radius) style["border-radius"] = `var(--radius-${appearance.radius})`;
   if (appearance.shadow) style["box-shadow"] = `var(--shadow-${appearance.shadow})`;
   if (appearance.textAlign) style["text-align"] = appearance.textAlign;

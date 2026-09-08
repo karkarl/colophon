@@ -21,6 +21,7 @@ let state = {
   theme: "light", validation: null, page: "brand",
   inspectMode: false, selection: null,
   inspectorTab: "properties", componentPast: [], componentFuture: [], dragPath: null,
+  spacingSnap: true,
 };
 
 async function api(path, opts) {
@@ -332,18 +333,381 @@ function propertySelect(label, value, options, onchange, { wide = false } = {}) 
   return propertyField(label, select, { wide });
 }
 
-function spacingOptions({ allowAuto = false } = {}) {
-  const names = (state.tokens?.spacing?.scale || []).map((token) => String(token.name));
-  const values = ["0", ...names.filter((name) => name !== "0")];
-  if (allowAuto) values.push("auto");
-  return [["", "Unset"], ...values.map((name) => [
-    name,
-    name === "0" || name === "auto" ? name : `${name} · var(--space-${name})`,
-  ])];
+function closePicker(button) {
+  button.closest("details")?.removeAttribute("open");
+}
+
+let floatingPickerEventsReady = false;
+
+function closeFloatingPickers(except = null) {
+  for (const picker of document.querySelectorAll(".property-picker[open]")) {
+    if (picker !== except) picker.removeAttribute("open");
+  }
+}
+
+function closeSpacingMenus(except = null) {
+  for (const menu of document.querySelectorAll(".spacing-option-menu.is-open")) {
+    if (menu !== except) menu.classList.remove("is-open");
+  }
+}
+
+function positionFloatingMenu(anchorElement, menu) {
+  const inspector = anchorElement.closest(".design-inspector");
+  if (!inspector) return;
+  const anchor = anchorElement.getBoundingClientRect();
+  const bounds = inspector.getBoundingClientRect();
+  const gutter = 8;
+  const width = Math.min(300, bounds.width - gutter * 2);
+  const left = Math.max(bounds.left + gutter, Math.min(anchor.right - width, bounds.right - width - gutter));
+  const below = bounds.bottom - anchor.bottom - gutter;
+  const above = anchor.top - bounds.top - gutter;
+  const naturalHeight = Math.min(menu.scrollHeight, 360);
+  const opensUp = below < Math.min(naturalHeight, 180) && above > below;
+  const available = Math.max(96, opensUp ? above : below);
+  const height = Math.min(naturalHeight, available);
+  const top = opensUp ? anchor.top - height - 4 : anchor.bottom + 4;
+  Object.assign(menu.style, {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    maxHeight: `${available}px`,
+  });
+  menu.classList.toggle("opens-up", opensUp);
+}
+
+function makeFloatingPicker(details, menu) {
+  details.addEventListener("toggle", () => {
+    if (!details.open) return;
+    closeFloatingPickers(details);
+    requestAnimationFrame(() => positionFloatingMenu(details.querySelector(":scope > summary"), menu));
+  });
+  if (floatingPickerEventsReady) return;
+  floatingPickerEventsReady = true;
+  document.addEventListener("pointerdown", (event) => {
+    const active = event.target.closest?.(".property-picker");
+    const spacingMenu = event.target.closest?.(".spacing-combo")?.querySelector(".spacing-option-menu");
+    closeFloatingPickers(active);
+    closeSpacingMenus(spacingMenu);
+  });
+  document.addEventListener("scroll", () => {
+    closeFloatingPickers();
+    closeSpacingMenus();
+  }, true);
+  window.addEventListener("resize", () => {
+    closeFloatingPickers();
+    closeSpacingMenus();
+  });
+}
+
+function choicePicker(label, value, choices, onchange, { wide = false, summaryStyle = "" } = {}) {
+  const selected = choices.find((choice) => choice.value === value) || choices[0];
+  const details = el("details", { class: "property-picker" });
+  const summary = el("summary", {},
+    el("span", { class: "property-picker-value", style: summaryStyle || selected?.style || "" }, selected?.label || "Select"),
+    el("span", { class: "property-picker-chevron", "aria-hidden": "true" }, "⌄"),
+  );
+  const menu = el("div", { class: "property-picker-menu" });
+  for (const choice of choices) {
+    menu.append(el("button", {
+      type: "button",
+      class: `property-picker-option${choice.value === value ? " is-selected" : ""}`,
+      style: choice.style || "",
+      onclick: (event) => {
+        closePicker(event.currentTarget);
+        onchange(choice.value);
+      },
+    }, choice.preview || choice.label));
+  }
+  details.append(summary, menu);
+  makeFloatingPicker(details, menu);
+  return propertyField(label, details, { wide });
+}
+
+function textStylePreview(style) {
+  if (!style?.name) return "";
+  return [
+    `font-family:var(--text-${style.name}-family,var(--font-${style.role || "body"}))`,
+    `font-size:var(--text-${style.name}-size)`,
+    `line-height:var(--text-${style.name}-line-height)`,
+    `font-weight:var(--text-${style.name}-weight)`,
+    `letter-spacing:var(--text-${style.name}-tracking,normal)`,
+  ].join(";");
+}
+
+function typographyPicker(label, value, kind, onchange) {
+  const inherited = { value: "", label: "Inherit / class", style: "" };
+  const choices = kind === "textStyle"
+    ? [inherited, ...(state.tokens?.typography?.scale || []).filter((style) => style?.name).map((style) => ({
+      value: style.name,
+      label: style.name,
+      style: textStylePreview(style),
+      preview: el("span", { class: "type-option" },
+        el("span", { class: "type-option-sample", style: textStylePreview(style) }, "Ag"),
+        el("span", { class: "type-option-meta" },
+          el("strong", {}, style.name),
+          el("span", {}, `${style.size || "Inherited"} / ${style.lineHeight || "normal"}`)),
+      ),
+    }))]
+    : [inherited, ...["display", "body", "mono"].filter((role) => state.tokens?.typography?.[role]?.family).map((role) => ({
+      value: role,
+      label: role[0].toUpperCase() + role.slice(1),
+      style: `font-family:var(--font-${role})`,
+      preview: el("span", { class: "type-option" },
+        el("span", { class: "type-option-sample", style: `font-family:var(--font-${role})` }, "Ag"),
+        el("span", { class: "type-option-meta" },
+          el("strong", {}, role[0].toUpperCase() + role.slice(1)),
+          el("span", {}, state.tokens.typography[role].family)),
+      ),
+    }))];
+  return choicePicker(label, value, choices, onchange);
+}
+
+function appearanceColorValue(value) {
+  if (/^#[0-9a-f]{6}$/i.test(value || "")) return value;
+  const token = colorList(state.tokens).find((color) => color.name === value);
+  return colorValueForTheme(token, state.theme) || "transparent";
+}
+
+function colorPicker(label, value, onchange) {
+  const colors = colorList(state.tokens).filter((color) => color?.name);
+  const selectedToken = colors.find((color) => color.name === value);
+  const selectedColor = appearanceColorValue(value);
+  const details = el("details", { class: "property-picker color-property-picker" });
+  const summary = el("summary", {},
+    el("span", { class: "color-picker-summary" },
+      el("span", { class: "color-picker-chip", style: `background:${selectedColor}` }),
+      el("span", {}, value ? (selectedToken?.name || value) : "Inherit / class"),
+    ),
+    el("span", { class: "property-picker-chevron", "aria-hidden": "true" }, "⌄"),
+  );
+  const palette = el("div", { class: "color-palette" });
+  palette.append(el("button", {
+    type: "button",
+    class: `color-palette-inherit${value ? "" : " is-selected"}`,
+    onclick: (event) => {
+      closePicker(event.currentTarget);
+      onchange("");
+    },
+  }, "Inherit / class"));
+  for (const color of colors) {
+    const preview = colorValueForTheme(color, state.theme);
+    palette.append(el("button", {
+      type: "button",
+      class: `color-palette-token${value === color.name ? " is-selected" : ""}`,
+      title: `${color.name}: ${preview}`,
+      "aria-label": `${color.name}, ${preview}`,
+      onclick: (event) => {
+        closePicker(event.currentTarget);
+        onchange(color.name);
+      },
+    },
+    el("span", { class: "color-palette-swatch", style: `background:${preview}` }),
+    el("span", { class: "color-palette-name" }, color.name)));
+  }
+  const customValue = /^#[0-9a-f]{6}$/i.test(value || "") ? value : "#000000";
+  const customInput = el("input", {
+    type: "color",
+    value: customValue,
+    title: "Choose a custom color",
+    "aria-label": `Choose a custom ${label.toLowerCase()}`,
+    onchange: (event) => onchange(event.target.value),
+  });
+  palette.append(el("label", { class: `color-palette-custom${value === customValue ? " is-selected" : ""}` },
+    el("span", { class: "spectrum-chip" }),
+    el("span", {}, "Custom"),
+    customInput));
+  details.append(summary, palette);
+  makeFloatingPicker(details, palette);
+  return propertyField(label, details);
+}
+
+function cssPixels(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^(-?\d+(?:\.\d+)?)(px|rem)?$/i);
+  if (!match) return null;
+  const number = Number(match[1]);
+  if (match[2]?.toLowerCase() === "rem") {
+    return number * (Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+  }
+  return number;
+}
+
+function spacingTokens() {
+  const tokens = (state.tokens?.spacing?.scale || []).map((token) => ({
+    name: String(token.name),
+    value: String(token.value ?? ""),
+    pixels: cssPixels(token.value),
+  }));
+  if (!tokens.some((token) => token.name === "0")) {
+    tokens.unshift({ name: "0", value: "0px", pixels: 0 });
+  }
+  return tokens;
+}
+
+function spacingPixels(value) {
+  if (typeof value === "number") return value;
+  if (value === "0") return 0;
+  return spacingTokens().find((token) => token.name === value)?.pixels ?? null;
+}
+
+function nearestSpacingToken(value) {
+  const pixels = spacingPixels(value);
+  const candidates = spacingTokens().filter((token) => token.pixels != null);
+  if (pixels == null || !candidates.length) return null;
+  return candidates.reduce((nearest, token) => (
+    Math.abs(token.pixels - pixels) < Math.abs(nearest.pixels - pixels) ? token : nearest
+  ));
+}
+
+function spacingTokenLabel(token) {
+  const resolved = token.value || (token.pixels == null ? token.name : `${token.pixels}px`);
+  return token.name === "0" ? resolved : `${resolved} · var(--space-${token.name})`;
+}
+
+function spacingInputValue(value) {
+  if (value == null || value === "") return "";
+  if (value === "auto") return "auto";
+  if (state.spacingSnap && typeof value === "string") {
+    const token = spacingTokens().find((item) => item.name === value);
+    return token ? spacingTokenLabel(token) : value;
+  }
+  const pixels = spacingPixels(value);
+  return pixels == null ? String(value) : `${pixels}px`;
+}
+
+function parseSpacingInput(value, { allowAuto = false } = {}) {
+  const raw = value.trim();
+  if (!raw) return "";
+  if (allowAuto && raw === "auto") return "auto";
+  if (state.spacingSnap) {
+    const variable = raw.match(/var\(--space-([^)]+)\)/);
+    const tokenName = variable?.[1] || raw.split("·", 1)[0].trim();
+    if (spacingTokens().some((token) => token.name === tokenName)) return tokenName;
+    const nearest = nearestSpacingToken(cssPixels(tokenName));
+    if (nearest) return nearest.name;
+    throw new Error(`"${raw}" is not a spacing token.`);
+  }
+  const pixels = cssPixels(raw);
+  if (pixels == null || pixels < 0) throw new Error("Enter a non-negative pixel value.");
+  return pixels;
+}
+
+function stepSpacingValue(value, direction) {
+  if (!state.spacingSnap) return Math.max(0, (spacingPixels(value) ?? 0) + direction);
+  const tokens = spacingTokens();
+  if (!tokens.length) return value;
+  let index = tokens.findIndex((token) => token.name === value);
+  if (index < 0) {
+    const nearest = nearestSpacingToken(value);
+    index = nearest ? tokens.indexOf(nearest) : (direction > 0 ? -1 : 1);
+  }
+  return tokens[Math.max(0, Math.min(tokens.length - 1, index + direction))].name;
+}
+
+function spacingCombo(label, value, onchange, { allowAuto = false, wide = false } = {}) {
+  const menu = el("div", { class: "spacing-option-menu" });
+  const submitInput = (raw) => {
+    try {
+      $("#inspect-error").textContent = "";
+      onchange(parseSpacingInput(raw, { allowAuto }));
+    } catch (error) {
+      $("#inspect-error").textContent = error.message || String(error);
+    }
+  };
+  const closeMenu = () => menu.classList.remove("is-open");
+  const openMenu = () => {
+    closeSpacingMenus(menu);
+    closeFloatingPickers();
+    menu.classList.add("is-open");
+    requestAnimationFrame(() => positionFloatingMenu(input, menu));
+  };
+  const input = el("input", {
+    type: "text",
+    value: spacingInputValue(value),
+    placeholder: "Unset",
+    onchange: (event) => submitInput(event.target.value),
+    onclick: openMenu,
+    onfocus: openMenu,
+    onkeydown: (event) => {
+      if (event.key === "Escape") {
+        closeMenu();
+        return;
+      }
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      onchange(stepSpacingValue(value, event.key === "ArrowUp" ? 1 : -1));
+    },
+  });
+  for (const token of spacingTokens()) {
+    const next = state.spacingSnap ? token.name : (token.pixels ?? cssPixels(token.value));
+    if (next == null) continue;
+    menu.append(el("button", {
+      type: "button",
+      class: value === next ? "is-selected" : "",
+      onclick: () => {
+        closeMenu();
+        onchange(next);
+      },
+    },
+    el("span", { class: "spacing-option-value" }, token.value || `${token.pixels}px`),
+    token.name === "0" ? "" : el("span", { class: "spacing-option-token" }, `var(--space-${token.name})`)));
+  }
+  if (allowAuto) {
+    menu.append(el("button", {
+      type: "button",
+      class: value === "auto" ? "is-selected" : "",
+      onclick: () => {
+        closeMenu();
+        onchange("auto");
+      },
+    }, el("span", { class: "spacing-option-value" }, "auto")));
+  }
+  const control = el("div", { class: "spacing-combo" },
+    input,
+    el("div", { class: "spacing-stepper" },
+      el("button", {
+        type: "button", title: "Increase spacing", "aria-label": `Increase ${label}`,
+        onclick: () => onchange(stepSpacingValue(value, 1)),
+      }, "▲"),
+      el("button", {
+        type: "button", title: "Decrease spacing", "aria-label": `Decrease ${label}`,
+        onclick: () => onchange(stepSpacingValue(value, -1)),
+      }, "▼"),
+    ),
+    menu,
+  );
+  return propertyField(label, control, { wide });
+}
+
+function convertSpacingValue(value, snapped) {
+  if (value == null || value === "auto") return value;
+  if (snapped) return nearestSpacingToken(value)?.name ?? value;
+  return spacingPixels(value) ?? value;
+}
+
+function convertBoxSpacing(value, snapped) {
+  if (value == null || typeof value !== "object") return convertSpacingValue(value, snapped);
+  return Object.fromEntries(Object.entries(value).map(([edge, spacing]) => [edge, convertSpacingValue(spacing, snapped)]));
+}
+
+async function toggleSpacingSnap() {
+  const next = !state.spacingSnap;
+  state.spacingSnap = next;
+  const committed = await commitComponentMutation(() => {
+    const node = selectedComponentNode();
+    if (node.layout?.gap != null) node.layout.gap = convertSpacingValue(node.layout.gap, next);
+    if (node.layout?.padding != null) node.layout.padding = convertBoxSpacing(node.layout.padding, next);
+    if (node.margin != null) node.margin = convertBoxSpacing(node.margin, next);
+  });
+  if (!committed) {
+    state.spacingSnap = !next;
+    renderComponentProperties();
+  }
 }
 
 function boxEdgeValue(value, edge) {
-  if (typeof value === "string") return value;
+  if (typeof value === "string" || typeof value === "number") return value;
   if (!value || typeof value !== "object") return "";
   const axis = edge === "left" || edge === "right" ? "x" : "y";
   return value[edge] ?? value[axis] ?? "";
@@ -352,16 +716,16 @@ function boxEdgeValue(value, edge) {
 function updateBoxValue(owner, key, edge, next) {
   const current = owner[key];
   if (edge === "all") {
-    if (next) owner[key] = next;
+    if (next !== "") owner[key] = next;
     else delete owner[key];
     return;
   }
   const expanded = {};
   for (const side of ["top", "right", "bottom", "left"]) {
     const value = boxEdgeValue(current, side);
-    if (value) expanded[side] = value;
+    if (value !== "") expanded[side] = value;
   }
-  if (next) expanded[edge] = next;
+  if (next !== "") expanded[edge] = next;
   else delete expanded[edge];
   if (Object.keys(expanded).length) owner[key] = expanded;
   else delete owner[key];
@@ -379,30 +743,48 @@ function inheritedOptions(values, label = (value) => value) {
   return [["", "Inherit / class"], ...values.map((value) => [value, label(value)])];
 }
 
+function alignmentIcon(type, value) {
+  if (!value) return el("span", { class: "layout-reset-icon", "aria-hidden": "true" });
+  const icon = el("span", { class: `layout-${type}-icon is-${value}`, "aria-hidden": "true" });
+  const count = type === "align" ? 3 : 3;
+  for (let index = 0; index < count; index += 1) icon.append(el("i"));
+  return icon;
+}
+
+function alignmentControl(label, type, value, options, onchange) {
+  const group = el("div", { class: "layout-icon-group", role: "group", "aria-label": label });
+  for (const [optionValue, optionLabel] of options) {
+    group.append(el("button", {
+      type: "button",
+      class: optionValue === value ? "is-selected" : "",
+      title: optionLabel,
+      "aria-label": `${label}: ${optionLabel}`,
+      "aria-pressed": String(optionValue === value),
+      onclick: () => onchange(optionValue),
+    }, alignmentIcon(type, optionValue)));
+  }
+  return propertyField(label, group, { wide: true });
+}
+
 function boxEditor(title, owner, key, { allowAuto = false } = {}) {
   const current = owner[key];
-  const options = spacingOptions({ allowAuto });
   const grid = el("div", { class: "box-editor" });
   const allValue = typeof current === "string" ? current : "";
-  grid.append(propertySelect("All", allValue, options, (event) => {
+  grid.append(spacingCombo("All", typeof current === "number" ? current : allValue, (value) => {
     commitComponentMutation(() => {
       const node = selectedComponentNode();
       const target = node === owner ? node : (node.layout ||= {});
-      updateBoxValue(target, key, "all", event.target.value);
+      updateBoxValue(target, key, "all", value);
     });
-  }, { wide: true }));
+  }, { allowAuto, wide: true }));
   for (const edge of ["top", "right", "bottom", "left"]) {
-    const select = el("select", {
-      onchange: (event) => commitComponentMutation(() => {
+    grid.append(spacingCombo(edge[0].toUpperCase() + edge.slice(1), boxEdgeValue(current, edge), (value) => {
+      commitComponentMutation(() => {
         const node = selectedComponentNode();
         const target = owner === selectedComponentNode() ? node : (node.layout ||= {});
-        updateBoxValue(target, key, edge, event.target.value);
-      }),
-    });
-    for (const [optionValue, optionLabel] of options) {
-      select.append(el("option", { value: optionValue, selected: optionValue === boxEdgeValue(current, edge) ? "selected" : undefined }, optionLabel));
-    }
-    grid.append(propertyField(edge[0].toUpperCase() + edge.slice(1), select));
+        updateBoxValue(target, key, edge, value);
+      });
+    }, { allowAuto }));
   }
   return el("div", { class: "property-field is-wide" }, el("label", {}, title), grid);
 }
@@ -458,7 +840,16 @@ function renderComponentProperties() {
 
   const layout = node.layout || {};
   const layoutSection = el("section", { class: "property-section" },
-    el("h3", { class: "property-section-title" }, "Auto Layout"),
+    el("div", { class: "property-section-heading" },
+      el("h3", { class: "property-section-title" }, "Auto Layout"),
+      el("button", {
+        type: "button",
+        class: `snap-toggle${state.spacingSnap ? " is-active" : ""}`,
+        "aria-pressed": String(state.spacingSnap),
+        title: state.spacingSnap ? "Unsnap spacing from design tokens" : "Snap spacing to the nearest design token",
+        onclick: toggleSpacingSnap,
+      }, state.spacingSnap ? "Snapped" : "Free"),
+    ),
     el("div", { class: "property-grid" }));
   const layoutGrid = $(".property-grid", layoutSection);
   layoutGrid.append(
@@ -472,28 +863,28 @@ function renderComponentProperties() {
       if (event.target.value !== "grid") delete selected.layout.columns;
       if (!Object.keys(selected.layout).length) delete selected.layout;
     })),
-    propertySelect("Gap", layout.gap || "", spacingOptions(), (event) => commitComponentMutation(() => {
+    spacingCombo("Gap", layout.gap ?? "", (value) => commitComponentMutation(() => {
       const selected = selectedComponentNode();
       selected.layout ||= {};
-      if (event.target.value) selected.layout.gap = event.target.value;
+      if (value !== "") selected.layout.gap = value;
       else delete selected.layout.gap;
       if (!Object.keys(selected.layout).length) delete selected.layout;
     })),
-    propertySelect("Align", layout.align || "", [
+    alignmentControl("Align", "align", layout.align || "", [
       ["", "Unset"], ["start", "Start"], ["center", "Center"], ["end", "End"], ["stretch", "Stretch"], ["baseline", "Baseline"],
-    ], (event) => commitComponentMutation(() => {
+    ], (value) => commitComponentMutation(() => {
       const selected = selectedComponentNode();
       selected.layout ||= {};
-      if (event.target.value) selected.layout.align = event.target.value;
+      if (value) selected.layout.align = value;
       else delete selected.layout.align;
     })),
-    propertySelect("Justify", layout.justify || "", [
+    alignmentControl("Justify", "justify", layout.justify || "", [
       ["", "Unset"], ["start", "Start"], ["center", "Center"], ["end", "End"], ["space-between", "Space between"],
       ["space-around", "Space around"], ["space-evenly", "Space evenly"],
-    ], (event) => commitComponentMutation(() => {
+    ], (value) => commitComponentMutation(() => {
       const selected = selectedComponentNode();
       selected.layout ||= {};
-      if (event.target.value) selected.layout.justify = event.target.value;
+      if (value) selected.layout.justify = value;
       else delete selected.layout.justify;
     })),
     propertySelect("Width", layout.width || "", [["", "Unset"], ["hug", "Hug"], ["fill", "Fill"]], (event) => commitComponentMutation(() => {
@@ -532,11 +923,12 @@ function renderComponentProperties() {
   }
   layoutGrid.append(checks);
   layoutGrid.append(boxEditor("Padding", layout, "padding"));
+  layoutSection.append(el("div", { class: "property-help" },
+    state.spacingSnap
+      ? "Spacing follows design.json increments. Type a token or use the arrow buttons to step through the scale."
+      : "Spacing is unsnapped. Type any non-negative pixel value or use the arrow buttons to step by 1px."));
 
   const appearance = node.appearance || {};
-  const colors = colorList(state.tokens).map((token) => token.name).filter(Boolean);
-  const textStyles = (state.tokens?.typography?.scale || []).map((token) => token?.name).filter(Boolean);
-  const fontFamilies = ["display", "body", "mono"].filter((role) => state.tokens?.typography?.[role]?.family);
   const radii = (state.tokens?.radii || []).map((token) => token?.name).filter(Boolean);
   const shadows = (state.tokens?.shadows || []).map((token) => token?.name).filter(Boolean);
   const appearanceSection = el("section", { class: "property-section" },
@@ -550,11 +942,16 @@ function renderComponentProperties() {
     (event) => commitComponentMutation(() => setAppearanceOverride(key, event.target.value)),
   );
   appearanceGrid.append(
-    appearanceField("Text style", "textStyle", inheritedOptions(textStyles)),
-    appearanceField("Font family", "fontFamily", inheritedOptions(fontFamilies, (value) => value[0].toUpperCase() + value.slice(1))),
-    appearanceField("Text color", "color", inheritedOptions(colors)),
-    appearanceField("Background", "background", inheritedOptions(colors)),
-    appearanceField("Border color", "borderColor", inheritedOptions(colors)),
+    typographyPicker("Text style", appearance.textStyle || "", "textStyle",
+      (value) => commitComponentMutation(() => setAppearanceOverride("textStyle", value))),
+    typographyPicker("Font family", appearance.fontFamily || "", "fontFamily",
+      (value) => commitComponentMutation(() => setAppearanceOverride("fontFamily", value))),
+    colorPicker("Text color", appearance.color || "",
+      (value) => commitComponentMutation(() => setAppearanceOverride("color", value))),
+    colorPicker("Background", appearance.background || "",
+      (value) => commitComponentMutation(() => setAppearanceOverride("background", value))),
+    colorPicker("Border color", appearance.borderColor || "",
+      (value) => commitComponentMutation(() => setAppearanceOverride("borderColor", value))),
     appearanceField("Text align", "textAlign", inheritedOptions(["start", "center", "end", "left", "right"], (value) => value[0].toUpperCase() + value.slice(1))),
     appearanceField("Radius", "radius", inheritedOptions(radii)),
     appearanceField("Shadow", "shadow", inheritedOptions(shadows)),
@@ -1429,9 +1826,9 @@ function positionValidationSlot() {
   const slot = $("#validation-slot");
   const bar = $(".topbar");
   if (!bar) return;
-  const offset = (bar.offsetHeight + 14) + "px";
-  document.documentElement.style.setProperty("--canvas-topbar-offset", offset);
-  if (slot) slot.style.top = offset;
+  const barBottom = `${bar.offsetHeight}px`;
+  document.documentElement.style.setProperty("--canvas-topbar-offset", barBottom);
+  if (slot) slot.style.top = `${bar.offsetHeight + 14}px`;
 }
 
 function renderValidation() {
