@@ -52,7 +52,7 @@ The five workflow commands are declarative plugin commands in `commands/`, so ho
 | File | What it is |
 | --- | --- |
 | `design.json` | Tokens: authority, brand, colors, typography, spacing, radii, shadows, principles |
-| `components.jsonc` | A structured element-tree — the component patterns your team has agreed on |
+| `components.jsonc` | A structured element-tree with token-bound Auto Layout — the component patterns your team has agreed on |
 | `principles.md` | Prose voice / information hierarchy / do & don't |
 
 These are plain files. Commit them, review them in PRs, edit them by hand or in the canvas.
@@ -102,8 +102,65 @@ With no `port` or overrides, `design.json` and `components.jsonc` remain the fra
 ### 2. The canvas renders + edits it
 Open the **Design System** canvas to see the system rendered live:
 - **Design system** - Brand board, color palette, type scale, spacing/radii/shadows, principles.
-- **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM interpreter (no framework runtime, works offline) using the system's own tokens, so you see real UI, not just code.
+- **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM interpreter (no framework runtime, works offline) using the system's own tokens, so you see real UI, not just code. Format v2 gives every object layer a stable `id` and supports semantic `layout` / `margin` fields for vertical, horizontal, and grid Auto Layout.
 - **Inline editing** — change a color/font/brand text and **Save to repo** writes`design.json` back. File edits stream back into the canvas via SSE.
+- **Exact inspection** — toggle **Inspect** to select brand, color, typography, spacing,
+  radius, shadow, principle, component, or individual rendered component layer by its
+  exact JSON Pointer path. Edit the object inline, save it to `design.json` /
+  `components.jsonc`, or attach it to chat.
+- **Visual component editing** — Inspect opens a synchronized three-pane workspace:
+  component layers on the left, the live canvas in the center, and Properties / JSON
+  on the right. Select layers from the tree or rendered preview, then edit direction,
+  gap, padding, margin, alignment, justification, wrapping, growth, grid columns, and
+  fill/hug sizing through token-backed controls. Spacing combo boxes step through the
+  design-system scale by default; **Snapped** switches them to free pixel values when
+  a composition needs an intentional exception. Typography pickers preview each
+  design-system text style and family in its own typeface. Color pickers expose the
+  full token palette plus a native spectrum control for an explicit custom override.
+  Appearance controls inherit from the parent/class by default and write sparse
+  overrides for typography, colors, radius, shadow, and text alignment. Drag layers
+  before, after, or inside another element;
+  duplicate/delete layers; and undo/redo before saving.
+
+`components.jsonc` v2 uses stable IDs and token names instead of raw CSS lengths:
+
+```json
+{
+  "id": "card-root",
+  "el": "article",
+  "class": "ds-card",
+  "layout": {
+    "mode": "vertical",
+    "gap": "2",
+    "padding": "5",
+    "align": "stretch",
+    "width": "fill"
+  },
+  "margin": { "top": "2" },
+  "appearance": {
+    "textStyle": "heading",
+    "color": "ink",
+    "background": "surface",
+    "radius": "lg"
+  },
+  "children": []
+}
+```
+
+`layout.mode` accepts `vertical`, `horizontal`, `grid`, or `none`. Layout also
+supports `gap`, `padding`, `align`, `justify`, `wrap`, `grow`, `columns`, `width`,
+and `height`; `margin` lives on the node. Spacing values reference keys in
+`design.json` (plus `0` and `auto`) by default. Unsnapped non-negative numbers are
+explicit pixel values. Format v1 remains readable, while v2 requires
+unique stable IDs within each component so canvas selections and future layer moves
+remain durable.
+
+Visual values inherit through normal component classes and the element hierarchy.
+An omitted `appearance` key means **inherit**; selecting a different value in
+Properties writes only that token override. Supported overrides are `fontFamily`,
+`textStyle`, `color`, `background`, `borderColor`, `radius`, `shadow`, and
+`textAlign`. Color properties may also contain an explicit six-digit hex value when
+the palette's **Custom** control is used.
 If a repo has no `.agents/design/` yet, the canvas shows a bundled **starter** system plus a 3-way **onboarding** panel (below).
 
 ### 2b. Seeding a repo — three ways
@@ -130,6 +187,8 @@ A second canvas turns the design system into **click-through prototypes** — so
 - **Format** — prototypes live at `.agents/design/prototypes.jsonc`: a framework-agnostic **scene graph** (layout primitives + references to your `components.jsonc` by name + **navigation as data**), never shipping code. It's pure data, so it renders safely and Copilot can patch a single node by id without rewriting the file. Every save re-emits a stable, key-ordered file plus a Markdown flow outline for painless PR review.
 - **Device frames** — preview each screen in web breakpoints, desktop-app windows (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including native app chrome.
 - **Interactions (v1)** — navigate between screens, simple state (toggles, tabs), open/close modals, and visibility bound to state. Click through it live in the canvas, rendered with your real tokens + components in Light/Dark/High-contrast.
+- **Inspect and edit** — toggle Inspect to select the exact rendered JSON element, edit its object in place, drag layers to reorder or reparent them, and save the resulting scene graph back to `prototypes.jsonc`.
+- **Attach to chat** — selected elements can be added to the next Copilot message as a structured object containing the source, screen, exact JSON Pointer path, and element payload.
 - **Convert to code** — a first-pass `codegen` action turns the JSONC scene graph and component intent into code for the configured production target. The current web target emits React/JSX using `ds-*` conventions; a native port target emits a hand-off scaffold and porting notes for WinUI/SwiftUI through the same authority mechanism.
 - **`prototype` tool** — Copilot authors and reads prototypes from conversation: `action` of `read` (flow outline), `validate` (dangling navigation / unknown components or tokens), `patch` (surgical scene-graph ops), `codegen` (convert a screen), `export`(standalone browser artifact), or `publish` (explicit GitHub Pages deployment).
 
@@ -147,6 +206,9 @@ A second canvas turns the design system into **click-through prototypes** — so
 
 ## Agent/host-facing actions
 **Colophon canvas:**
+- `inspect_selection` — return the exact selected `design.json` or `components.jsonc`
+  object and its JSON Pointer path.
+- `attach_selection` — add that object to the next chat message as structured context.
 - `read` — return the current system as a text summary.
 - `init` — scaffold `.agents/design/` (non-destructive); `mode: "starter" | "scratch"`.
 - `scan` — scan existing UI and return a proposed system (text + evidence); writes nothing.
@@ -155,6 +217,8 @@ A second canvas turns the design system into **click-through prototypes** — so
 
 **Prototype canvas:**
 - `read` / `outline` — return the Markdown flow outline (screens, nodes, navigation).
+- `inspect_selection` — return the exact selected JSON element and its JSON Pointer path.
+- `attach_selection` — add that selection to the next chat message as structured extension context.
 - `patch` — apply surgical scene-graph ops (`upsertScreen`, `setNode`, `patchNode`,
   `setNav`, …) and save.
 - `validate` — dangling navigation targets, unknown component/token references.
@@ -181,7 +245,7 @@ extensions/colophon/              the canvas extension:
   prototypeio.mjs  load / save / surgically patch / validate prototypes.jsonc (scene graph)
   proto-render.js  in-canvas JSON→DOM interpreter + interaction/state runtime
   components-runtime.js  browser-only component runtime used by standalone exports
-  proto-client.js  the Prototype canvas app (device frames, screen switcher, click-through)
+  proto-client.js  the Prototype canvas app (device frames, inspect/edit/layers, click-through)
   proto-renderer.mjs / proto.css   prototype iframe shell + device-frame styles
   proto-outline.mjs                Markdown flow-outline generator
   protocodegen.mjs                 convert a screen to code for the port target
@@ -193,12 +257,13 @@ extensions/colophon/              the canvas extension:
 ## Notes & limitations (experimental)
 - Component and prototype previews render with a pure in-canvas JSON→DOM interpreter, so
   they work fully offline — no CDN, no React/Babel.
-- Editing currently covers tokens (colors, fonts, brand). Editing `components.jsonc` /
-  `principles.md` is done in your editor for now.
-- Prototypes are authored by Copilot (via the `prototype` tool) or by hand-editing
-  `prototypes.jsonc`; the canvas is preview + click-through, not yet a drag-and-drop
-  editor. Native `codegen` is a best-effort hand-off scaffold; the web/React target is
-  deterministic.
+- Design-system inspection supports token editing plus visual Auto Layout controls,
+  drag/reparent, duplicate/delete, undo/redo, and exact JSON fallback for
+  `components.jsonc` layers. Fixed/min/max dimensions, absolute positioning,
+  responsive variants, and multi-selection are not yet part of the component schema.
+- Prototype layers can be selected, edited as JSON, reordered/reparented by dragging, and
+  saved in the canvas. Native `codegen` remains a best-effort hand-off scaffold; the
+  web/React target is deterministic.
 - Canvas APIs are an experimental SDK surface and may change.
 
 ## Installation and team setup

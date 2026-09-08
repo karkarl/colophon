@@ -51,6 +51,7 @@ export function renderProtoShell() {
         </select>
       </label>
       <span class="grow"></span>
+      <button type="button" id="inspect-btn" class="btn" title="Inspect and edit prototype layers" aria-pressed="false">Inspect</button>
       <button type="button" id="back-btn" class="btn" title="Back">←</button>
       <label>Screen
         <select id="screen-select"></select>
@@ -58,9 +59,35 @@ export function renderProtoShell() {
     </div>
 
     <div id="outline-slot"></div>
-    <div class="stage">
-      <div id="validation-slot" aria-live="polite"></div>
-      <div id="frame-wrap" class="frame-wrap"></div>
+    <div class="workspace">
+      <div class="stage">
+        <div id="validation-slot" aria-live="polite"></div>
+        <div id="frame-wrap" class="frame-wrap"></div>
+      </div>
+      <aside id="inspector" class="inspector" hidden>
+        <div class="inspector-head">
+          <div>
+            <div class="inspector-title">Layers</div>
+            <div id="save-status" class="save-status">Saved</div>
+          </div>
+          <button type="button" id="save-btn" class="btn primary" disabled>Save</button>
+        </div>
+        <div id="layers" class="layers" aria-label="Prototype layers"></div>
+        <div class="element-editor">
+          <div class="editor-head">
+            <div>
+              <div id="selection-title" class="inspector-title">No selection</div>
+              <code id="selection-path" class="selection-path"></code>
+            </div>
+            <button type="button" id="attach-btn" class="btn" disabled>Attach to chat</button>
+          </div>
+          <textarea id="json-editor" aria-label="Selected element JSON" spellcheck="false" disabled></textarea>
+          <div class="editor-actions">
+            <span id="editor-error" class="editor-error" role="alert"></span>
+            <button type="button" id="apply-json-btn" class="btn" disabled>Apply JSON</button>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <script src="/components-runtime.js"></script>

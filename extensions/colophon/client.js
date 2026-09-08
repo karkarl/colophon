@@ -15,12 +15,20 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 
-let state = { design: null, tokens: null, dirty: false, mode: "normal", proposal: null, theme: "light", validation: null, page: "brand" };
+let state = {
+  design: null, tokens: null, componentsDoc: null,
+  dirty: false, componentsDirty: false, mode: "normal", proposal: null,
+  theme: "light", validation: null, page: "brand",
+  inspectMode: false, selection: null,
+  inspectorTab: "properties", componentPast: [], componentFuture: [], dragPath: null,
+  spacingSnap: true,
+};
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
-  return res.headers.get("content-type")?.includes("json") ? res.json() : res.text();
+  const payload = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(payload?.error || `${path} -> ${res.status}`);
+  return payload;
 }
 
 const THEMES = ["light", "dark", "highContrast"];
@@ -94,6 +102,15 @@ function cssVarsFromTokens(tokens, theme = "light") {
   if (ty.display?.family) lines.push(`--font-display: ${ty.display.family};`);
   if (ty.body?.family) lines.push(`--font-body: ${ty.body.family};`);
   if (ty.mono?.family) lines.push(`--font-mono: ${ty.mono.family};`);
+  for (const style of ty.scale || []) {
+    if (!style?.name) continue;
+    const role = style.role || "body";
+    lines.push(`--text-${style.name}-family: var(--font-${role});`);
+    if (style.size) lines.push(`--text-${style.name}-size: ${style.size};`);
+    if (style.lineHeight) lines.push(`--text-${style.name}-line-height: ${style.lineHeight};`);
+    if (style.weight != null) lines.push(`--text-${style.name}-weight: ${style.weight};`);
+    lines.push(`--text-${style.name}-tracking: ${style.tracking || "normal"};`);
+  }
   for (const s of tokens?.spacing?.scale || []) lines.push(`--space-${s.name}: ${s.value};`);
   for (const r of tokens?.radii || []) lines.push(`--radius-${r.name}: ${r.value};`);
   for (const sh of tokens?.shadows || []) lines.push(`--shadow-${sh.name}: ${sh.value};`);
@@ -107,10 +124,1057 @@ function applyVars() {
   document.body.setAttribute("data-ds-theme", state.theme);
 }
 
+function updateSaveButton() {
+  const save = $("#save-btn");
+  if (save) {
+    save.disabled = !(state.dirty || state.componentsDirty);
+    save.textContent = state.dirty || state.componentsDirty ? "Save changes" : (state.design?.source === "repo" ? "Saved" : "Save to repo");
+  }
+}
+
 function markDirty() {
   state.dirty = true;
-  const save = $("#save-btn");
-  if (save) { save.disabled = false; save.textContent = "Save changes"; }
+  updateSaveButton();
+}
+
+function markComponentsDirty() {
+  state.componentsDirty = true;
+  updateSaveButton();
+}
+
+function pointerFor(path) {
+  return "/" + path.map((part) => String(part).replace(/~/g, "~0").replace(/\//g, "~1")).join("/");
+}
+
+function valueAtPath(root, path) {
+  let value = root;
+  for (const part of path) {
+    if (value == null || !(part in value)) return undefined;
+    value = value[part];
+  }
+  return value;
+}
+
+function replaceAtPath(root, path, value) {
+  if (!path.length) throw new Error("The root document cannot be replaced here.");
+  const parent = valueAtPath(root, path.slice(0, -1));
+  if (parent == null) throw new Error("The selected element no longer exists.");
+  parent[path[path.length - 1]] = value;
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function pathKey(path) {
+  return JSON.stringify(path || []);
+}
+
+function isPathPrefix(parent, child) {
+  return parent.length <= child.length && parent.every((part, index) => part === child[index]);
+}
+
+function selectedComponentNode() {
+  if (state.selection?.file !== "components.jsonc") return null;
+  const node = valueAtPath(state.componentsDoc, state.selection.path);
+  return node && typeof node === "object" && ("el" in node || "component" in node) ? node : null;
+}
+
+function selectedComponentDescriptor() {
+  const node = selectedComponentNode();
+  return node ? { componentIndex: state.selection.path[1], id: node.id || null, path: state.selection.path.slice() } : null;
+}
+
+function restoreComponentSelection(descriptor) {
+  if (!descriptor) {
+    state.selection = null;
+    return;
+  }
+  let path = descriptor.id
+    ? window.DSComp?.findComponentNodePath?.(state.componentsDoc, descriptor.componentIndex, descriptor.id)
+    : descriptor.path;
+  if (!path) path = ["components", descriptor.componentIndex, "root"];
+  const node = path && valueAtPath(state.componentsDoc, path);
+  if (!node) {
+    state.selection = null;
+    return;
+  }
+  state.selection = {
+    file: "components.jsonc",
+    path,
+    label: componentLayerLabel(node).detail,
+    value: node,
+  };
+}
+
+function updateHistoryButtons() {
+  const undo = $("#layers-undo-btn");
+  const redo = $("#layers-redo-btn");
+  if (undo) undo.disabled = state.componentPast.length === 0;
+  if (redo) redo.disabled = state.componentFuture.length === 0;
+}
+
+async function commitComponentMutation(mutator, { selectPath = null } = {}) {
+  const before = clone(state.componentsDoc);
+  const beforeSelection = selectedComponentDescriptor();
+  try {
+    const resultPath = mutator();
+    const validation = window.DSComp?.validateComponentsDoc?.(state.componentsDoc, { tokens: state.tokens });
+    if (validation && !validation.ok) throw new Error(validation.errors.join(" "));
+    state.componentPast.push(before);
+    if (state.componentPast.length > 50) state.componentPast.shift();
+    state.componentFuture = [];
+    state.design.componentsDoc = state.componentsDoc;
+    const nextPath = selectPath || resultPath;
+    if (nextPath) {
+      const node = valueAtPath(state.componentsDoc, nextPath);
+      state.selection = node === undefined ? null : {
+        file: "components.jsonc",
+        path: nextPath.slice(),
+        label: componentLayerLabel(node).detail,
+        value: node,
+      };
+    } else if (beforeSelection && valueAtPath(state.componentsDoc, beforeSelection.path)) {
+      const node = valueAtPath(state.componentsDoc, beforeSelection.path);
+      state.selection = {
+        file: "components.jsonc",
+        path: beforeSelection.path.slice(),
+        label: componentLayerLabel(node).detail,
+        value: node,
+      };
+    } else {
+      restoreComponentSelection(beforeSelection);
+    }
+    markComponentsDirty();
+    $("#inspect-error").textContent = "";
+    await render();
+    postDesignSelection();
+    return true;
+  } catch (error) {
+    state.componentsDoc = before;
+    state.design.componentsDoc = state.componentsDoc;
+    restoreComponentSelection(beforeSelection);
+    $("#inspect-error").textContent = error.message || String(error);
+    renderInspector();
+    renderComponentLayers();
+    return false;
+  }
+}
+
+async function restoreComponentHistory(direction) {
+  const from = direction === "undo" ? state.componentPast : state.componentFuture;
+  const to = direction === "undo" ? state.componentFuture : state.componentPast;
+  if (!from.length) return;
+  const descriptor = selectedComponentDescriptor();
+  to.push(clone(state.componentsDoc));
+  state.componentsDoc = from.pop();
+  state.design.componentsDoc = state.componentsDoc;
+  restoreComponentSelection(descriptor);
+  markComponentsDirty();
+  await render();
+  postDesignSelection();
+}
+
+function inspectable(node, file, path, label) {
+  if (!node?.dataset) return node;
+  node.dataset.designInspect = "true";
+  node.dataset.designFile = file;
+  node.dataset.designPath = JSON.stringify(path);
+  node.dataset.designLabel = label;
+  return node;
+}
+
+function selectionRoot(file) {
+  return file === "components.jsonc" ? state.componentsDoc : state.tokens;
+}
+
+function selectDesignElement(target) {
+  const file = target.dataset.designFile;
+  const path = JSON.parse(target.dataset.designPath || "[]");
+  selectDesignPath(file, path, target.dataset.designLabel || path.at(-1));
+}
+
+function selectDesignPath(file, path, label) {
+  const value = valueAtPath(selectionRoot(file), path);
+  if (value === undefined) return;
+  state.selection = { file, path, label, value };
+  renderInspector();
+  applyInspectHighlight();
+  postDesignSelection();
+}
+
+function componentLayerLabel(node) {
+  if (typeof node === "string") return { icon: "T", detail: node.length > 24 ? `${node.slice(0, 24)}…` : node };
+  if (!node || typeof node !== "object") return { icon: "?", detail: "Unknown layer" };
+  if (node.component) return { icon: "◇", detail: node.id || node.component };
+  return { icon: "<>", detail: node.id || node.el || "Element" };
+}
+
+function setInspectorTab(tab) {
+  state.inspectorTab = tab === "json" ? "json" : "properties";
+  const properties = state.inspectorTab === "properties";
+  $("#properties-tab")?.classList.toggle("is-active", properties);
+  $("#properties-tab")?.setAttribute("aria-selected", String(properties));
+  $("#json-tab")?.classList.toggle("is-active", !properties);
+  $("#json-tab")?.setAttribute("aria-selected", String(!properties));
+  $("#inspect-properties").hidden = !properties;
+  $("#inspect-json-panel").hidden = properties;
+}
+
+function propertyField(label, control, { wide = false } = {}) {
+  return el("div", { class: `property-field${wide ? " is-wide" : ""}` }, el("label", {}, label), control);
+}
+
+function propertySelect(label, value, options, onchange, { wide = false } = {}) {
+  const select = el("select", { onchange });
+  for (const [optionValue, optionLabel] of options) {
+    select.append(el("option", { value: optionValue, selected: optionValue === (value ?? "") ? "selected" : undefined }, optionLabel));
+  }
+  return propertyField(label, select, { wide });
+}
+
+function closePicker(button) {
+  button.closest("details")?.removeAttribute("open");
+}
+
+let floatingPickerEventsReady = false;
+
+function closeFloatingPickers(except = null) {
+  for (const picker of document.querySelectorAll(".property-picker[open]")) {
+    if (picker !== except) picker.removeAttribute("open");
+  }
+}
+
+function closeSpacingMenus(except = null) {
+  for (const menu of document.querySelectorAll(".spacing-option-menu.is-open")) {
+    if (menu !== except) menu.classList.remove("is-open");
+  }
+}
+
+function positionFloatingMenu(anchorElement, menu) {
+  const inspector = anchorElement.closest(".design-inspector");
+  if (!inspector) return;
+  const anchor = anchorElement.getBoundingClientRect();
+  const bounds = inspector.getBoundingClientRect();
+  const gutter = 8;
+  const width = Math.min(300, bounds.width - gutter * 2);
+  const left = Math.max(bounds.left + gutter, Math.min(anchor.right - width, bounds.right - width - gutter));
+  const below = bounds.bottom - anchor.bottom - gutter;
+  const above = anchor.top - bounds.top - gutter;
+  const naturalHeight = Math.min(menu.scrollHeight, 360);
+  const opensUp = below < Math.min(naturalHeight, 180) && above > below;
+  const available = Math.max(96, opensUp ? above : below);
+  const height = Math.min(naturalHeight, available);
+  const top = opensUp ? anchor.top - height - 4 : anchor.bottom + 4;
+  Object.assign(menu.style, {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    maxHeight: `${available}px`,
+  });
+  menu.classList.toggle("opens-up", opensUp);
+}
+
+function makeFloatingPicker(details, menu) {
+  details.addEventListener("toggle", () => {
+    if (!details.open) return;
+    closeFloatingPickers(details);
+    requestAnimationFrame(() => positionFloatingMenu(details.querySelector(":scope > summary"), menu));
+  });
+  if (floatingPickerEventsReady) return;
+  floatingPickerEventsReady = true;
+  document.addEventListener("pointerdown", (event) => {
+    const active = event.target.closest?.(".property-picker");
+    const spacingMenu = event.target.closest?.(".spacing-combo")?.querySelector(".spacing-option-menu");
+    closeFloatingPickers(active);
+    closeSpacingMenus(spacingMenu);
+  });
+  document.addEventListener("scroll", () => {
+    closeFloatingPickers();
+    closeSpacingMenus();
+  }, true);
+  window.addEventListener("resize", () => {
+    closeFloatingPickers();
+    closeSpacingMenus();
+  });
+}
+
+function choicePicker(label, value, choices, onchange, { wide = false, summaryStyle = "" } = {}) {
+  const selected = choices.find((choice) => choice.value === value) || choices[0];
+  const details = el("details", { class: "property-picker" });
+  const summary = el("summary", {},
+    el("span", { class: "property-picker-value", style: summaryStyle || selected?.style || "" }, selected?.label || "Select"),
+    el("span", { class: "property-picker-chevron", "aria-hidden": "true" }, "⌄"),
+  );
+  const menu = el("div", { class: "property-picker-menu" });
+  for (const choice of choices) {
+    menu.append(el("button", {
+      type: "button",
+      class: `property-picker-option${choice.value === value ? " is-selected" : ""}`,
+      style: choice.style || "",
+      onclick: (event) => {
+        closePicker(event.currentTarget);
+        onchange(choice.value);
+      },
+    }, choice.preview || choice.label));
+  }
+  details.append(summary, menu);
+  makeFloatingPicker(details, menu);
+  return propertyField(label, details, { wide });
+}
+
+function textStylePreview(style) {
+  if (!style?.name) return "";
+  return [
+    `font-family:var(--text-${style.name}-family,var(--font-${style.role || "body"}))`,
+    `font-size:var(--text-${style.name}-size)`,
+    `line-height:var(--text-${style.name}-line-height)`,
+    `font-weight:var(--text-${style.name}-weight)`,
+    `letter-spacing:var(--text-${style.name}-tracking,normal)`,
+  ].join(";");
+}
+
+function typographyPicker(label, value, kind, onchange) {
+  const inherited = { value: "", label: "Inherit / class", style: "" };
+  const choices = kind === "textStyle"
+    ? [inherited, ...(state.tokens?.typography?.scale || []).filter((style) => style?.name).map((style) => ({
+      value: style.name,
+      label: style.name,
+      style: textStylePreview(style),
+      preview: el("span", { class: "type-option" },
+        el("span", { class: "type-option-sample", style: textStylePreview(style) }, "Ag"),
+        el("span", { class: "type-option-meta" },
+          el("strong", {}, style.name),
+          el("span", {}, `${style.size || "Inherited"} / ${style.lineHeight || "normal"}`)),
+      ),
+    }))]
+    : [inherited, ...["display", "body", "mono"].filter((role) => state.tokens?.typography?.[role]?.family).map((role) => ({
+      value: role,
+      label: role[0].toUpperCase() + role.slice(1),
+      style: `font-family:var(--font-${role})`,
+      preview: el("span", { class: "type-option" },
+        el("span", { class: "type-option-sample", style: `font-family:var(--font-${role})` }, "Ag"),
+        el("span", { class: "type-option-meta" },
+          el("strong", {}, role[0].toUpperCase() + role.slice(1)),
+          el("span", {}, state.tokens.typography[role].family)),
+      ),
+    }))];
+  return choicePicker(label, value, choices, onchange);
+}
+
+function appearanceColorValue(value) {
+  if (/^#[0-9a-f]{6}$/i.test(value || "")) return value;
+  const token = colorList(state.tokens).find((color) => color.name === value);
+  return colorValueForTheme(token, state.theme) || "transparent";
+}
+
+function colorPicker(label, value, onchange) {
+  const colors = colorList(state.tokens).filter((color) => color?.name);
+  const selectedToken = colors.find((color) => color.name === value);
+  const selectedColor = appearanceColorValue(value);
+  const details = el("details", { class: "property-picker color-property-picker" });
+  const summary = el("summary", {},
+    el("span", { class: "color-picker-summary" },
+      el("span", { class: "color-picker-chip", style: `background:${selectedColor}` }),
+      el("span", {}, value ? (selectedToken?.name || value) : "Inherit / class"),
+    ),
+    el("span", { class: "property-picker-chevron", "aria-hidden": "true" }, "⌄"),
+  );
+  const palette = el("div", { class: "color-palette" });
+  palette.append(el("button", {
+    type: "button",
+    class: `color-palette-inherit${value ? "" : " is-selected"}`,
+    onclick: (event) => {
+      closePicker(event.currentTarget);
+      onchange("");
+    },
+  }, "Inherit / class"));
+  for (const color of colors) {
+    const preview = colorValueForTheme(color, state.theme);
+    palette.append(el("button", {
+      type: "button",
+      class: `color-palette-token${value === color.name ? " is-selected" : ""}`,
+      title: `${color.name}: ${preview}`,
+      "aria-label": `${color.name}, ${preview}`,
+      onclick: (event) => {
+        closePicker(event.currentTarget);
+        onchange(color.name);
+      },
+    },
+    el("span", { class: "color-palette-swatch", style: `background:${preview}` }),
+    el("span", { class: "color-palette-name" }, color.name)));
+  }
+  const customValue = /^#[0-9a-f]{6}$/i.test(value || "") ? value : "#000000";
+  const customInput = el("input", {
+    type: "color",
+    value: customValue,
+    title: "Choose a custom color",
+    "aria-label": `Choose a custom ${label.toLowerCase()}`,
+    onchange: (event) => onchange(event.target.value),
+  });
+  palette.append(el("label", { class: `color-palette-custom${value === customValue ? " is-selected" : ""}` },
+    el("span", { class: "spectrum-chip" }),
+    el("span", {}, "Custom"),
+    customInput));
+  details.append(summary, palette);
+  makeFloatingPicker(details, palette);
+  return propertyField(label, details);
+}
+
+function cssPixels(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const match = value.trim().match(/^(-?\d+(?:\.\d+)?)(px|rem)?$/i);
+  if (!match) return null;
+  const number = Number(match[1]);
+  if (match[2]?.toLowerCase() === "rem") {
+    return number * (Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+  }
+  return number;
+}
+
+function spacingTokens() {
+  const tokens = (state.tokens?.spacing?.scale || []).map((token) => ({
+    name: String(token.name),
+    value: String(token.value ?? ""),
+    pixels: cssPixels(token.value),
+  }));
+  if (!tokens.some((token) => token.name === "0")) {
+    tokens.unshift({ name: "0", value: "0px", pixels: 0 });
+  }
+  return tokens;
+}
+
+function spacingPixels(value) {
+  if (typeof value === "number") return value;
+  if (value === "0") return 0;
+  return spacingTokens().find((token) => token.name === value)?.pixels ?? null;
+}
+
+function nearestSpacingToken(value) {
+  const pixels = spacingPixels(value);
+  const candidates = spacingTokens().filter((token) => token.pixels != null);
+  if (pixels == null || !candidates.length) return null;
+  return candidates.reduce((nearest, token) => (
+    Math.abs(token.pixels - pixels) < Math.abs(nearest.pixels - pixels) ? token : nearest
+  ));
+}
+
+function spacingTokenLabel(token) {
+  const resolved = token.value || (token.pixels == null ? token.name : `${token.pixels}px`);
+  return token.name === "0" ? resolved : `${resolved} · var(--space-${token.name})`;
+}
+
+function spacingInputValue(value) {
+  if (value == null || value === "") return "";
+  if (value === "auto") return "auto";
+  if (state.spacingSnap && typeof value === "string") {
+    const token = spacingTokens().find((item) => item.name === value);
+    return token ? spacingTokenLabel(token) : value;
+  }
+  const pixels = spacingPixels(value);
+  return pixels == null ? String(value) : `${pixels}px`;
+}
+
+function parseSpacingInput(value, { allowAuto = false } = {}) {
+  const raw = value.trim();
+  if (!raw) return "";
+  if (allowAuto && raw === "auto") return "auto";
+  if (state.spacingSnap) {
+    const variable = raw.match(/var\(--space-([^)]+)\)/);
+    const tokenName = variable?.[1] || raw.split("·", 1)[0].trim();
+    if (spacingTokens().some((token) => token.name === tokenName)) return tokenName;
+    const nearest = nearestSpacingToken(cssPixels(tokenName));
+    if (nearest) return nearest.name;
+    throw new Error(`"${raw}" is not a spacing token.`);
+  }
+  const pixels = cssPixels(raw);
+  if (pixels == null || pixels < 0) throw new Error("Enter a non-negative pixel value.");
+  return pixels;
+}
+
+function stepSpacingValue(value, direction) {
+  if (!state.spacingSnap) return Math.max(0, (spacingPixels(value) ?? 0) + direction);
+  const tokens = spacingTokens();
+  if (!tokens.length) return value;
+  let index = tokens.findIndex((token) => token.name === value);
+  if (index < 0) {
+    const nearest = nearestSpacingToken(value);
+    index = nearest ? tokens.indexOf(nearest) : (direction > 0 ? -1 : 1);
+  }
+  return tokens[Math.max(0, Math.min(tokens.length - 1, index + direction))].name;
+}
+
+function spacingCombo(label, value, onchange, { allowAuto = false, wide = false } = {}) {
+  const menu = el("div", { class: "spacing-option-menu" });
+  const submitInput = (raw) => {
+    try {
+      $("#inspect-error").textContent = "";
+      onchange(parseSpacingInput(raw, { allowAuto }));
+    } catch (error) {
+      $("#inspect-error").textContent = error.message || String(error);
+    }
+  };
+  const closeMenu = () => menu.classList.remove("is-open");
+  const openMenu = () => {
+    closeSpacingMenus(menu);
+    closeFloatingPickers();
+    menu.classList.add("is-open");
+    requestAnimationFrame(() => positionFloatingMenu(input, menu));
+  };
+  const input = el("input", {
+    type: "text",
+    value: spacingInputValue(value),
+    placeholder: "Unset",
+    onchange: (event) => submitInput(event.target.value),
+    onclick: openMenu,
+    onfocus: openMenu,
+    onkeydown: (event) => {
+      if (event.key === "Escape") {
+        closeMenu();
+        return;
+      }
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      onchange(stepSpacingValue(value, event.key === "ArrowUp" ? 1 : -1));
+    },
+  });
+  for (const token of spacingTokens()) {
+    const next = state.spacingSnap ? token.name : (token.pixels ?? cssPixels(token.value));
+    if (next == null) continue;
+    menu.append(el("button", {
+      type: "button",
+      class: value === next ? "is-selected" : "",
+      onclick: () => {
+        closeMenu();
+        onchange(next);
+      },
+    },
+    el("span", { class: "spacing-option-value" }, token.value || `${token.pixels}px`),
+    token.name === "0" ? "" : el("span", { class: "spacing-option-token" }, `var(--space-${token.name})`)));
+  }
+  if (allowAuto) {
+    menu.append(el("button", {
+      type: "button",
+      class: value === "auto" ? "is-selected" : "",
+      onclick: () => {
+        closeMenu();
+        onchange("auto");
+      },
+    }, el("span", { class: "spacing-option-value" }, "auto")));
+  }
+  const control = el("div", { class: "spacing-combo" },
+    input,
+    el("div", { class: "spacing-stepper" },
+      el("button", {
+        type: "button", title: "Increase spacing", "aria-label": `Increase ${label}`,
+        onclick: () => onchange(stepSpacingValue(value, 1)),
+      }, "▲"),
+      el("button", {
+        type: "button", title: "Decrease spacing", "aria-label": `Decrease ${label}`,
+        onclick: () => onchange(stepSpacingValue(value, -1)),
+      }, "▼"),
+    ),
+    menu,
+  );
+  return propertyField(label, control, { wide });
+}
+
+function convertSpacingValue(value, snapped) {
+  if (value == null || value === "auto") return value;
+  if (snapped) return nearestSpacingToken(value)?.name ?? value;
+  return spacingPixels(value) ?? value;
+}
+
+function convertBoxSpacing(value, snapped) {
+  if (value == null || typeof value !== "object") return convertSpacingValue(value, snapped);
+  return Object.fromEntries(Object.entries(value).map(([edge, spacing]) => [edge, convertSpacingValue(spacing, snapped)]));
+}
+
+async function toggleSpacingSnap() {
+  const next = !state.spacingSnap;
+  state.spacingSnap = next;
+  const committed = await commitComponentMutation(() => {
+    const node = selectedComponentNode();
+    if (node.layout?.gap != null) node.layout.gap = convertSpacingValue(node.layout.gap, next);
+    if (node.layout?.padding != null) node.layout.padding = convertBoxSpacing(node.layout.padding, next);
+    if (node.margin != null) node.margin = convertBoxSpacing(node.margin, next);
+  });
+  if (!committed) {
+    state.spacingSnap = !next;
+    renderComponentProperties();
+  }
+}
+
+function boxEdgeValue(value, edge) {
+  if (typeof value === "string" || typeof value === "number") return value;
+  if (!value || typeof value !== "object") return "";
+  const axis = edge === "left" || edge === "right" ? "x" : "y";
+  return value[edge] ?? value[axis] ?? "";
+}
+
+function updateBoxValue(owner, key, edge, next) {
+  const current = owner[key];
+  if (edge === "all") {
+    if (next !== "") owner[key] = next;
+    else delete owner[key];
+    return;
+  }
+  const expanded = {};
+  for (const side of ["top", "right", "bottom", "left"]) {
+    const value = boxEdgeValue(current, side);
+    if (value !== "") expanded[side] = value;
+  }
+  if (next !== "") expanded[edge] = next;
+  else delete expanded[edge];
+  if (Object.keys(expanded).length) owner[key] = expanded;
+  else delete owner[key];
+}
+
+function setAppearanceOverride(key, value) {
+  const node = selectedComponentNode();
+  node.appearance ||= {};
+  if (value) node.appearance[key] = value;
+  else delete node.appearance[key];
+  if (!Object.keys(node.appearance).length) delete node.appearance;
+}
+
+function inheritedOptions(values, label = (value) => value) {
+  return [["", "Inherit / class"], ...values.map((value) => [value, label(value)])];
+}
+
+function alignmentIcon(type, value) {
+  if (!value) return el("span", { class: "layout-reset-icon", "aria-hidden": "true" });
+  const icon = el("span", { class: `layout-${type}-icon is-${value}`, "aria-hidden": "true" });
+  const count = type === "align" ? 3 : 3;
+  for (let index = 0; index < count; index += 1) icon.append(el("i"));
+  return icon;
+}
+
+function alignmentControl(label, type, value, options, onchange) {
+  const group = el("div", { class: "layout-icon-group", role: "group", "aria-label": label });
+  for (const [optionValue, optionLabel] of options) {
+    group.append(el("button", {
+      type: "button",
+      class: optionValue === value ? "is-selected" : "",
+      title: optionLabel,
+      "aria-label": `${label}: ${optionLabel}`,
+      "aria-pressed": String(optionValue === value),
+      onclick: () => onchange(optionValue),
+    }, alignmentIcon(type, optionValue)));
+  }
+  return propertyField(label, group, { wide: true });
+}
+
+function boxEditor(title, owner, key, { allowAuto = false } = {}) {
+  const current = owner[key];
+  const grid = el("div", { class: "box-editor" });
+  const allValue = typeof current === "string" ? current : "";
+  grid.append(spacingCombo("All", typeof current === "number" ? current : allValue, (value) => {
+    commitComponentMutation(() => {
+      const node = selectedComponentNode();
+      const target = node === owner ? node : (node.layout ||= {});
+      updateBoxValue(target, key, "all", value);
+    });
+  }, { allowAuto, wide: true }));
+  for (const edge of ["top", "right", "bottom", "left"]) {
+    grid.append(spacingCombo(edge[0].toUpperCase() + edge.slice(1), boxEdgeValue(current, edge), (value) => {
+      commitComponentMutation(() => {
+        const node = selectedComponentNode();
+        const target = owner === selectedComponentNode() ? node : (node.layout ||= {});
+        updateBoxValue(target, key, edge, value);
+      });
+    }, { allowAuto }));
+  }
+  return el("div", { class: "property-field is-wide" }, el("label", {}, title), grid);
+}
+
+function renderComponentProperties() {
+  const slot = $("#inspect-properties");
+  if (!slot) return;
+  slot.textContent = "";
+  const node = selectedComponentNode();
+  if (!node) {
+    slot.append(el("div", { class: "properties-empty" },
+      state.selection?.file === "components.jsonc"
+        ? "Select an element layer in the canvas or Layers panel to edit Auto Layout."
+        : "Structured properties are available for component layers. Use the JSON tab for this design token."));
+    return;
+  }
+
+  const identity = el("section", { class: "property-section" },
+    el("h3", { class: "property-section-title" }, "Layer"),
+    el("div", { class: "property-grid" }));
+  const identityGrid = $(".property-grid", identity);
+  const idInput = el("input", {
+    type: "text",
+    value: node.id || "",
+    onchange: (event) => commitComponentMutation(() => { selectedComponentNode().id = event.target.value.trim(); }),
+  });
+  identityGrid.append(propertyField("Stable ID", idInput, { wide: true }));
+  if (node.el) {
+    const elementInput = el("input", {
+      type: "text",
+      value: node.el,
+      onchange: (event) => commitComponentMutation(() => { selectedComponentNode().el = event.target.value.trim(); }),
+    });
+    const classInput = el("input", {
+      type: "text",
+      value: node.class || "",
+      onchange: (event) => commitComponentMutation(() => {
+        const selected = selectedComponentNode();
+        if (event.target.value.trim()) selected.class = event.target.value.trim();
+        else delete selected.class;
+      }),
+    });
+    identityGrid.append(propertyField("Element", elementInput), propertyField("Class", classInput));
+  } else {
+    identityGrid.append(propertySelect(
+      "Component",
+      node.component,
+      availableComponentNames().map((name) => [name, name]),
+      (event) => commitComponentMutation(() => { selectedComponentNode().component = event.target.value; }),
+      { wide: true },
+    ));
+  }
+
+  const layout = node.layout || {};
+  const layoutSection = el("section", { class: "property-section" },
+    el("div", { class: "property-section-heading" },
+      el("h3", { class: "property-section-title" }, "Auto Layout"),
+      el("button", {
+        type: "button",
+        class: `snap-toggle${state.spacingSnap ? " is-active" : ""}`,
+        "aria-pressed": String(state.spacingSnap),
+        title: state.spacingSnap ? "Unsnap spacing from design tokens" : "Snap spacing to the nearest design token",
+        onclick: toggleSpacingSnap,
+      }, state.spacingSnap ? "Snapped" : "Free"),
+    ),
+    el("div", { class: "property-grid" }));
+  const layoutGrid = $(".property-grid", layoutSection);
+  layoutGrid.append(
+    propertySelect("Direction", layout.mode || "", [
+      ["", "Unset"], ["none", "None"], ["vertical", "Vertical"], ["horizontal", "Horizontal"], ["grid", "Grid"],
+    ], (event) => commitComponentMutation(() => {
+      const selected = selectedComponentNode();
+      selected.layout ||= {};
+      if (event.target.value) selected.layout.mode = event.target.value;
+      else delete selected.layout.mode;
+      if (event.target.value !== "grid") delete selected.layout.columns;
+      if (!Object.keys(selected.layout).length) delete selected.layout;
+    })),
+    spacingCombo("Gap", layout.gap ?? "", (value) => commitComponentMutation(() => {
+      const selected = selectedComponentNode();
+      selected.layout ||= {};
+      if (value !== "") selected.layout.gap = value;
+      else delete selected.layout.gap;
+      if (!Object.keys(selected.layout).length) delete selected.layout;
+    })),
+    alignmentControl("Align", "align", layout.align || "", [
+      ["", "Unset"], ["start", "Start"], ["center", "Center"], ["end", "End"], ["stretch", "Stretch"], ["baseline", "Baseline"],
+    ], (value) => commitComponentMutation(() => {
+      const selected = selectedComponentNode();
+      selected.layout ||= {};
+      if (value) selected.layout.align = value;
+      else delete selected.layout.align;
+    })),
+    alignmentControl("Justify", "justify", layout.justify || "", [
+      ["", "Unset"], ["start", "Start"], ["center", "Center"], ["end", "End"], ["space-between", "Space between"],
+      ["space-around", "Space around"], ["space-evenly", "Space evenly"],
+    ], (value) => commitComponentMutation(() => {
+      const selected = selectedComponentNode();
+      selected.layout ||= {};
+      if (value) selected.layout.justify = value;
+      else delete selected.layout.justify;
+    })),
+    propertySelect("Width", layout.width || "", [["", "Unset"], ["hug", "Hug"], ["fill", "Fill"]], (event) => commitComponentMutation(() => {
+      const selected = selectedComponentNode();
+      selected.layout ||= {};
+      if (event.target.value) selected.layout.width = event.target.value;
+      else delete selected.layout.width;
+    })),
+    propertySelect("Height", layout.height || "", [["", "Unset"], ["hug", "Hug"], ["fill", "Fill"]], (event) => commitComponentMutation(() => {
+      const selected = selectedComponentNode();
+      selected.layout ||= {};
+      if (event.target.value) selected.layout.height = event.target.value;
+      else delete selected.layout.height;
+    })),
+  );
+  if (layout.mode === "grid") {
+    const columns = el("input", {
+      type: "number", min: "1", step: "1", value: String(layout.columns || 1),
+      onchange: (event) => commitComponentMutation(() => { (selectedComponentNode().layout ||= {}).columns = Math.max(1, Number.parseInt(event.target.value, 10) || 1); }),
+    });
+    layoutGrid.append(propertyField("Columns", columns));
+  }
+  const checks = el("div", { class: "property-checks property-field is-wide" });
+  for (const [key, label] of [["wrap", "Wrap"], ["grow", "Grow"]]) {
+    const input = el("input", {
+      type: "checkbox",
+      checked: layout[key] ? "checked" : undefined,
+      onchange: (event) => commitComponentMutation(() => {
+        const selected = selectedComponentNode();
+        selected.layout ||= {};
+        if (event.target.checked) selected.layout[key] = true;
+        else delete selected.layout[key];
+      }),
+    });
+    checks.append(el("label", {}, input, label));
+  }
+  layoutGrid.append(checks);
+  layoutGrid.append(boxEditor("Padding", layout, "padding"));
+  layoutSection.append(el("div", { class: "property-help" },
+    state.spacingSnap
+      ? "Spacing follows design.json increments. Type a token or use the arrow buttons to step through the scale."
+      : "Spacing is unsnapped. Type any non-negative pixel value or use the arrow buttons to step by 1px."));
+
+  const appearance = node.appearance || {};
+  const radii = (state.tokens?.radii || []).map((token) => token?.name).filter(Boolean);
+  const shadows = (state.tokens?.shadows || []).map((token) => token?.name).filter(Boolean);
+  const appearanceSection = el("section", { class: "property-section" },
+    el("h3", { class: "property-section-title" }, "Appearance overrides"),
+    el("div", { class: "property-grid" }));
+  const appearanceGrid = $(".property-grid", appearanceSection);
+  const appearanceField = (label, key, options) => propertySelect(
+    label,
+    appearance[key] || "",
+    options,
+    (event) => commitComponentMutation(() => setAppearanceOverride(key, event.target.value)),
+  );
+  appearanceGrid.append(
+    typographyPicker("Text style", appearance.textStyle || "", "textStyle",
+      (value) => commitComponentMutation(() => setAppearanceOverride("textStyle", value))),
+    typographyPicker("Font family", appearance.fontFamily || "", "fontFamily",
+      (value) => commitComponentMutation(() => setAppearanceOverride("fontFamily", value))),
+    colorPicker("Text color", appearance.color || "",
+      (value) => commitComponentMutation(() => setAppearanceOverride("color", value))),
+    colorPicker("Background", appearance.background || "",
+      (value) => commitComponentMutation(() => setAppearanceOverride("background", value))),
+    colorPicker("Border color", appearance.borderColor || "",
+      (value) => commitComponentMutation(() => setAppearanceOverride("borderColor", value))),
+    appearanceField("Text align", "textAlign", inheritedOptions(["start", "center", "end", "left", "right"], (value) => value[0].toUpperCase() + value.slice(1))),
+    appearanceField("Radius", "radius", inheritedOptions(radii)),
+    appearanceField("Shadow", "shadow", inheritedOptions(shadows)),
+  );
+  appearanceSection.append(el("div", { class: "property-help" },
+    "Inherit removes the override from components.jsonc. Explicit choices reference design.json tokens and take precedence over parent or class styling."));
+
+  const spacing = el("section", { class: "property-section" },
+    el("h3", { class: "property-section-title" }, "Outer spacing"),
+    el("div", { class: "property-grid" }, boxEditor("Margin", node, "margin", { allowAuto: true })),
+    el("div", { class: "property-help" }, "Values reference spacing tokens from design.json. Changes update every preview of this component definition."));
+  slot.append(identity, layoutSection, appearanceSection, spacing);
+}
+
+function clearDropClasses() {
+  for (const row of document.querySelectorAll(".component-layer-row")) {
+    row.classList.remove("is-drop-before", "is-drop-after", "is-drop-inside");
+    delete row.dataset.dropPlacement;
+  }
+}
+
+function renderComponentLayerNode(node, path, depth, root = false) {
+  const label = componentLayerLabel(node);
+  const row = el("div", {
+    class: `component-layer-row${state.selection?.file === "components.jsonc" && pathKey(path) === pathKey(state.selection.path) ? " is-selected" : ""}`,
+    draggable: !root && node && typeof node === "object" ? "true" : "false",
+    style: `--layer-depth:${depth}`,
+    "data-component-layer-path": pathKey(path),
+  });
+  row.append(el("button", { type: "button", title: label.detail },
+    el("span", { class: "layer-icon" }, label.icon),
+    label.detail,
+    node?.id ? el("span", { class: "layer-id" }, ` · ${node.el || node.component || ""}`) : ""));
+  row.querySelector("button").addEventListener("click", () => {
+    state.page = "components";
+    selectDesignPath("components.jsonc", path, label.detail);
+    render();
+  });
+  if (!root && node && typeof node === "object") {
+    row.addEventListener("dragstart", (event) => {
+      state.dragPath = path.slice();
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", pathKey(path));
+    });
+    row.addEventListener("dragend", () => {
+      state.dragPath = null;
+      clearDropClasses();
+    });
+  }
+  if (node && typeof node === "object") {
+    row.addEventListener("dragover", (event) => {
+      if (!state.dragPath || state.dragPath[1] !== path[1] || isPathPrefix(state.dragPath, path)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      clearDropClasses();
+      const ratio = (event.clientY - row.getBoundingClientRect().top) / row.getBoundingClientRect().height;
+      const placement = !root && ratio < .28 ? "before" : !root && ratio > .72 ? "after" : ("el" in node ? "inside" : "before");
+      row.dataset.dropPlacement = placement;
+      row.classList.add(`is-drop-${placement}`);
+      event.dataTransfer.dropEffect = "move";
+    });
+    row.addEventListener("drop", (event) => {
+      if (!state.dragPath || !row.dataset.dropPlacement) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const source = state.dragPath.slice();
+      const placement = row.dataset.dropPlacement;
+      state.dragPath = null;
+      clearDropClasses();
+      commitComponentMutation(() => window.DSComp.moveComponentNode(state.componentsDoc, source, path, placement));
+    });
+  }
+  const fragment = document.createDocumentFragment();
+  fragment.append(row);
+  if (node && typeof node === "object") {
+    for (const [index, child] of (Array.isArray(node.children) ? node.children : []).entries()) {
+      fragment.append(renderComponentLayerNode(child, [...path, "children", index], depth + 1));
+    }
+  }
+  return fragment;
+}
+
+function renderComponentLayers() {
+  const slot = $("#component-layer-tree");
+  if (!slot) return;
+  slot.textContent = "";
+  const components = state.componentsDoc?.components || [];
+  for (const [index, component] of components.entries()) {
+    if (!component?.root) continue;
+    const group = el("section", { class: "component-layer-group" },
+      el("div", { class: "component-layer-name" }, component.name || `Component ${index + 1}`));
+    group.append(renderComponentLayerNode(component.root, ["components", index, "root"], 0, true));
+    slot.append(group);
+  }
+  if (!slot.childNodes.length) slot.append(el("div", { class: "properties-empty" }, "No component layers."));
+  const selected = selectedComponentNode();
+  const editable = !!selected && state.selection.path.at(-2) === "children";
+  $("#layers-duplicate-btn").disabled = !editable;
+  $("#layers-delete-btn").disabled = !editable;
+  updateHistoryButtons();
+}
+
+function renderInspector() {
+  const selection = state.selection;
+  const valid = !!selection;
+  $("#inspect-title").textContent = valid ? selection.label : "No selection";
+  $("#inspect-path").textContent = valid ? `${selection.file}${pointerFor(selection.path)}` : "";
+  $("#inspect-path").title = valid ? `${selection.file}${pointerFor(selection.path)}` : "";
+  $("#inspect-json").disabled = !valid;
+  $("#inspect-json").value = valid ? JSON.stringify(valueAtPath(selectionRoot(selection.file), selection.path), null, 2) : "";
+  $("#inspect-apply-btn").disabled = !valid;
+  $("#inspect-attach-btn").disabled = !valid;
+  $("#inspect-error").textContent = "";
+  renderComponentProperties();
+  renderComponentLayers();
+  setInspectorTab(state.inspectorTab);
+}
+
+function applyInspectHighlight() {
+  for (const node of document.querySelectorAll("[data-design-inspect], [data-ds-node-path]")) {
+    const file = node.dataset.designFile || (node.dataset.dsNodePath ? "components.jsonc" : "");
+    const path = node.dataset.designPath || node.dataset.dsNodePath;
+    const selected = state.selection && file === state.selection.file && path === JSON.stringify(state.selection.path);
+    node.classList.toggle("is-inspected", !!selected);
+  }
+}
+
+function selectionPayload() {
+  if (!state.selection) return null;
+  const value = valueAtPath(selectionRoot(state.selection.file), state.selection.path);
+  return {
+    file: state.selection.file,
+    path: state.selection.path,
+    jsonPointer: pointerFor(state.selection.path),
+    label: state.selection.label,
+    value,
+    draft: state.selection.file === "components.jsonc" ? state.componentsDirty : state.dirty,
+  };
+}
+
+function postDesignSelection() {
+  const selection = selectionPayload();
+  if (!selection) return;
+  api("/api/design/select", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(selection),
+  }).catch(() => {});
+}
+
+async function applyInspectorJson() {
+  let root;
+  let previous;
+  let previousComponentsDoc;
+  const priorDirty = state.dirty;
+  const priorComponentsDirty = state.componentsDirty;
+  try {
+    if (!state.selection) return;
+    const next = JSON.parse($("#inspect-json").value);
+    root = selectionRoot(state.selection.file);
+    previous = valueAtPath(root, state.selection.path);
+    if (state.selection.file === "components.jsonc") previousComponentsDoc = clone(state.componentsDoc);
+    replaceAtPath(root, state.selection.path, next);
+    if (state.selection.file === "components.jsonc") {
+      const validation = window.DSComp?.validateComponentsDoc?.(state.componentsDoc, { tokens: state.tokens });
+      if (validation && !validation.ok) {
+        replaceAtPath(root, state.selection.path, previous);
+        throw new Error(validation.errors.join(" "));
+      }
+      state.componentPast.push(previousComponentsDoc);
+      if (state.componentPast.length > 50) state.componentPast.shift();
+      state.componentFuture = [];
+      state.design.componentsDoc = state.componentsDoc;
+      markComponentsDirty();
+    } else {
+      await api("/api/design/validate-draft", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tokens: state.tokens }),
+      });
+      markDirty();
+    }
+    await render();
+    renderInspector();
+    applyInspectHighlight();
+    postDesignSelection();
+  } catch (error) {
+    if (root && previous !== undefined) {
+      if (state.selection.file === "components.jsonc" && previousComponentsDoc) {
+        state.componentsDoc = previousComponentsDoc;
+        state.design.componentsDoc = state.componentsDoc;
+      } else {
+        replaceAtPath(root, state.selection.path, previous);
+      }
+      state.dirty = priorDirty;
+      state.componentsDirty = priorComponentsDirty;
+      updateSaveButton();
+      await render().catch(() => {});
+      renderInspector();
+      applyInspectHighlight();
+    }
+    $("#inspect-error").textContent = error.message || String(error);
+  }
+}
+
+async function attachDesignSelection() {
+  const selection = selectionPayload();
+  if (!selection) return;
+  const button = $("#inspect-attach-btn");
+  try {
+    button.disabled = true;
+    const result = await api("/api/design/attach", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(selection),
+    });
+    button.textContent = "Attached";
+    setTimeout(() => { button.textContent = "Attach to chat"; button.disabled = false; }, 1400);
+    return result;
+  } catch (error) {
+    button.disabled = false;
+    $("#inspect-error").textContent = error.message || String(error);
+  }
 }
 
 /* ---------- section renderers ---------- */
@@ -202,7 +1266,7 @@ function renderBrand(t) {
   const descIn = el("textarea", { class: "otextarea", rows: "3", placeholder: "What is this app/project? Who is it for? What does it do? (codegen reads this for context)",
     oninput: (e) => { b.description = e.target.value; markDirty(); const d = $("#brand-desc"); if (d) { d.textContent = e.target.value; d.style.display = e.target.value ? "" : "none"; } } });
   descIn.value = b.description || "";
-  return el("section", { class: "block" },
+  return inspectable(el("section", { class: "block" },
     el("h2", {}, "Brand"),
     el("div", { class: "brand" },
       el("div", { class: "name", id: "brand-name" }, b.name || "Untitled"),
@@ -218,13 +1282,13 @@ function renderBrand(t) {
     ),
     el("div", { class: "editable", style: "margin-top:12px" }, el("label", {}, "Description (app / project context for codegen)"), descIn),
     renderAuthority(t),
-  );
+  ), "design.json", ["brand"], "Brand");
 }
 
 function renderColors(t) {
   const list = colorList(t);
   const previewOnly = hasPort(t);
-  const section = el("section", { class: "block" }, el("h2", {}, "Color"));
+  const section = inspectable(el("section", { class: "block" }, el("h2", {}, "Color")), "design.json", ["colors"], "Colors");
   section.append(el("div", { class: "muted", style: "margin:-6px 0 12px" },
     previewOnly
       ? el("span", {}, "Previewing ", el("strong", {}, THEME_LABEL[state.theme]),
@@ -251,14 +1315,14 @@ function renderColors(t) {
           el("span", { class: "dot", style: `background:${v}` }), th === "highContrast" ? "HC" : THEME_LABEL[th]));
       }
     }
-    grid.append(el("div", { class: "swatch" }, fill,
+    grid.append(inspectable(el("div", { class: "swatch" }, fill,
       el("div", { class: "meta" },
         el("div", { class: "row" }, el("span", { class: "name" }, c.name), colorIn),
         el("div", { class: "row" }, valEl),
         c.resource ? el("div", { class: "resource mono", title: "Canonical implementation resource key" }, "→ " + c.resource) : "",
         themeChips.childNodes.length ? themeChips : "",
         c.usage ? el("div", { class: "usage" }, c.usage) : "",
-      )));
+      )), "design.json", Array.isArray(t.colors) ? ["colors", i] : ["colors", c.name], `Color: ${c.name}`));
   });
   section.append(grid);
   return section;
@@ -276,32 +1340,34 @@ function renderTypography(t) {
     facesWrap.append(el("div", { class: "face" }, el("div", { class: "k" }, role), el("div", { class: "editable" }, sample, input)));
   }
   const scaleWrap = el("div", {});
-  for (const s of ty.scale || []) {
+  for (const [index, s] of (ty.scale || []).entries()) {
     const fam = s.role === "display" ? "var(--font-display)" : s.role === "mono" ? "var(--font-mono)" : "var(--font-body)";
-    scaleWrap.append(el("div", { class: "type-row" },
+    scaleWrap.append(inspectable(el("div", { class: "type-row" },
       el("div", { class: "tag mono" }, `${s.name} · ${s.size}/${s.lineHeight} · ${s.weight}`),
       el("div", { style: `font-family:${fam};font-size:${s.size};line-height:${s.lineHeight};font-weight:${s.weight};letter-spacing:${s.tracking || "normal"}` }, "Design is how it works"),
-    ));
+    ), "design.json", ["typography", "scale", index], `Type style: ${s.name}`));
   }
-  return el("section", { class: "block" }, el("h2", {}, "Typography"), facesWrap, scaleWrap);
+  return inspectable(el("section", { class: "block" }, el("h2", {}, "Typography"), facesWrap, scaleWrap), "design.json", ["typography"], "Typography");
 }
 
 function renderScales(t) {
   const sp = el("div", { class: "scale-strip" });
-  for (const s of t.spacing?.scale || []) sp.append(el("div", { class: "space-demo" }, el("div", { class: "bar", style: `width:${s.value}` }), el("span", { class: "tag mono" }, `${s.name}·${s.value}`)));
+  for (const [index, s] of (t.spacing?.scale || []).entries()) sp.append(inspectable(el("div", { class: "space-demo" }, el("div", { class: "bar", style: `width:${s.value}` }), el("span", { class: "tag mono" }, `${s.name}·${s.value}`)), "design.json", ["spacing", "scale", index], `Spacing: ${s.name}`));
   const rad = el("div", { class: "scale-strip" });
-  for (const r of t.radii || []) rad.append(el("div", { class: "radius-demo" }, el("div", { class: "box", style: `border-radius:${r.value}` }), el("span", { class: "tag mono" }, `${r.name}·${r.value}`)));
+  for (const [index, r] of (t.radii || []).entries()) rad.append(inspectable(el("div", { class: "radius-demo" }, el("div", { class: "box", style: `border-radius:${r.value}` }), el("span", { class: "tag mono" }, `${r.name}·${r.value}`)), "design.json", ["radii", index], `Radius: ${r.name}`));
   const sh = el("div", { class: "scale-strip" });
-  for (const s of t.shadows || []) sh.append(el("div", { class: "shadow-demo" }, el("div", { class: "box", style: `box-shadow:${s.value}` }), el("span", { class: "tag mono" }, s.name)));
-  return el("section", { class: "block" }, el("h2", {}, "Spacing"), sp,
-    el("h2", { style: "margin-top:22px" }, "Radii"), rad,
-    el("h2", { style: "margin-top:22px" }, "Shadows"), sh);
+  for (const [index, s] of (t.shadows || []).entries()) sh.append(inspectable(el("div", { class: "shadow-demo" }, el("div", { class: "box", style: `box-shadow:${s.value}` }), el("span", { class: "tag mono" }, s.name)), "design.json", ["shadows", index], `Shadow: ${s.name}`));
+  return el("section", { class: "block" },
+    inspectable(el("div", {}, el("h2", {}, "Spacing"), sp), "design.json", ["spacing"], "Spacing"),
+    inspectable(el("div", {}, el("h2", { style: "margin-top:22px" }, "Radii"), rad), "design.json", ["radii"], "Radii"),
+    inspectable(el("div", {}, el("h2", { style: "margin-top:22px" }, "Shadows"), sh), "design.json", ["shadows"], "Shadows"));
 }
 
 function renderPrinciples(t) {
   if (!(t.principles || []).length) return "";
-  return el("section", { class: "block" }, el("h2", {}, "Principles"),
-    el("ul", { class: "principles" }, ...t.principles.map((p) => el("li", {}, p))));
+  return inspectable(el("section", { class: "block" }, el("h2", {}, "Principles"),
+    el("ul", { class: "principles" }, ...t.principles.map((p, index) => inspectable(el("li", {}, p), "design.json", ["principles", index], `Principle ${index + 1}`)))),
+    "design.json", ["principles"], "Principles");
 }
 
 /* ---------- component previews (pure JSON interpreter, no React/Babel) ---------- */
@@ -335,7 +1401,8 @@ async function renderComponents(t, doc, { names = null, heading = "Components" }
   }
 
   for (const name of previewNames) {
-    const card = el("div", { class: "preview" });
+    const componentIndex = doc.components.findIndex((component) => component?.name === name);
+    const card = inspectable(el("div", { class: "preview" }), "components.jsonc", ["components", componentIndex], `Component: ${name}`);
     card.append(el("div", { class: "head" }, el("span", { class: "cname" }, name)));
     const stage = el("div", { class: "stage" });
     const surface = el("div", { class: "ds-preview-surface", style: "padding:20px" });
@@ -393,7 +1460,7 @@ const BUILTIN_PAGES = Object.freeze([
     id: "components",
     label: "Components",
     description: "Live patterns and definitions",
-    render: (tokens) => renderComponents(tokens, state.design.componentsDoc || null),
+    render: (tokens) => renderComponents(tokens, state.componentsDoc || null),
   },
 ]);
 
@@ -427,7 +1494,7 @@ function selectPage(id) {
 
 function availableComponentNames() {
   const DS = window.DSComp;
-  const doc = state.design?.componentsDoc;
+  const doc = state.componentsDoc;
   return DS && doc ? DS.componentNames(doc) : [];
 }
 
@@ -563,7 +1630,7 @@ async function renderUserPage(t, page) {
       choices,
     ),
   );
-  content.append(await renderComponents(t, state.design.componentsDoc || null, {
+  content.append(await renderComponents(t, state.componentsDoc || null, {
     names: selectedPageComponents(page, names),
     heading: "Selected previews",
   }));
@@ -739,7 +1806,7 @@ function validationPanel() {
     el("div", {},
       el("strong", {}, ok ? "✓ Design system valid" : "✗ Validation found issues"),
       el("span", { class: "muted", style: "margin-left:8px" }, `${errors.length} error(s), ${warnings.length} warning(s)`),
-      state.dirty ? el("span", { class: "muted", style: "margin-left:8px" }, "· validates the saved system — save to include unsaved edits") : "",
+      (state.dirty || state.componentsDirty) ? el("span", { class: "muted", style: "margin-left:8px" }, "· validates the saved system — save to include unsaved edits") : "",
     ),
     el("button", {
       class: "validation-close",
@@ -759,9 +1826,9 @@ function positionValidationSlot() {
   const slot = $("#validation-slot");
   const bar = $(".topbar");
   if (!bar) return;
-  const offset = (bar.offsetHeight + 14) + "px";
-  document.documentElement.style.setProperty("--canvas-topbar-offset", offset);
-  if (slot) slot.style.top = offset;
+  const barBottom = `${bar.offsetHeight}px`;
+  document.documentElement.style.setProperty("--canvas-topbar-offset", barBottom);
+  if (slot) slot.style.top = `${bar.offsetHeight + 14}px`;
 }
 
 function renderValidation() {
@@ -816,7 +1883,9 @@ async function render() {
   if (gen !== renderSeq) return; // a newer render superseded this one
   content.append(pageContent);
   root.append(el("div", { class: "canvas-layout" }, renderPageNavigation(), content));
+  applyInspectHighlight();
   positionValidationSlot();
+  renderInspector();
 }
 
 async function doInit(mode) {
@@ -828,9 +1897,23 @@ async function doSave() {
   const btn = $("#save-btn");
   btn.disabled = true; btn.textContent = "Saving…";
   try {
-    const out = await api("/api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokens: state.tokens }) });
-    state.design.source = "repo"; state.design.dir = out.dir; state.dirty = false;
+    let out = null;
+    if (state.dirty || state.design.source !== "repo") {
+      out = await api("/api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokens: state.tokens }) });
+    }
+    if (state.componentsDirty) {
+      await api("/api/components/save", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ doc: state.componentsDoc }),
+      });
+    }
+    state.design.source = "repo";
+    if (out?.dir) state.design.dir = out.dir;
+    state.dirty = false;
+    state.componentsDirty = false;
     btn.textContent = "Saved ✓";
+    btn.disabled = true;
     updateSourcePill();
   } catch (e) { btn.disabled = false; btn.textContent = "Save changes"; alert("Save failed: " + e.message); }
 }
@@ -870,9 +1953,14 @@ async function load() {
   await whenDSComp();
   state.design = data.design;
   state.tokens = JSON.parse(JSON.stringify(data.design.tokens || {}));
+  state.componentsDoc = JSON.parse(JSON.stringify(data.design.componentsDoc || { meta: { version: 1 }, components: [] }));
   if (!pageRegistry().some((page) => page.id === state.page)) state.page = "brand";
   state.dirty = false;
-  checkComponentPreviews(state.design.componentsDoc || null);
+  state.componentsDirty = false;
+  state.selection = null;
+  state.componentPast = [];
+  state.componentFuture = [];
+  checkComponentPreviews(state.componentsDoc);
   applyVars();
   updateSourcePill();
   await render();
@@ -882,7 +1970,7 @@ async function load() {
 function connectEvents() {
   try {
     const es = new EventSource("/events");
-    es.addEventListener("changed", () => { if (!state.dirty) load(); });
+    es.addEventListener("changed", () => { if (!state.dirty && !state.componentsDirty) load(); });
   } catch { /* SSE optional */ }
 }
 
@@ -890,6 +1978,60 @@ window.addEventListener("DOMContentLoaded", () => {
   $("#save-btn").addEventListener("click", doSave);
   $("#reload-btn").addEventListener("click", () => load());
   $("#validate-btn")?.addEventListener("click", doValidate);
+  $("#inspect-btn")?.addEventListener("click", async () => {
+    state.inspectMode = !state.inspectMode;
+    $("#inspect-btn").classList.toggle("is-active", state.inspectMode);
+    $("#inspect-btn").setAttribute("aria-pressed", String(state.inspectMode));
+    $("#design-inspector").hidden = !state.inspectMode;
+    $("#component-layers").hidden = !state.inspectMode;
+    document.body.classList.toggle("inspect-mode", state.inspectMode);
+    document.body.classList.toggle("inspect-open", state.inspectMode);
+    if (state.inspectMode && !state.selection && state.componentsDoc?.components?.[0]?.root) {
+      state.page = "components";
+      const node = state.componentsDoc.components[0].root;
+      state.selection = {
+        file: "components.jsonc",
+        path: ["components", 0, "root"],
+        label: componentLayerLabel(node).detail,
+        value: node,
+      };
+      await render();
+      postDesignSelection();
+    } else {
+      renderInspector();
+    }
+    positionValidationSlot();
+  });
+  $("#app").addEventListener("click", (event) => {
+    if (!state.inspectMode) return;
+    const renderedNode = event.target.closest("[data-ds-node-path]");
+    if (renderedNode) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const path = JSON.parse(renderedNode.dataset.dsNodePath || "[]");
+      selectDesignPath("components.jsonc", path, `Layer: ${renderedNode.dataset.dsNodeId || renderedNode.localName}`);
+      return;
+    }
+    const target = event.target.closest("[data-design-inspect]");
+    if (!target) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    selectDesignElement(target);
+  }, true);
+  $("#inspect-apply-btn")?.addEventListener("click", applyInspectorJson);
+  $("#inspect-attach-btn")?.addEventListener("click", attachDesignSelection);
+  $("#properties-tab")?.addEventListener("click", () => setInspectorTab("properties"));
+  $("#json-tab")?.addEventListener("click", () => setInspectorTab("json"));
+  $("#layers-undo-btn")?.addEventListener("click", () => restoreComponentHistory("undo"));
+  $("#layers-redo-btn")?.addEventListener("click", () => restoreComponentHistory("redo"));
+  $("#layers-duplicate-btn")?.addEventListener("click", () => {
+    if (!state.selection?.path) return;
+    commitComponentMutation(() => window.DSComp.duplicateComponentNode(state.componentsDoc, state.selection.path));
+  });
+  $("#layers-delete-btn")?.addEventListener("click", () => {
+    if (!state.selection?.path || !window.confirm("Delete this layer? You can undo this change until the canvas reloads.")) return;
+    commitComponentMutation(() => window.DSComp.removeComponentNode(state.componentsDoc, state.selection.path));
+  });
   $("#export-btn")?.addEventListener("click", doExport);
   $("#publish-btn")?.addEventListener("click", () => {
     $("#export-menu").hidden = true;
@@ -907,6 +2049,18 @@ window.addEventListener("DOMContentLoaded", () => {
       const menu = $("#export-menu");
       if (menu) menu.hidden = true;
       $("#export-menu-btn")?.setAttribute("aria-expanded", "false");
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (!state.inspectMode || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+    if (event.target.closest("input, textarea, select")) return;
+    const key = event.key.toLowerCase();
+    if (key === "z" && !event.shiftKey) {
+      event.preventDefault();
+      restoreComponentHistory("undo");
+    } else if (key === "y" || (key === "z" && event.shiftKey)) {
+      event.preventDefault();
+      restoreComponentHistory("redo");
     }
   });
   for (const b of document.querySelectorAll("#theme-switch .theme-btn")) {

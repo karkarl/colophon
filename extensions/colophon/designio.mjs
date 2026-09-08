@@ -13,7 +13,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { COMPONENTS_FILENAME, parseComponents, emptyComponents } from "./componentsio.mjs";
+import { COMPONENTS_FILENAME, parseComponents, emptyComponents, serializeComponents } from "./componentsio.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_DIR = path.join(HERE, "sample");
@@ -165,6 +165,16 @@ export async function saveTokens(workspacePath, tokens) {
   const scaffolded = await ensureSiblings(dir);
   const agents = await ensureAgentsPointer(workspacePath);
   return { dir, tokens: next, scaffolded, agents };
+}
+
+export async function saveComponents(workspacePath, doc) {
+  const dir = designDirFor(workspacePath);
+  if (!dir) throw new Error("No workspace path available to save components.jsonc");
+  await fs.mkdir(dir, { recursive: true });
+  const file = path.join(dir, COMPONENTS_FILENAME);
+  await fs.writeFile(file, serializeComponents(doc), "utf8");
+  const agents = await ensureAgentsPointer(workspacePath);
+  return { dir, file, doc: parseComponents(serializeComponents(doc)), agents };
 }
 
 // The managed AGENTS.md block, from the start marker to the end marker inclusive
@@ -472,6 +482,15 @@ export function tokensToCssVars(tokens, theme = "light") {
   if (ty.display?.family) lines.push(`--font-display: ${ty.display.family};`);
   if (ty.body?.family) lines.push(`--font-body: ${ty.body.family};`);
   if (ty.mono?.family) lines.push(`--font-mono: ${ty.mono.family};`);
+  for (const style of ty.scale || []) {
+    if (!style?.name) continue;
+    const role = style.role || "body";
+    lines.push(`--text-${style.name}-family: var(--font-${role});`);
+    if (style.size) lines.push(`--text-${style.name}-size: ${style.size};`);
+    if (style.lineHeight) lines.push(`--text-${style.name}-line-height: ${style.lineHeight};`);
+    if (style.weight != null) lines.push(`--text-${style.name}-weight: ${style.weight};`);
+    lines.push(`--text-${style.name}-tracking: ${style.tracking || "normal"};`);
+  }
 
   for (const s of tokens?.spacing?.scale || []) lines.push(`--space-${s.name}: ${s.value};`);
   for (const r of tokens?.radii || []) lines.push(`--radius-${r.name}: ${r.value};`);

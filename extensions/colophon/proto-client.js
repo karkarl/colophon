@@ -51,7 +51,13 @@ function findDevice(id) {
   return DEVICES[0].items[0];
 }
 
-let state = { design: null, proto: null, runtime: null, deviceId: "iphone-15", w: 393, h: 852, zoom: "fit", theme: "light", validation: null, showOutline: false, showValidation: false, exportPath: null };
+let state = {
+  design: null, proto: null, runtime: null,
+  deviceId: "iphone-15", w: 393, h: 852, zoom: "fit", theme: "light",
+  validation: null, showOutline: false, showValidation: false, exportPath: null,
+  inspectMode: false, selectedPath: null, dragPath: null,
+  dirty: false, saving: false, suppressChangedUntil: 0,
+};
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -99,6 +105,15 @@ function cssVarsFromTokens(tokens, theme) {
   if (ty.display?.family) lines.push(`--font-display: ${ty.display.family};`);
   if (ty.body?.family) lines.push(`--font-body: ${ty.body.family};`);
   if (ty.mono?.family) lines.push(`--font-mono: ${ty.mono.family};`);
+  for (const style of ty.scale || []) {
+    if (!style?.name) continue;
+    const role = style.role || "body";
+    lines.push(`--text-${style.name}-family: var(--font-${role});`);
+    if (style.size) lines.push(`--text-${style.name}-size: ${style.size};`);
+    if (style.lineHeight) lines.push(`--text-${style.name}-line-height: ${style.lineHeight};`);
+    if (style.weight != null) lines.push(`--text-${style.name}-weight: ${style.weight};`);
+    lines.push(`--text-${style.name}-tracking: ${style.tracking || "normal"};`);
+  }
   for (const s of tokens?.spacing?.scale || []) lines.push(`--space-${s.name}: ${s.value};`);
   for (const r of tokens?.radii || []) lines.push(`--radius-${r.name}: ${r.value};`);
   for (const sh of tokens?.shadows || []) lines.push(`--shadow-${sh.name}: ${sh.value};`);
@@ -189,7 +204,238 @@ function renderFrame() {
 function renderSurface() {
   if (!currentSurface || !state.runtime) return;
   ProtoRender.renderScreen(currentSurface, state.runtime, state.design?.tokens || {});
+  applySelectionHighlight();
   syncScreenSelect();
+}
+
+// ---- inspect, edit, and layer ordering --------------------------------------
+function pathKey(path) { return JSON.stringify(path || []); }
+function pointerFor(path) {
+  return "/" + (path || []).map((part) => String(part).replace(/~/g, "~0").replace(/\//g, "~1")).join("/");
+}
+function valueAtPath(root, path) {
+  let value = root;
+  for (const part of path || []) {
+    if (value == null || !(part in value)) return null;
+    value = value[part];
+  }
+  return value;
+}
+function replaceAtPath(root, path, value) {
+  const parent = valueAtPath(root, path.slice(0, -1));
+  if (parent == null) throw new Error("The selected layer no longer exists.");
+  parent[path[path.length - 1]] = value;
+}
+function findPathByReference(root, wanted) {
+  let found = null;
+  const visit = (value, path) => {
+    if (found || value == null || typeof value !== "object") return;
+    if (value === wanted) { found = path; return; }
+    if (Array.isArray(value)) value.forEach((child, index) => visit(child, [...path, index]));
+    else for (const [key, child] of Object.entries(value)) visit(child, [...path, key]);
+  };
+  visit(root, []);
+  return found;
+}
+function isPathPrefix(parent, child) {
+  return parent.length <= child.length && parent.every((part, index) => part === child[index]);
+}
+function currentScreenIndex() {
+  return (state.proto?.doc?.screens || []).findIndex((screen) => screen.id === state.runtime?.currentId);
+}
+function layerLabel(node) {
+  const kind = ProtoRender.nodeKind(node) || "node";
+  const detail = node.id || node.component || node.text || node.alt || kind;
+  return { kind, detail: String(detail) };
+}
+function setDirty(dirty = true) {
+  state.dirty = dirty;
+  $("#save-btn").disabled = !dirty || state.saving;
+  $("#save-status").textContent = state.saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
+}
+function applySelectionHighlight() {
+  if (!currentSurface) return;
+  for (const node of currentSurface.querySelectorAll("[data-proto-path]")) {
+    node.classList.toggle("proto-selected", !!state.selectedPath && node.dataset.protoPath === pathKey(state.selectedPath));
+  }
+}
+function postSelection() {
+  if (!state.selectedPath || window.__COLOPHON_PROTOTYPE_EXPORT__) return;
+  const element = valueAtPath(state.proto?.doc, state.selectedPath);
+  api("/api/prototypes/select", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ screenId: state.runtime?.currentId, path: state.selectedPath, element, draft: state.dirty }),
+  }).catch(() => {});
+}
+function selectPath(path, { notify = true } = {}) {
+  const node = valueAtPath(state.proto?.doc, path);
+  if (!node || !ProtoRender.nodeKind(node)) return;
+  state.selectedPath = path.slice();
+  renderLayers();
+  renderElementEditor();
+  applySelectionHighlight();
+  if (notify) postSelection();
+}
+function renderLayerNode(node, path, depth, root = false) {
+  const { kind, detail } = layerLabel(node);
+  const row = el("div", {
+    class: `layer-row${pathKey(path) === pathKey(state.selectedPath) ? " is-selected" : ""}`,
+    draggable: root ? "false" : "true",
+    style: `padding-left:${depth * 14}px`,
+    "data-layer-path": pathKey(path),
+  });
+  row.append(el("button", { type: "button", title: detail },
+    el("span", { class: "layer-kind" }, `${kind} `), detail));
+  row.querySelector("button").addEventListener("click", () => selectPath(path));
+  if (!root) {
+    row.addEventListener("dragstart", (event) => {
+      state.dragPath = path.slice();
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", pathKey(path));
+    });
+    row.addEventListener("dragend", () => { state.dragPath = null; row.classList.remove("is-drop-before"); });
+    row.addEventListener("dragover", (event) => {
+      if (!state.dragPath || isPathPrefix(state.dragPath, path)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      row.classList.add("is-drop-before");
+    });
+    row.addEventListener("dragleave", () => row.classList.remove("is-drop-before"));
+    row.addEventListener("drop", (event) => {
+      event.preventDefault();
+      row.classList.remove("is-drop-before");
+      moveLayerBefore(state.dragPath, path);
+      state.dragPath = null;
+    });
+  }
+  const fragment = document.createDocumentFragment();
+  fragment.append(row);
+  for (const [index, child] of (node.children || []).entries()) {
+    fragment.append(renderLayerNode(child, [...path, "children", index], depth + 1));
+  }
+  return fragment;
+}
+function renderLayers() {
+  const slot = $("#layers");
+  if (!slot) return;
+  slot.innerHTML = "";
+  const index = currentScreenIndex();
+  const screen = state.proto?.doc?.screens?.[index];
+  if (!screen?.root) {
+    slot.append(el("div", { class: "proto-empty" }, "No layers on this screen."));
+    return;
+  }
+  slot.append(renderLayerNode(screen.root, ["screens", index, "root"], 0, true));
+  for (const [modalIndex, modal] of (screen.modals || []).entries()) {
+    if (modal?.root) slot.append(renderLayerNode(modal.root, ["screens", index, "modals", modalIndex, "root"], 0, true));
+  }
+}
+function moveLayerBefore(sourcePath, targetPath) {
+  if (!sourcePath || !targetPath || isPathPrefix(sourcePath, targetPath)) return;
+  const doc = state.proto?.doc;
+  const sourceNode = valueAtPath(doc, sourcePath);
+  const targetNode = valueAtPath(doc, targetPath);
+  const sourceParent = valueAtPath(doc, sourcePath.slice(0, -1));
+  if (!sourceNode || !targetNode || !Array.isArray(sourceParent)) return;
+  sourceParent.splice(sourceParent.indexOf(sourceNode), 1);
+  const freshTargetPath = findPathByReference(doc, targetNode);
+  const targetParent = freshTargetPath && valueAtPath(doc, freshTargetPath.slice(0, -1));
+  if (!freshTargetPath || !Array.isArray(targetParent)) return;
+  targetParent.splice(freshTargetPath[freshTargetPath.length - 1], 0, sourceNode);
+  state.selectedPath = findPathByReference(doc, sourceNode);
+  setDirty();
+  rebuildRuntime();
+}
+function renderElementEditor() {
+  const node = valueAtPath(state.proto?.doc, state.selectedPath || []);
+  const selected = !!node && !!ProtoRender.nodeKind(node);
+  const label = selected ? layerLabel(node) : null;
+  $("#selection-title").textContent = selected ? label.detail : "No selection";
+  $("#selection-path").textContent = selected ? pointerFor(state.selectedPath) : "";
+  $("#selection-path").title = selected ? pointerFor(state.selectedPath) : "";
+  $("#json-editor").disabled = !selected;
+  $("#apply-json-btn").disabled = !selected;
+  $("#attach-btn").disabled = !selected || !!window.__COLOPHON_PROTOTYPE_EXPORT__;
+  $("#json-editor").value = selected ? JSON.stringify(node, null, 2) : "";
+  $("#editor-error").textContent = "";
+}
+function rebuildRuntime() {
+  const currentId = state.runtime?.currentId;
+  state.runtime = ProtoRender.createRuntime({ doc: state.proto.doc, componentsDoc: state.design.componentsDoc });
+  state.runtime.onChange(() => renderSurface());
+  state.runtime.onNavigate(() => {
+    state.selectedPath = null;
+    syncScreenSelect();
+    renderLayers();
+    renderElementEditor();
+  });
+  if (currentId) state.runtime.setScreen(currentId);
+  fillScreenSelect();
+  renderLayers();
+  renderElementEditor();
+  renderSurface();
+  if (state.selectedPath) postSelection();
+}
+function applyJsonEdit() {
+  try {
+    const next = JSON.parse($("#json-editor").value);
+    if (!next || typeof next !== "object" || Array.isArray(next) || !ProtoRender.nodeKind(next)) {
+      throw new Error("Element JSON must be an object with a layout, component, text, image, or spacer kind.");
+    }
+    replaceAtPath(state.proto.doc, state.selectedPath, next);
+    setDirty();
+    rebuildRuntime();
+    $("#editor-error").textContent = "";
+  } catch (error) {
+    $("#editor-error").textContent = error.message || String(error);
+  }
+}
+async function savePrototype() {
+  if (!state.dirty || state.saving) return;
+  state.saving = true;
+  setDirty(true);
+  try {
+    state.suppressChangedUntil = Date.now() + 750;
+    await api("/api/prototypes/save", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ doc: state.proto.doc }),
+    });
+    state.proto.source = "repo";
+    state.saving = false;
+    setDirty(false);
+    renderSourcePill();
+    postSelection();
+  } catch (error) {
+    state.suppressChangedUntil = 0;
+    state.saving = false;
+    setDirty(true);
+    $("#save-status").textContent = error.message || "Save failed";
+  }
+}
+async function attachSelection() {
+  if (!state.selectedPath) return;
+  const button = $("#attach-btn");
+  try {
+    button.disabled = true;
+    const result = await api("/api/prototypes/attach", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        screenId: state.runtime.currentId,
+        path: state.selectedPath,
+        element: valueAtPath(state.proto.doc, state.selectedPath),
+        draft: state.dirty,
+      }),
+    });
+    button.textContent = "Attached";
+    $("#save-status").textContent = `${result.title} added to chat`;
+    setTimeout(() => { button.textContent = "Attach to chat"; button.disabled = false; }, 1400);
+  } catch (error) {
+    button.disabled = false;
+    $("#editor-error").textContent = error.message || String(error);
+  }
 }
 
 function applyZoom() {
@@ -295,6 +541,7 @@ async function copyExportPath() {
 
 // ---- load ------------------------------------------------------------------
 async function load() {
+  const previousScreen = state.runtime?.currentId;
   const data = window.__COLOPHON_PROTOTYPE_EXPORT__ || await api("/api/prototypes");
   await whenDSComp();
   state.design = data.design;
@@ -302,7 +549,13 @@ async function load() {
   state.validation = data.validation;
   state.runtime = ProtoRender.createRuntime({ doc: data.proto.doc, componentsDoc: data.design.componentsDoc });
   state.runtime.onChange(() => { renderSurface(); });
-  state.runtime.onNavigate(() => { syncScreenSelect(); });
+  state.runtime.onNavigate(() => {
+    state.selectedPath = null;
+    syncScreenSelect();
+    renderLayers();
+    renderElementEditor();
+  });
+  if (previousScreen) state.runtime.setScreen(previousScreen);
 
   // Default device: honor the first screen's declared device if present.
   const firstDevice = data.proto.doc.screens?.[0]?.device;
@@ -311,7 +564,9 @@ async function load() {
   renderSourcePill();
   if (!state.exportPath && state.runtime.buildError) $("#source-pill").title = "Component preview build error: " + state.runtime.buildError;
 
-  fillDeviceSelect(); syncSizeInputs(); fillScreenSelect(); applyVars(); renderValidation(); renderFrame();
+  state.selectedPath = null;
+  setDirty(false);
+  fillDeviceSelect(); syncSizeInputs(); fillScreenSelect(); applyVars(); renderValidation(); renderFrame(); renderLayers(); renderElementEditor();
 }
 
 function wire() {
@@ -321,6 +576,26 @@ function wire() {
   $("#rotate-btn").addEventListener("click", () => { const w = state.w; state.w = state.h; state.h = w; syncSizeInputs(); renderFrame(); });
   $("#zoom-select").addEventListener("change", (e) => { state.zoom = e.target.value === "fit" ? "fit" : parseFloat(e.target.value); applyZoom(); });
   $("#screen-select").addEventListener("change", (e) => state.runtime?.setScreen(e.target.value));
+  $("#inspect-btn").addEventListener("click", () => {
+    state.inspectMode = !state.inspectMode;
+    $("#inspect-btn").classList.toggle("is-active", state.inspectMode);
+    $("#inspect-btn").setAttribute("aria-pressed", String(state.inspectMode));
+    $("#inspector").hidden = !state.inspectMode;
+    $("#frame-wrap").classList.toggle("inspect-mode", state.inspectMode);
+    if (state.inspectMode) { renderLayers(); renderElementEditor(); }
+    applyZoom();
+  });
+  $("#frame-wrap").addEventListener("click", (event) => {
+    if (!state.inspectMode) return;
+    const target = event.target.closest("[data-proto-path]");
+    if (!target) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    try { selectPath(JSON.parse(target.dataset.protoPath)); } catch { /* invalid renderer metadata */ }
+  }, true);
+  $("#apply-json-btn").addEventListener("click", applyJsonEdit);
+  $("#save-btn").addEventListener("click", () => savePrototype());
+  $("#attach-btn").addEventListener("click", () => attachSelection());
   $("#back-btn").addEventListener("click", () => state.runtime?.dispatch({ back: true }));
   $("#reload-btn").addEventListener("click", () => {
     if (window.__COLOPHON_PROTOTYPE_EXPORT__) window.location.reload();
@@ -374,7 +649,11 @@ function wire() {
   if (!window.__COLOPHON_PROTOTYPE_EXPORT__) {
     try {
       const es = new EventSource("/events");
-      es.addEventListener("changed", () => load().catch(() => {}));
+      es.addEventListener("changed", () => {
+        if (Date.now() < state.suppressChangedUntil) return;
+        if (state.dirty) { $("#save-status").textContent = "File changed on disk — reload to replace local edits"; return; }
+        load().catch(() => {});
+      });
     } catch { /* no SSE */ }
   }
 }

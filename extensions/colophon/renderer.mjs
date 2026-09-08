@@ -16,6 +16,7 @@ export function renderShell() {
       <h1>Design System</h1>
       <span id="source-pill" class="source-pill">loading…</span>
       <span class="grow"></span>
+      <button type="button" id="inspect-btn" class="btn" title="Inspect and edit exact design-system JSON" aria-pressed="false">Inspect</button>
       <button type="button" id="reload-btn" class="btn icon-btn" aria-label="Reload from disk" title="Reload from disk">↻</button>
       <div id="theme-switch" class="theme-switch" role="group" aria-label="Preview theme">
         <button type="button" class="theme-btn is-active" data-theme="light" aria-pressed="true" title="Light theme preview">Light</button>
@@ -33,7 +34,48 @@ export function renderShell() {
       <button type="button" id="save-btn" class="btn primary" disabled>Save to repo</button>
     </div>
     <div id="validation-slot" aria-live="polite"></div>
+    <aside id="component-layers" class="component-layers" hidden>
+      <div class="inspector-panel-head">
+        <div>
+          <strong>Layers</strong>
+          <span class="panel-hint">components.jsonc</span>
+        </div>
+        <div class="history-actions">
+          <button type="button" id="layers-undo-btn" class="panel-icon-btn" title="Undo" aria-label="Undo" disabled>↶</button>
+          <button type="button" id="layers-redo-btn" class="panel-icon-btn" title="Redo" aria-label="Redo" disabled>↷</button>
+        </div>
+      </div>
+      <div id="component-layer-tree" class="component-layer-tree"></div>
+      <div class="layer-actions">
+        <button type="button" id="layers-duplicate-btn" class="btn" disabled>Duplicate</button>
+        <button type="button" id="layers-delete-btn" class="btn danger" disabled>Delete</button>
+      </div>
+    </aside>
     <div class="wrap"><div id="app"></div></div>
+    <aside id="design-inspector" class="design-inspector" hidden>
+      <div class="design-inspector-head">
+        <div>
+          <div id="inspect-title" class="inspect-title">No selection</div>
+          <code id="inspect-path" class="inspect-path"></code>
+        </div>
+        <button type="button" id="inspect-attach-btn" class="btn" disabled>Attach to chat</button>
+      </div>
+      <div class="inspector-tabs" role="tablist" aria-label="Inspector view">
+        <button type="button" id="properties-tab" role="tab" aria-selected="true" class="is-active">Properties</button>
+        <button type="button" id="json-tab" role="tab" aria-selected="false">JSON</button>
+      </div>
+      <div id="inspect-properties" class="inspector-panel" role="tabpanel"></div>
+      <div id="inspect-json-panel" class="inspector-panel json-panel" role="tabpanel" hidden>
+        <textarea id="inspect-json" aria-label="Selected design-system JSON" spellcheck="false" disabled></textarea>
+        <div class="design-inspector-actions">
+          <span></span>
+          <button type="button" id="inspect-apply-btn" class="btn primary" disabled>Apply JSON</button>
+        </div>
+      </div>
+      <div class="inspector-status">
+        <span id="inspect-error" role="alert"></span>
+      </div>
+    </aside>
     <script type="module" src="/components-render.mjs"></script>
     <script src="/client.js"></script>
   </body>
