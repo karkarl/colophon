@@ -1,19 +1,20 @@
 // components.jsonc — the UI patterns your team has already decided on, as data.
 //
-// This is a framework-agnostic element tree with token-bound Auto Layout. It renders
+// This is a framework-agnostic relational element tree with token-bound Auto Layout
+// and optional parent-relative freeform positioning. It renders
 // live in the Colophon and Prototype canvases and ports cleanly to web, WinUI, and
 // SwiftUI because layout intent is semantic rather than executable CSS.
 //
 // Every object node has a stable `id`, used for selection, layer moves, and surgical
 // edits. Node kinds:
 //   element   { "id": "...", "el": "button", "class": "...", "attrs": {},
-//               "layout": {}, "margin": {}, "appearance": {}, "children": [] }
+//               "layout": {}, "position": {}, "margin": {}, "appearance": {}, "children": [] }
 //   component { "id": "...", "component": "Badge", "props": {},
-//               "layout": {}, "margin": {}, "appearance": {} }
+//               "layout": {}, "position": {}, "margin": {}, "appearance": {} }
 //   string    "Save changes" or "{prop}" for interpolation
 //
 // Auto Layout:
-//   layout.mode      "vertical" | "horizontal" | "grid" | "none"
+//   layout.mode      "vertical" | "horizontal" | "grid" | "freeform" | "none"
 //   layout.gap       spacing-token name from design.json
 //   layout.padding   spacing token, or { x, y, top, right, bottom, left }
 //   layout.align     "start" | "center" | "end" | "stretch" | "baseline"
@@ -23,8 +24,13 @@
 //   layout.wrap      boolean
 //   layout.grow      boolean
 //   layout.width /
-//   layout.height    "fill" | "hug"
+//   layout.height    "fill" | "hug" | non-negative pixel number
 //   margin           spacing token, or { x, y, top, right, bottom, left }
+//
+// Freeform layout (v3):
+//   A parent with layout.mode "freeform" establishes a coordinate system. Its direct
+//   children may set position { mode: "absolute", x, y }, where x/y are finite pixel
+//   numbers relative to that parent. Omit position to remain in normal document flow.
 //
 // Appearance inherits from the parent and component class by default. Add only the
 // token-bound values that intentionally differ:
@@ -42,9 +48,9 @@
 // override that styling without copying raw CSS into the component definition.
 {
   "meta": {
-    "version": 2,
+    "version": 3,
     "updatedBy": "starter",
-    "note": "Auto Layout component patterns for Northlight. Edit in the Colophon canvas or by hand."
+    "note": "Hybrid Auto Layout and freeform component patterns for Northlight. Edit in the Colophon canvas or by hand."
   },
   "components": [
     {

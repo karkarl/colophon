@@ -52,6 +52,65 @@ test("v2 requires unique stable IDs and validates Auto Layout fields", () => {
   assert.match(result.errors.join("\n"), /margin\.top/);
 });
 
+test("v3 supports relational freeform layout with fixed dimensions", () => {
+  const doc = {
+    meta: { version: 3 },
+    components: [{
+      name: "Board",
+      root: {
+        id: "board",
+        el: "section",
+        layout: { mode: "freeform", width: 320, height: 200 },
+        children: [{
+          id: "card",
+          el: "article",
+          position: { mode: "absolute", x: 24, y: -8 },
+          layout: { width: 120, height: 80 },
+        }],
+      },
+    }],
+  };
+  assert.equal(validateComponentsDoc(doc).ok, true);
+  assert.deepEqual(autoLayoutStyle(doc.components[0].root), {
+    display: "block",
+    position: "relative",
+    width: "320px",
+    height: "200px",
+  });
+  assert.deepEqual(autoLayoutStyle(doc.components[0].root.children[0]), {
+    width: "120px",
+    height: "80px",
+    position: "absolute",
+    left: "24px",
+    top: "-8px",
+  });
+});
+
+test("freeform positioning is versioned and parent-relative", () => {
+  const node = {
+    id: "card",
+    el: "article",
+    position: { mode: "absolute", x: 12, y: 16 },
+    layout: { width: 120 },
+  };
+  const v2 = {
+    meta: { version: 2 },
+    components: [{ name: "Old", root: { id: "root", el: "div", children: [structuredClone(node)] } }],
+  };
+  const v2Errors = validateComponentsDoc(v2).errors.join("\n");
+  assert.match(v2Errors, /position: requires components\.jsonc v3/);
+  assert.match(v2Errors, /layout\.width: must be fill or hug/);
+
+  const v3 = {
+    meta: { version: 3 },
+    components: [{ name: "Broken", root: { id: "root", el: "div", children: [structuredClone(node)] } }],
+  };
+  assert.match(validateComponentsDoc(v3).errors.join("\n"), /direct children of a freeform layout/);
+  v3.components[0].root.layout = { mode: "freeform" };
+  v3.components[0].root.children[0].position.x = Infinity;
+  assert.match(validateComponentsDoc(v3).errors.join("\n"), /position\.x: must be a finite pixel number/);
+});
+
 test("Auto Layout produces token-bound CSS", () => {
   assert.deepEqual(autoLayoutStyle({
     layout: {
@@ -277,11 +336,11 @@ test("component layer moves reject roots, cycles, and cross-component drops", ()
   );
 });
 
-test("bundled sample is valid v2 Auto Layout", async () => {
+test("bundled sample is valid v3 hybrid layout", async () => {
   const raw = await fs.readFile(path.join(here, "sample", "components.jsonc"), "utf8");
   const doc = parseComponents(raw);
   const result = validateComponentsDoc(doc);
-  assert.equal(doc.meta.version, 2);
+  assert.equal(doc.meta.version, 3);
   assert.deepEqual(result.errors, []);
   assert.equal(result.ok, true);
 });

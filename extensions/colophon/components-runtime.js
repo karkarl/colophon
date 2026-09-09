@@ -71,6 +71,9 @@
       } else if (layout.mode === "grid") {
         style.display = "grid";
         style["grid-template-columns"] = `repeat(${layout.columns || 1}, minmax(0, 1fr))`;
+      } else if (layout.mode === "freeform") {
+        style.display = "block";
+        style.position = "relative";
       }
       if (layout.gap != null) style.gap = spacingValue(layout.gap);
       applyBox(style, "padding", layout.padding);
@@ -78,12 +81,19 @@
       if (layout.justify) style["justify-content"] = justify[layout.justify] || layout.justify;
       if (layout.wrap) style["flex-wrap"] = "wrap";
       if (layout.grow) Object.assign(style, { "flex-grow": "1", "min-width": "0", "min-height": "0" });
-      if (layout.width === "fill") style.width = "100%";
+      if (typeof layout.width === "number") style.width = `${layout.width}px`;
+      else if (layout.width === "fill") style.width = "100%";
       else if (layout.width === "hug") style.width = "fit-content";
-      if (layout.height === "fill") style.height = "100%";
+      if (typeof layout.height === "number") style.height = `${layout.height}px`;
+      else if (layout.height === "fill") style.height = "100%";
       else if (layout.height === "hug") style.height = "fit-content";
     }
     applyBox(style, "margin", node?.margin);
+    if (node?.position?.mode === "absolute") {
+      style.position = "absolute";
+      style.left = `${node.position.x}px`;
+      style.top = `${node.position.y}px`;
+    }
     return style;
   }
 

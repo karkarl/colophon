@@ -739,6 +739,11 @@ function setAppearanceOverride(key, value) {
   if (!Object.keys(node.appearance).length) delete node.appearance;
 }
 
+function ensureComponentSchemaV3() {
+  state.componentsDoc.meta ||= {};
+  state.componentsDoc.meta.version = Math.max(3, Number(state.componentsDoc.meta.version) || 0);
+}
+
 function inheritedOptions(values, label = (value) => value) {
   return [["", "Inherit / class"], ...values.map((value) => [value, label(value)])];
 }
@@ -841,7 +846,7 @@ function renderComponentProperties() {
   const layout = node.layout || {};
   const layoutSection = el("section", { class: "property-section" },
     el("div", { class: "property-section-heading" },
-      el("h3", { class: "property-section-title" }, "Auto Layout"),
+      el("h3", { class: "property-section-title" }, "Layout"),
       el("button", {
         type: "button",
         class: `snap-toggle${state.spacingSnap ? " is-active" : ""}`,
@@ -854,9 +859,10 @@ function renderComponentProperties() {
   const layoutGrid = $(".property-grid", layoutSection);
   layoutGrid.append(
     propertySelect("Direction", layout.mode || "", [
-      ["", "Unset"], ["none", "None"], ["vertical", "Vertical"], ["horizontal", "Horizontal"], ["grid", "Grid"],
+      ["", "Unset"], ["none", "None"], ["vertical", "Vertical"], ["horizontal", "Horizontal"], ["grid", "Grid"], ["freeform", "Freeform"],
     ], (event) => commitComponentMutation(() => {
       const selected = selectedComponentNode();
+      if (event.target.value === "freeform") ensureComponentSchemaV3();
       selected.layout ||= {};
       if (event.target.value) selected.layout.mode = event.target.value;
       else delete selected.layout.mode;
@@ -887,17 +893,33 @@ function renderComponentProperties() {
       if (value) selected.layout.justify = value;
       else delete selected.layout.justify;
     })),
-    propertySelect("Width", layout.width || "", [["", "Unset"], ["hug", "Hug"], ["fill", "Fill"]], (event) => commitComponentMutation(() => {
-      const selected = selectedComponentNode();
-      selected.layout ||= {};
-      if (event.target.value) selected.layout.width = event.target.value;
-      else delete selected.layout.width;
+    propertyField("Width", el("input", {
+      type: "text",
+      inputmode: "decimal",
+      placeholder: "Unset, hug, fill, or px",
+      value: layout.width ?? "",
+      onchange: (event) => commitComponentMutation(() => {
+        const raw = event.target.value.trim();
+        const selected = selectedComponentNode();
+        selected.layout ||= {};
+        if (!raw) delete selected.layout.width;
+        else selected.layout.width = raw === "hug" || raw === "fill" ? raw : Number(raw);
+        if (typeof selected.layout.width === "number" && Number.isFinite(selected.layout.width)) ensureComponentSchemaV3();
+      }),
     })),
-    propertySelect("Height", layout.height || "", [["", "Unset"], ["hug", "Hug"], ["fill", "Fill"]], (event) => commitComponentMutation(() => {
-      const selected = selectedComponentNode();
-      selected.layout ||= {};
-      if (event.target.value) selected.layout.height = event.target.value;
-      else delete selected.layout.height;
+    propertyField("Height", el("input", {
+      type: "text",
+      inputmode: "decimal",
+      placeholder: "Unset, hug, fill, or px",
+      value: layout.height ?? "",
+      onchange: (event) => commitComponentMutation(() => {
+        const raw = event.target.value.trim();
+        const selected = selectedComponentNode();
+        selected.layout ||= {};
+        if (!raw) delete selected.layout.height;
+        else selected.layout.height = raw === "hug" || raw === "fill" ? raw : Number(raw);
+        if (typeof selected.layout.height === "number" && Number.isFinite(selected.layout.height)) ensureComponentSchemaV3();
+      }),
     })),
   );
   if (layout.mode === "grid") {
@@ -925,8 +947,39 @@ function renderComponentProperties() {
   layoutGrid.append(boxEditor("Padding", layout, "padding"));
   layoutSection.append(el("div", { class: "property-help" },
     state.spacingSnap
-      ? "Spacing follows design.json increments. Type a token or use the arrow buttons to step through the scale."
-      : "Spacing is unsnapped. Type any non-negative pixel value or use the arrow buttons to step by 1px."));
+      ? "Spacing follows design.json increments. Dimensions accept hug, fill, or fixed pixels."
+      : "Spacing is unsnapped. Dimensions accept hug, fill, or fixed pixels."));
+
+  const parentPath = state.selection?.path?.slice(0, -2);
+  const parentNode = parentPath ? valueAtPath(state.componentsDoc, parentPath) : null;
+  const canPosition = parentNode?.layout?.mode === "freeform" || node.position;
+  let positionSection = null;
+  if (canPosition) {
+    const position = node.position || {};
+    const coordinate = (axis) => propertyField(axis.toUpperCase(), el("input", {
+      type: "number",
+      step: "any",
+      value: position[axis] ?? 0,
+      onchange: (event) => commitComponentMutation(() => {
+        const selected = selectedComponentNode();
+        selected.position ||= { mode: "absolute", x: 0, y: 0 };
+        selected.position[axis] = event.target.valueAsNumber;
+      }),
+    }));
+    positionSection = el("section", { class: "property-section" },
+      el("h3", { class: "property-section-title" }, "Freeform position"),
+      el("div", { class: "property-grid" },
+        propertySelect("Mode", position.mode || "", [["", "Flow"], ["absolute", "Absolute"]], (event) => commitComponentMutation(() => {
+          const selected = selectedComponentNode();
+          if (event.target.value === "absolute") {
+            ensureComponentSchemaV3();
+            selected.position = { mode: "absolute", x: position.x ?? 0, y: position.y ?? 0 };
+          }
+          else delete selected.position;
+        })),
+        ...(position.mode === "absolute" ? [coordinate("x"), coordinate("y")] : [])),
+      el("div", { class: "property-help" }, "Coordinates are pixels relative to the direct freeform parent."));
+  }
 
   const appearance = node.appearance || {};
   const radii = (state.tokens?.radii || []).map((token) => token?.name).filter(Boolean);
@@ -963,7 +1016,7 @@ function renderComponentProperties() {
     el("h3", { class: "property-section-title" }, "Outer spacing"),
     el("div", { class: "property-grid" }, boxEditor("Margin", node, "margin", { allowAuto: true })),
     el("div", { class: "property-help" }, "Values reference spacing tokens from design.json. Changes update every preview of this component definition."));
-  slot.append(identity, layoutSection, appearanceSection, spacing);
+  slot.append(identity, layoutSection, ...(positionSection ? [positionSection] : []), appearanceSection, spacing);
 }
 
 function clearDropClasses() {
