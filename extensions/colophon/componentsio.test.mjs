@@ -341,6 +341,10 @@ test("bundled sample is valid v3 hybrid layout", async () => {
   const doc = parseComponents(raw);
   const result = validateComponentsDoc(doc);
   assert.equal(doc.meta.version, 3);
+  const example = doc.components.find((component) => component.name === "ExampleScreen");
+  const board = example.root.children.find((node) => node.id === "example-screen-grid");
+  assert.equal(board.layout.mode, "freeform");
+  assert.equal(board.children.every((node) => node.position?.mode === "absolute"), true);
   assert.deepEqual(result.errors, []);
   assert.equal(result.ok, true);
 });

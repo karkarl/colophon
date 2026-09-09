@@ -200,7 +200,7 @@
     },
     {
       "name": "ExampleScreen",
-      "note": "A representative screen composed from the pieces above — the 'does it hang together' check for the whole system.",
+      "note": "A representative screen that combines Auto Layout with a freeform status board — the 'does it hang together' check for the whole system.",
       "root": {
         "id": "example-screen-root",
         "el": "section",
@@ -264,26 +264,43 @@
             "el": "div",
             "class": "ds-grid",
             "layout": {
-              "mode": "grid",
-              "columns": 2,
-              "gap": "4",
-              "width": "fill"
+              "mode": "freeform",
+              "width": "fill",
+              "height": 176
             },
             "children": [
               {
                 "id": "example-screen-deploys",
                 "component": "Card",
+                "position": {
+                  "mode": "absolute",
+                  "x": 0,
+                  "y": 0
+                },
                 "props": {
                   "title": "Deploys",
                   "body": "3 shipped today. Last one 20 minutes ago."
+                },
+                "layout": {
+                  "width": 280,
+                  "height": 148
                 }
               },
               {
                 "id": "example-screen-reviews",
                 "component": "Card",
+                "position": {
+                  "mode": "absolute",
+                  "x": 248,
+                  "y": 28
+                },
                 "props": {
                   "title": "Review queue",
                   "body": "2 PRs waiting on you."
+                },
+                "layout": {
+                  "width": 280,
+                  "height": 148
                 }
               }
             ]
