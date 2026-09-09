@@ -175,6 +175,9 @@ section.block > h2 {
 }
 .inspect-mode [data-design-inspect],
 .inspect-mode [data-ds-node-path] { cursor: crosshair; }
+.inspect-mode [data-ds-node-path].is-freeform-movable { cursor: move; touch-action: none; }
+.freeform-drag-active,
+.freeform-drag-active * { cursor: grabbing !important; user-select: none !important; }
 .inspect-mode [data-design-inspect]:hover,
 .inspect-mode [data-ds-node-path]:hover,
 [data-design-inspect].is-inspected,

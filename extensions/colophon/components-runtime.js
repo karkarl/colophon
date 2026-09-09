@@ -71,6 +71,9 @@
       } else if (layout.mode === "grid") {
         style.display = "grid";
         style["grid-template-columns"] = `repeat(${layout.columns || 1}, minmax(0, 1fr))`;
+      } else if (layout.mode === "freeform") {
+        style.display = "block";
+        style.position = "relative";
       }
       if (layout.gap != null) style.gap = spacingValue(layout.gap);
       applyBox(style, "padding", layout.padding);
@@ -78,12 +81,19 @@
       if (layout.justify) style["justify-content"] = justify[layout.justify] || layout.justify;
       if (layout.wrap) style["flex-wrap"] = "wrap";
       if (layout.grow) Object.assign(style, { "flex-grow": "1", "min-width": "0", "min-height": "0" });
-      if (layout.width === "fill") style.width = "100%";
+      if (typeof layout.width === "number") style.width = `${layout.width}px`;
+      else if (layout.width === "fill") style.width = "100%";
       else if (layout.width === "hug") style.width = "fit-content";
-      if (layout.height === "fill") style.height = "100%";
+      if (typeof layout.height === "number") style.height = `${layout.height}px`;
+      else if (layout.height === "fill") style.height = "100%";
       else if (layout.height === "hug") style.height = "fit-content";
     }
     applyBox(style, "margin", node?.margin);
+    if (node?.position?.mode === "absolute") {
+      style.position = "absolute";
+      style.left = `${node.position.x}px`;
+      style.top = `${node.position.y}px`;
+    }
     return style;
   }
 
@@ -172,12 +182,14 @@
     const node = svg ? document.createElementNS(SVG_NS, spec.tag || "div") : document.createElement(spec.tag || "div");
     if (spec.class) node.setAttribute("class", spec.class);
     for (const [property, value] of Object.entries(spec.style || {})) node.style.setProperty(property, String(value));
+    for (const [key, value] of Object.entries(spec.attrs || {})) if (value != null) node.setAttribute(key, String(value));
+    // Internal selection metadata must not be replaceable by authored attributes.
     if (spec.source) {
       node.dataset.dsComponent = spec.source.component || "";
       node.dataset.dsNodePath = JSON.stringify(spec.source.path || []);
       if (spec.source.nodeId) node.dataset.dsNodeId = spec.source.nodeId;
+      else delete node.dataset.dsNodeId;
     }
-    for (const [key, value] of Object.entries(spec.attrs || {})) if (value != null) node.setAttribute(key, String(value));
     for (const child of spec.children || []) {
       const childNode = specToDom(child, svg);
       if (childNode) node.append(childNode);

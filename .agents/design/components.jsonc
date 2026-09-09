@@ -1,51 +1,3 @@
-// components.jsonc — the UI patterns your team has already decided on, as data.
-//
-// This is a framework-agnostic relational element tree with token-bound Auto Layout
-// and optional parent-relative freeform positioning. It renders
-// live in the Colophon and Prototype canvases and ports cleanly to web, WinUI, and
-// SwiftUI because layout intent is semantic rather than executable CSS.
-//
-// Every object node has a stable `id`, used for selection, layer moves, and surgical
-// edits. Node kinds:
-//   element   { "id": "...", "el": "button", "class": "...", "attrs": {},
-//               "layout": {}, "position": {}, "margin": {}, "appearance": {}, "children": [] }
-//   component { "id": "...", "component": "Badge", "props": {},
-//               "layout": {}, "position": {}, "margin": {}, "appearance": {} }
-//   string    "Save changes" or "{prop}" for interpolation
-//
-// Auto Layout:
-//   layout.mode      "vertical" | "horizontal" | "grid" | "freeform" | "none"
-//   layout.gap       spacing-token name from design.json
-//   layout.padding   spacing token, or { x, y, top, right, bottom, left }
-//   layout.align     "start" | "center" | "end" | "stretch" | "baseline"
-//   layout.justify   "start" | "center" | "end" | "space-between" |
-//                    "space-around" | "space-evenly"
-//   layout.columns   positive integer for grid mode
-//   layout.wrap      boolean
-//   layout.grow      boolean
-//   layout.width /
-//   layout.height    "fill" | "hug" | non-negative pixel number
-//   margin           spacing token, or { x, y, top, right, bottom, left }
-//
-// Freeform layout (v3):
-//   A parent with layout.mode "freeform" establishes a coordinate system. Its direct
-//   children may set position { mode: "absolute", x, y }, where x/y are finite pixel
-//   numbers relative to that parent. Omit position to remain in normal document flow.
-//
-// Appearance inherits from the parent and component class by default. Add only the
-// token-bound values that intentionally differ:
-//   appearance.fontFamily  "display" | "body" | "mono"
-//   appearance.textStyle   typography scale name from design.json
-//   appearance.color /
-//   appearance.background /
-//   appearance.borderColor color-token name from design.json
-//   appearance.radius      radius-token name from design.json
-//   appearance.shadow      shadow-token name from design.json
-//   appearance.textAlign   "start" | "center" | "end" | "left" | "right"
-//
-// Spacing always references design.json tokens (`"2"`, `"5"`), never raw pixels.
-// Classes and parents provide inherited visual styling; sparse `appearance` values
-// override that styling without copying raw CSS into the component definition.
 {
   "meta": {
     "version": 3,
@@ -291,8 +243,8 @@
                 "component": "Card",
                 "position": {
                   "mode": "absolute",
-                  "x": 248,
-                  "y": 28
+                  "x": 300,
+                  "y": 0
                 },
                 "props": {
                   "title": "Review queue",

@@ -6,10 +6,11 @@
 //
 // A component is a named template with declared prop defaults and one root node:
 //   { "name": "Button", "props": { "variant": "primary" }, "root": <node> }
-// Node kinds: element { id, el, class, attrs, layout, margin, appearance, children },
-// component { id, component, props, layout, margin, appearance }, string (literal or "{prop}").
+// Node kinds: element { id, el, class, attrs, layout, position, margin, appearance, children },
+// component { id, component, props, layout, position, margin, appearance }, string (literal or "{prop}").
 // Layout spacing uses design.json tokens by default; non-negative numbers are
-// explicit unsnapped pixel values.
+// explicit unsnapped pixel values. In v3, a freeform parent establishes a coordinate
+// system for children with absolute, parent-relative positions.
 
 export const COMPONENTS_FILENAME = "components.jsonc";
 
@@ -186,7 +187,7 @@ export function removeComponentNode(doc, sourcePath) {
 
 // ---- validation -----------------------------------------------------------
 
-const LAYOUT_MODES = new Set(["none", "vertical", "horizontal", "grid"]);
+const LAYOUT_MODES = new Set(["none", "vertical", "horizontal", "grid", "freeform"]);
 const ALIGN_VALUES = new Set(["start", "center", "end", "stretch", "baseline"]);
 const JUSTIFY_VALUES = new Set(["start", "center", "end", "space-between", "space-around", "space-evenly"]);
 const SIZE_VALUES = new Set(["fill", "hug"]);
@@ -278,7 +279,7 @@ function validateAutoLayout(node, where, errors, tokens) {
   for (const key of Object.keys(layout)) {
     if (!allowed.has(key)) errors.push(`${where}.layout: unknown property "${key}".`);
   }
-  if (layout.mode != null && !LAYOUT_MODES.has(layout.mode)) errors.push(`${where}.layout.mode: must be none, vertical, horizontal, or grid.`);
+  if (layout.mode != null && !LAYOUT_MODES.has(layout.mode)) errors.push(`${where}.layout.mode: must be none, vertical, horizontal, grid, or freeform.`);
   if (layout.gap != null && !validSpace(layout.gap)) errors.push(`${where}.layout.gap: must be a spacing-token name or a non-negative pixel number.`);
   validateBox(layout.padding, `${where}.layout.padding`, errors);
   if (layout.align != null && !ALIGN_VALUES.has(layout.align)) errors.push(`${where}.layout.align: unsupported value "${layout.align}".`);
@@ -287,10 +288,27 @@ function validateAutoLayout(node, where, errors, tokens) {
   if (layout.grow != null && typeof layout.grow !== "boolean") errors.push(`${where}.layout.grow: must be boolean.`);
   if (layout.columns != null && (!Number.isInteger(layout.columns) || layout.columns < 1)) errors.push(`${where}.layout.columns: must be a positive integer.`);
   if (layout.columns != null && layout.mode !== "grid") errors.push(`${where}.layout.columns: is only valid for grid layout.`);
-  for (const dimension of ["width", "height"]) {
-    if (layout[dimension] != null && !SIZE_VALUES.has(layout[dimension])) {
-      errors.push(`${where}.layout.${dimension}: must be fill or hug.`);
+}
+
+function validatePosition(node, parent, where, errors, version) {
+  if (node.position == null) return;
+  if (version < 3) errors.push(`${where}.position: requires components.jsonc v3.`);
+  if (!node.position || typeof node.position !== "object" || Array.isArray(node.position)) {
+    errors.push(`${where}.position: must be an object.`);
+    return;
+  }
+  const allowed = new Set(["mode", "x", "y"]);
+  for (const key of Object.keys(node.position)) {
+    if (!allowed.has(key)) errors.push(`${where}.position: unknown property "${key}".`);
+  }
+  if (node.position.mode !== "absolute") errors.push(`${where}.position.mode: must be absolute.`);
+  for (const axis of ["x", "y"]) {
+    if (typeof node.position[axis] !== "number" || !Number.isFinite(node.position[axis])) {
+      errors.push(`${where}.position.${axis}: must be a finite pixel number.`);
     }
+  }
+  if (node.position.mode === "absolute" && parent?.layout?.mode !== "freeform") {
+    errors.push(`${where}.position: absolute nodes must be direct children of a freeform layout.`);
   }
 }
 
@@ -328,23 +346,32 @@ export function validateComponentsDoc(doc, { text = null, tokens = null } = {}) 
 
   // Structural walk: known node kinds, and component refs resolve to a defined name.
   const nameSet = new Set(names);
-  const requiresIds = Number(d.meta?.version || 0) >= 2;
+  const version = Number(d.meta?.version || 0);
+  const requiresIds = version >= 2;
   for (const c of d.components) {
     if (!c || !c.root) continue;
     const ids = new Set();
-    walkNode(c.root, (node, path) => {
+    walkNode(c.root, (node, path, parent) => {
       if (typeof node === "string") return;
       if (node == null || typeof node !== "object") {
         errors.push(`${c.name}${path}: node must be a string, element, or component reference.`);
         return;
       }
       const where = `${c.name}${path}`;
-      if (requiresIds && (typeof node.id !== "string" || !node.id)) errors.push(`${where}: missing a stable string "id" (required in components.jsonc v2).`);
+      if (requiresIds && (typeof node.id !== "string" || !node.id)) errors.push(`${where}: missing a stable string "id" (required in components.jsonc v2+).`);
       if (typeof node.id === "string" && node.id) {
         if (ids.has(node.id)) errors.push(`${c.name}: duplicate node id "${node.id}".`);
         ids.add(node.id);
       }
       validateAutoLayout(node, where, errors, tokens);
+      if (node.layout?.mode === "freeform" && version < 3) errors.push(`${where}.layout.mode: freeform requires components.jsonc v3.`);
+      for (const dimension of ["width", "height"]) {
+        const value = node.layout?.[dimension];
+        if (value != null && !SIZE_VALUES.has(value) && !(version >= 3 && typeof value === "number" && Number.isFinite(value) && value >= 0)) {
+          errors.push(`${where}.layout.${dimension}: must be fill or hug${version >= 3 ? ", or a non-negative pixel number" : ""}.`);
+        }
+      }
+      validatePosition(node, parent, where, errors, version);
       if ("component" in node) {
         if (!node.component || !nameSet.has(node.component)) {
           errors.push(`${where}: references component "${node.component}" which is not defined.`);
@@ -362,10 +389,10 @@ export function validateComponentsDoc(doc, { text = null, tokens = null } = {}) 
   return { ok: errors.length === 0, errors, warnings, names };
 }
 
-function walkNode(node, fn, path = ".root") {
-  fn(node, path);
+function walkNode(node, fn, path = ".root", parent = null) {
+  fn(node, path, parent);
   if (node && typeof node === "object" && Array.isArray(node.children)) {
-    node.children.forEach((kid, i) => walkNode(kid, fn, `${path}.children[${i}]`));
+    node.children.forEach((kid, i) => walkNode(kid, fn, `${path}.children[${i}]`, node));
   }
 }
 
@@ -438,6 +465,9 @@ export function autoLayoutStyle(node) {
     } else if (layout.mode === "grid") {
       style.display = "grid";
       style["grid-template-columns"] = `repeat(${layout.columns || 1}, minmax(0, 1fr))`;
+    } else if (layout.mode === "freeform") {
+      style.display = "block";
+      style.position = "relative";
     }
     if (layout.gap != null) style.gap = spacingValue(layout.gap);
     applyBox(style, "padding", layout.padding);
@@ -449,12 +479,19 @@ export function autoLayoutStyle(node) {
       style["min-width"] = "0";
       style["min-height"] = "0";
     }
-    if (layout.width === "fill") style.width = "100%";
+    if (typeof layout.width === "number") style.width = `${layout.width}px`;
+    else if (layout.width === "fill") style.width = "100%";
     else if (layout.width === "hug") style.width = "fit-content";
-    if (layout.height === "fill") style.height = "100%";
+    if (typeof layout.height === "number") style.height = `${layout.height}px`;
+    else if (layout.height === "fill") style.height = "100%";
     else if (layout.height === "hug") style.height = "fit-content";
   }
   applyBox(style, "margin", node?.margin);
+  if (node?.position?.mode === "absolute") {
+    style.position = "absolute";
+    style.left = `${node.position.x}px`;
+    style.top = `${node.position.y}px`;
+  }
   return style;
 }
 

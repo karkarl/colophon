@@ -21,6 +21,7 @@ let state = {
   theme: "light", validation: null, page: "brand",
   inspectMode: false, selection: null,
   inspectorTab: "properties", componentPast: [], componentFuture: [], dragPath: null,
+  freeformDrag: null, suppressInspectClickUntil: 0,
   spacingSnap: true,
 };
 
@@ -739,6 +740,11 @@ function setAppearanceOverride(key, value) {
   if (!Object.keys(node.appearance).length) delete node.appearance;
 }
 
+function ensureComponentSchemaV3() {
+  state.componentsDoc.meta ||= {};
+  state.componentsDoc.meta.version = Math.max(3, Number(state.componentsDoc.meta.version) || 0);
+}
+
 function inheritedOptions(values, label = (value) => value) {
   return [["", "Inherit / class"], ...values.map((value) => [value, label(value)])];
 }
@@ -841,7 +847,7 @@ function renderComponentProperties() {
   const layout = node.layout || {};
   const layoutSection = el("section", { class: "property-section" },
     el("div", { class: "property-section-heading" },
-      el("h3", { class: "property-section-title" }, "Auto Layout"),
+      el("h3", { class: "property-section-title" }, "Layout"),
       el("button", {
         type: "button",
         class: `snap-toggle${state.spacingSnap ? " is-active" : ""}`,
@@ -854,9 +860,10 @@ function renderComponentProperties() {
   const layoutGrid = $(".property-grid", layoutSection);
   layoutGrid.append(
     propertySelect("Direction", layout.mode || "", [
-      ["", "Unset"], ["none", "None"], ["vertical", "Vertical"], ["horizontal", "Horizontal"], ["grid", "Grid"],
+      ["", "Unset"], ["none", "None"], ["vertical", "Vertical"], ["horizontal", "Horizontal"], ["grid", "Grid"], ["freeform", "Freeform"],
     ], (event) => commitComponentMutation(() => {
       const selected = selectedComponentNode();
+      if (event.target.value === "freeform") ensureComponentSchemaV3();
       selected.layout ||= {};
       if (event.target.value) selected.layout.mode = event.target.value;
       else delete selected.layout.mode;
@@ -887,17 +894,33 @@ function renderComponentProperties() {
       if (value) selected.layout.justify = value;
       else delete selected.layout.justify;
     })),
-    propertySelect("Width", layout.width || "", [["", "Unset"], ["hug", "Hug"], ["fill", "Fill"]], (event) => commitComponentMutation(() => {
-      const selected = selectedComponentNode();
-      selected.layout ||= {};
-      if (event.target.value) selected.layout.width = event.target.value;
-      else delete selected.layout.width;
+    propertyField("Width", el("input", {
+      type: "text",
+      inputmode: "decimal",
+      placeholder: "Unset, hug, fill, or px",
+      value: layout.width ?? "",
+      onchange: (event) => commitComponentMutation(() => {
+        const raw = event.target.value.trim();
+        const selected = selectedComponentNode();
+        selected.layout ||= {};
+        if (!raw) delete selected.layout.width;
+        else selected.layout.width = raw === "hug" || raw === "fill" ? raw : Number(raw);
+        if (typeof selected.layout.width === "number" && Number.isFinite(selected.layout.width)) ensureComponentSchemaV3();
+      }),
     })),
-    propertySelect("Height", layout.height || "", [["", "Unset"], ["hug", "Hug"], ["fill", "Fill"]], (event) => commitComponentMutation(() => {
-      const selected = selectedComponentNode();
-      selected.layout ||= {};
-      if (event.target.value) selected.layout.height = event.target.value;
-      else delete selected.layout.height;
+    propertyField("Height", el("input", {
+      type: "text",
+      inputmode: "decimal",
+      placeholder: "Unset, hug, fill, or px",
+      value: layout.height ?? "",
+      onchange: (event) => commitComponentMutation(() => {
+        const raw = event.target.value.trim();
+        const selected = selectedComponentNode();
+        selected.layout ||= {};
+        if (!raw) delete selected.layout.height;
+        else selected.layout.height = raw === "hug" || raw === "fill" ? raw : Number(raw);
+        if (typeof selected.layout.height === "number" && Number.isFinite(selected.layout.height)) ensureComponentSchemaV3();
+      }),
     })),
   );
   if (layout.mode === "grid") {
@@ -925,8 +948,40 @@ function renderComponentProperties() {
   layoutGrid.append(boxEditor("Padding", layout, "padding"));
   layoutSection.append(el("div", { class: "property-help" },
     state.spacingSnap
-      ? "Spacing follows design.json increments. Type a token or use the arrow buttons to step through the scale."
-      : "Spacing is unsnapped. Type any non-negative pixel value or use the arrow buttons to step by 1px."));
+      ? "Spacing follows design.json increments. Dimensions accept hug, fill, or fixed pixels."
+      : "Spacing is unsnapped. Dimensions accept hug, fill, or fixed pixels."));
+
+  const parentPath = state.selection?.path?.slice(0, -2);
+  const parentNode = parentPath ? valueAtPath(state.componentsDoc, parentPath) : null;
+  const canPosition = parentNode?.layout?.mode === "freeform" || node.position;
+  let positionSection = null;
+  if (canPosition) {
+    const position = node.position || {};
+    const coordinate = (axis) => propertyField(axis.toUpperCase(), el("input", {
+      type: "number",
+      step: "any",
+      value: position[axis] ?? 0,
+      "data-position-axis": axis,
+      onchange: (event) => commitComponentMutation(() => {
+        const selected = selectedComponentNode();
+        selected.position ||= { mode: "absolute", x: 0, y: 0 };
+        selected.position[axis] = event.target.valueAsNumber;
+      }),
+    }));
+    positionSection = el("section", { class: "property-section" },
+      el("h3", { class: "property-section-title" }, "Freeform position"),
+      el("div", { class: "property-grid" },
+        propertySelect("Mode", position.mode || "", [["", "Flow"], ["absolute", "Absolute"]], (event) => commitComponentMutation(() => {
+          const selected = selectedComponentNode();
+          if (event.target.value === "absolute") {
+            ensureComponentSchemaV3();
+            selected.position = { mode: "absolute", x: position.x ?? 0, y: position.y ?? 0 };
+          }
+          else delete selected.position;
+        })),
+        ...(position.mode === "absolute" ? [coordinate("x"), coordinate("y")] : [])),
+      el("div", { class: "property-help" }, "Coordinates are pixels relative to the direct freeform parent."));
+  }
 
   const appearance = node.appearance || {};
   const radii = (state.tokens?.radii || []).map((token) => token?.name).filter(Boolean);
@@ -963,7 +1018,7 @@ function renderComponentProperties() {
     el("h3", { class: "property-section-title" }, "Outer spacing"),
     el("div", { class: "property-grid" }, boxEditor("Margin", node, "margin", { allowAuto: true })),
     el("div", { class: "property-help" }, "Values reference spacing tokens from design.json. Changes update every preview of this component definition."));
-  slot.append(identity, layoutSection, appearanceSection, spacing);
+  slot.append(identity, layoutSection, ...(positionSection ? [positionSection] : []), appearanceSection, spacing);
 }
 
 function clearDropClasses() {
@@ -986,9 +1041,10 @@ function renderComponentLayerNode(node, path, depth, root = false) {
     label.detail,
     node?.id ? el("span", { class: "layer-id" }, ` · ${node.el || node.component || ""}`) : ""));
   row.querySelector("button").addEventListener("click", () => {
+    const pageChanged = state.page !== "components";
     state.page = "components";
     selectDesignPath("components.jsonc", path, label.detail);
-    render();
+    if (pageChanged) render();
   });
   if (!root && node && typeof node === "object") {
     row.addEventListener("dragstart", (event) => {
@@ -1037,6 +1093,8 @@ function renderComponentLayerNode(node, path, depth, root = false) {
 function renderComponentLayers() {
   const slot = $("#component-layer-tree");
   if (!slot) return;
+  const scrollTop = slot.scrollTop;
+  const scrollLeft = slot.scrollLeft;
   slot.textContent = "";
   const components = state.componentsDoc?.components || [];
   for (const [index, component] of components.entries()) {
@@ -1052,6 +1110,8 @@ function renderComponentLayers() {
   $("#layers-duplicate-btn").disabled = !editable;
   $("#layers-delete-btn").disabled = !editable;
   updateHistoryButtons();
+  slot.scrollTop = scrollTop;
+  slot.scrollLeft = scrollLeft;
 }
 
 function renderInspector() {
@@ -1076,7 +1136,142 @@ function applyInspectHighlight() {
     const path = node.dataset.designPath || node.dataset.dsNodePath;
     const selected = state.selection && file === state.selection.file && path === JSON.stringify(state.selection.path);
     node.classList.toggle("is-inspected", !!selected);
+    if (node.dataset.dsNodePath) {
+      const nodePath = renderedNodePath(node);
+      if (!nodePath) continue;
+      const componentNode = valueAtPath(state.componentsDoc, nodePath);
+      const parentNode = valueAtPath(state.componentsDoc, nodePath.slice(0, -2));
+      node.classList.toggle("is-freeform-movable",
+        componentNode?.position?.mode === "absolute" && parentNode?.layout?.mode === "freeform");
+    }
   }
+}
+
+function renderedNodePath(element) {
+  try {
+    const path = JSON.parse(element?.dataset?.dsNodePath || "");
+    return Array.isArray(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+function freeformDragTarget(start) {
+  let element = start?.closest?.("[data-ds-node-path]");
+  while (element && $("#app").contains(element)) {
+    const path = renderedNodePath(element);
+    if (!path) {
+      element = element.parentElement?.closest?.("[data-ds-node-path]");
+      continue;
+    }
+    const node = valueAtPath(state.componentsDoc, path);
+    const parentPath = path.slice(0, -2);
+    const parent = valueAtPath(state.componentsDoc, parentPath);
+    if (node?.position?.mode === "absolute" && parent?.layout?.mode === "freeform") {
+      return { element, path, node, parentElement: element.offsetParent || element.parentElement };
+    }
+    element = element.parentElement?.closest?.("[data-ds-node-path]");
+  }
+  return null;
+}
+
+function updateFreeformPosition(path, x, y) {
+  const key = pathKey(path);
+  for (const element of document.querySelectorAll("[data-ds-node-path]")) {
+    if (element.dataset.dsNodePath !== key) continue;
+    element.style.left = `${x}px`;
+    element.style.top = `${y}px`;
+  }
+  for (const axis of ["x", "y"]) {
+    const input = $(`[data-position-axis="${axis}"]`);
+    if (input) input.value = String(axis === "x" ? x : y);
+  }
+  const selected = selectedComponentNode();
+  if (selected && pathKey(state.selection.path) === key) {
+    $("#inspect-json").value = JSON.stringify(selected, null, 2);
+  }
+}
+
+function beginFreeformDrag(event) {
+  if (!state.inspectMode || event.button !== 0 || state.freeformDrag) return;
+  const target = freeformDragTarget(event.target);
+  if (!target) return;
+  const parentRect = target.parentElement?.getBoundingClientRect();
+  const scaleX = parentRect && target.parentElement.offsetWidth ? parentRect.width / target.parentElement.offsetWidth : 1;
+  const scaleY = parentRect && target.parentElement.offsetHeight ? parentRect.height / target.parentElement.offsetHeight : 1;
+  state.freeformDrag = {
+    ...target,
+    pointerId: event.pointerId,
+    before: clone(state.componentsDoc),
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: target.node.position.x,
+    originY: target.node.position.y,
+    scaleX: scaleX || 1,
+    scaleY: scaleY || 1,
+    active: false,
+    moved: false,
+  };
+}
+
+function moveFreeformDrag(event) {
+  const drag = state.freeformDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const deltaX = event.clientX - drag.startX;
+  const deltaY = event.clientY - drag.startY;
+  if (!drag.active) {
+    if (Math.hypot(deltaX, deltaY) < 4) return;
+    drag.active = true;
+    selectDesignPath("components.jsonc", drag.path, componentLayerLabel(drag.node).detail);
+    drag.element.classList.add("is-freeform-dragging");
+    document.body.classList.add("freeform-drag-active");
+    drag.element.setPointerCapture?.(event.pointerId);
+  }
+  const x = Math.round(drag.originX + deltaX / drag.scaleX);
+  const y = Math.round(drag.originY + deltaY / drag.scaleY);
+  if (x === drag.node.position.x && y === drag.node.position.y) return;
+  drag.moved = true;
+  drag.node.position.x = x;
+  drag.node.position.y = y;
+  updateFreeformPosition(drag.path, x, y);
+  event.preventDefault();
+}
+
+function finishFreeformDrag(event, cancelled = false) {
+  const drag = state.freeformDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  state.freeformDrag = null;
+  if (!drag.active) return;
+  drag.element.releasePointerCapture?.(event.pointerId);
+  drag.element.classList.remove("is-freeform-dragging");
+  document.body.classList.remove("freeform-drag-active");
+  state.suppressInspectClickUntil = Date.now() + 500;
+  if (cancelled) {
+    drag.node.position.x = drag.originX;
+    drag.node.position.y = drag.originY;
+    updateFreeformPosition(drag.path, drag.originX, drag.originY);
+  } else if (drag.moved) {
+    state.componentPast.push(drag.before);
+    if (state.componentPast.length > 50) state.componentPast.shift();
+    state.componentFuture = [];
+    state.design.componentsDoc = state.componentsDoc;
+    markComponentsDirty();
+    renderInspector();
+    applyInspectHighlight();
+    postDesignSelection();
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function cancelFreeformDrag() {
+  const drag = state.freeformDrag;
+  if (!drag) return;
+  finishFreeformDrag({
+    pointerId: drag.pointerId,
+    preventDefault() {},
+    stopImmediatePropagation() {},
+  }, true);
 }
 
 function selectionPayload() {
@@ -2002,13 +2197,28 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     positionValidationSlot();
   });
-  $("#app").addEventListener("click", (event) => {
+  const app = $("#app");
+  app.addEventListener("pointerdown", beginFreeformDrag, true);
+  window.addEventListener("pointermove", moveFreeformDrag, true);
+  window.addEventListener("pointerup", (event) => finishFreeformDrag(event), true);
+  window.addEventListener("pointercancel", (event) => finishFreeformDrag(event, true), true);
+  window.addEventListener("blur", cancelFreeformDrag);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) cancelFreeformDrag();
+  });
+  app.addEventListener("click", (event) => {
     if (!state.inspectMode) return;
+    if (Date.now() < state.suppressInspectClickUntil) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     const renderedNode = event.target.closest("[data-ds-node-path]");
     if (renderedNode) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      const path = JSON.parse(renderedNode.dataset.dsNodePath || "[]");
+      const path = renderedNodePath(renderedNode);
+      if (!path) return;
       selectDesignPath("components.jsonc", path, `Layer: ${renderedNode.dataset.dsNodeId || renderedNode.localName}`);
       return;
     }
@@ -2052,6 +2262,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (state.freeformDrag) return;
     if (!state.inspectMode || !(event.ctrlKey || event.metaKey) || event.altKey) return;
     if (event.target.closest("input, textarea, select")) return;
     const key = event.key.toLowerCase();

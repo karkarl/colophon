@@ -31,13 +31,15 @@ function specToDom(spec, inSvg = false) {
   for (const [property, value] of Object.entries(spec.style || {})) {
     node.style.setProperty(property, String(value));
   }
+  for (const [k, v] of Object.entries(spec.attrs || {})) {
+    if (v != null) node.setAttribute(k, String(v));
+  }
+  // Internal selection metadata must not be replaceable by authored attributes.
   if (spec.source) {
     node.dataset.dsComponent = spec.source.component || "";
     node.dataset.dsNodePath = JSON.stringify(spec.source.path || []);
     if (spec.source.nodeId) node.dataset.dsNodeId = spec.source.nodeId;
-  }
-  for (const [k, v] of Object.entries(spec.attrs || {})) {
-    if (v != null) node.setAttribute(k, String(v));
+    else delete node.dataset.dsNodeId;
   }
   for (const kid of spec.children || []) {
     const dom = specToDom(kid, svg);

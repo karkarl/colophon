@@ -102,7 +102,7 @@ With no `port` or overrides, `design.json` and `components.jsonc` remain the fra
 ### 2. The canvas renders + edits it
 Open the **Design System** canvas to see the system rendered live:
 - **Design system** - Brand board, color palette, type scale, spacing/radii/shadows, principles.
-- **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM interpreter (no framework runtime, works offline) using the system's own tokens, so you see real UI, not just code. Format v2 gives every object layer a stable `id` and supports semantic `layout` / `margin` fields for vertical, horizontal, and grid Auto Layout.
+- **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM interpreter (no framework runtime, works offline) using the system's own tokens, so you see real UI, not just code. Format v3 keeps every object layer relational with a stable `id`, supports semantic Auto Layout, and adds explicit parent-relative freeform positioning.
 - **Inline editing** — change a color/font/brand text and **Save to repo** writes`design.json` back. File edits stream back into the canvas via SSE.
 - **Exact inspection** — toggle **Inspect** to select brand, color, typography, spacing,
   radius, shadow, principle, component, or individual rendered component layer by its
@@ -120,9 +120,12 @@ Open the **Design System** canvas to see the system rendered live:
   Appearance controls inherit from the parent/class by default and write sparse
   overrides for typography, colors, radius, shadow, and text alignment. Drag layers
   before, after, or inside another element;
-  duplicate/delete layers; and undo/redo before saving.
+  duplicate/delete layers; and undo/redo before saving. In Inspect mode, drag an
+  absolutely positioned child directly on a freeform preview to update its
+  parent-relative X/Y coordinates live; one undo step is recorded when it is dropped.
 
-`components.jsonc` v2 uses stable IDs and token names instead of raw CSS lengths:
+`components.jsonc` v3 uses stable IDs and token names for semantic layout, with
+fixed pixel dimensions reserved for intentional freeform composition:
 
 ```json
 {
@@ -147,13 +150,38 @@ Open the **Design System** canvas to see the system rendered live:
 }
 ```
 
-`layout.mode` accepts `vertical`, `horizontal`, `grid`, or `none`. Layout also
+`layout.mode` accepts `vertical`, `horizontal`, `grid`, `freeform`, or `none`. Layout also
 supports `gap`, `padding`, `align`, `justify`, `wrap`, `grow`, `columns`, `width`,
-and `height`; `margin` lives on the node. Spacing values reference keys in
+and `height`; `margin` lives on the node. Width and height accept `fill`, `hug`, or
+non-negative pixel numbers in v3. Spacing values reference keys in
 `design.json` (plus `0` and `auto`) by default. Unsnapped non-negative numbers are
-explicit pixel values. Format v1 remains readable, while v2 requires
+explicit pixel values. Format v1 remains readable, while v2 and later require
 unique stable IDs within each component so canvas selections and future layer moves
 remain durable.
+
+A freeform parent establishes a local coordinate system without flattening the
+relational tree. Direct children opt into arbitrary placement with finite pixel
+coordinates:
+
+```json
+{
+  "id": "board",
+  "el": "section",
+  "layout": { "mode": "freeform", "width": 640, "height": 400 },
+  "children": [
+    {
+      "id": "card",
+      "component": "Card",
+      "position": { "mode": "absolute", "x": 120, "y": 48 },
+      "layout": { "width": 240, "height": 160 }
+    }
+  ]
+}
+```
+
+Omitting `position` keeps a child in normal flow. Auto Layout drag operations still
+reorder or reparent `children`; freeform movement updates only the child node's
+parent-relative `x` and `y`.
 
 Visual values inherit through normal component classes and the element hierarchy.
 An omitted `appearance` key means **inherit**; selecting a different value in
