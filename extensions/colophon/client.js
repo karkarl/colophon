@@ -1039,9 +1039,10 @@ function renderComponentLayerNode(node, path, depth, root = false) {
     label.detail,
     node?.id ? el("span", { class: "layer-id" }, ` · ${node.el || node.component || ""}`) : ""));
   row.querySelector("button").addEventListener("click", () => {
+    const pageChanged = state.page !== "components";
     state.page = "components";
     selectDesignPath("components.jsonc", path, label.detail);
-    render();
+    if (pageChanged) render();
   });
   if (!root && node && typeof node === "object") {
     row.addEventListener("dragstart", (event) => {
@@ -1090,6 +1091,8 @@ function renderComponentLayerNode(node, path, depth, root = false) {
 function renderComponentLayers() {
   const slot = $("#component-layer-tree");
   if (!slot) return;
+  const scrollTop = slot.scrollTop;
+  const scrollLeft = slot.scrollLeft;
   slot.textContent = "";
   const components = state.componentsDoc?.components || [];
   for (const [index, component] of components.entries()) {
@@ -1105,6 +1108,8 @@ function renderComponentLayers() {
   $("#layers-duplicate-btn").disabled = !editable;
   $("#layers-delete-btn").disabled = !editable;
   updateHistoryButtons();
+  slot.scrollTop = scrollTop;
+  slot.scrollLeft = scrollLeft;
 }
 
 function renderInspector() {
