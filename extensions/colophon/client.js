@@ -1137,7 +1137,8 @@ function applyInspectHighlight() {
     const selected = state.selection && file === state.selection.file && path === JSON.stringify(state.selection.path);
     node.classList.toggle("is-inspected", !!selected);
     if (node.dataset.dsNodePath) {
-      const nodePath = JSON.parse(node.dataset.dsNodePath);
+      const nodePath = renderedNodePath(node);
+      if (!nodePath) continue;
       const componentNode = valueAtPath(state.componentsDoc, nodePath);
       const parentNode = valueAtPath(state.componentsDoc, nodePath.slice(0, -2));
       node.classList.toggle("is-freeform-movable",
@@ -1146,10 +1147,23 @@ function applyInspectHighlight() {
   }
 }
 
+function renderedNodePath(element) {
+  try {
+    const path = JSON.parse(element?.dataset?.dsNodePath || "");
+    return Array.isArray(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
 function freeformDragTarget(start) {
   let element = start?.closest?.("[data-ds-node-path]");
   while (element && $("#app").contains(element)) {
-    const path = JSON.parse(element.dataset.dsNodePath || "[]");
+    const path = renderedNodePath(element);
+    if (!path) {
+      element = element.parentElement?.closest?.("[data-ds-node-path]");
+      continue;
+    }
     const node = valueAtPath(state.componentsDoc, path);
     const parentPath = path.slice(0, -2);
     const parent = valueAtPath(state.componentsDoc, parentPath);
@@ -1195,21 +1209,26 @@ function beginFreeformDrag(event) {
     originY: target.node.position.y,
     scaleX: scaleX || 1,
     scaleY: scaleY || 1,
+    active: false,
     moved: false,
   };
-  selectDesignPath("components.jsonc", target.path, componentLayerLabel(target.node).detail);
-  target.element.classList.add("is-freeform-dragging");
-  document.body.classList.add("freeform-drag-active");
-  target.element.setPointerCapture?.(event.pointerId);
-  event.preventDefault();
-  event.stopImmediatePropagation();
 }
 
 function moveFreeformDrag(event) {
   const drag = state.freeformDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
-  const x = Math.round(drag.originX + (event.clientX - drag.startX) / drag.scaleX);
-  const y = Math.round(drag.originY + (event.clientY - drag.startY) / drag.scaleY);
+  const deltaX = event.clientX - drag.startX;
+  const deltaY = event.clientY - drag.startY;
+  if (!drag.active) {
+    if (Math.hypot(deltaX, deltaY) < 4) return;
+    drag.active = true;
+    selectDesignPath("components.jsonc", drag.path, componentLayerLabel(drag.node).detail);
+    drag.element.classList.add("is-freeform-dragging");
+    document.body.classList.add("freeform-drag-active");
+    drag.element.setPointerCapture?.(event.pointerId);
+  }
+  const x = Math.round(drag.originX + deltaX / drag.scaleX);
+  const y = Math.round(drag.originY + deltaY / drag.scaleY);
   if (x === drag.node.position.x && y === drag.node.position.y) return;
   drag.moved = true;
   drag.node.position.x = x;
@@ -1221,10 +1240,11 @@ function moveFreeformDrag(event) {
 function finishFreeformDrag(event, cancelled = false) {
   const drag = state.freeformDrag;
   if (!drag || event.pointerId !== drag.pointerId) return;
+  state.freeformDrag = null;
+  if (!drag.active) return;
   drag.element.releasePointerCapture?.(event.pointerId);
   drag.element.classList.remove("is-freeform-dragging");
   document.body.classList.remove("freeform-drag-active");
-  state.freeformDrag = null;
   state.suppressInspectClickUntil = Date.now() + 500;
   if (cancelled) {
     drag.node.position.x = drag.originX;
@@ -1242,6 +1262,16 @@ function finishFreeformDrag(event, cancelled = false) {
   }
   event.preventDefault();
   event.stopImmediatePropagation();
+}
+
+function cancelFreeformDrag() {
+  const drag = state.freeformDrag;
+  if (!drag) return;
+  finishFreeformDrag({
+    pointerId: drag.pointerId,
+    preventDefault() {},
+    stopImmediatePropagation() {},
+  }, true);
 }
 
 function selectionPayload() {
@@ -2169,9 +2199,13 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   const app = $("#app");
   app.addEventListener("pointerdown", beginFreeformDrag, true);
-  app.addEventListener("pointermove", moveFreeformDrag, true);
-  app.addEventListener("pointerup", (event) => finishFreeformDrag(event), true);
-  app.addEventListener("pointercancel", (event) => finishFreeformDrag(event, true), true);
+  window.addEventListener("pointermove", moveFreeformDrag, true);
+  window.addEventListener("pointerup", (event) => finishFreeformDrag(event), true);
+  window.addEventListener("pointercancel", (event) => finishFreeformDrag(event, true), true);
+  window.addEventListener("blur", cancelFreeformDrag);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) cancelFreeformDrag();
+  });
   app.addEventListener("click", (event) => {
     if (!state.inspectMode) return;
     if (Date.now() < state.suppressInspectClickUntil) {
@@ -2183,7 +2217,8 @@ window.addEventListener("DOMContentLoaded", () => {
     if (renderedNode) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      const path = JSON.parse(renderedNode.dataset.dsNodePath || "[]");
+      const path = renderedNodePath(renderedNode);
+      if (!path) return;
       selectDesignPath("components.jsonc", path, `Layer: ${renderedNode.dataset.dsNodeId || renderedNode.localName}`);
       return;
     }
@@ -2227,6 +2262,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
   document.addEventListener("keydown", (event) => {
+    if (state.freeformDrag) return;
     if (!state.inspectMode || !(event.ctrlKey || event.metaKey) || event.altKey) return;
     if (event.target.closest("input, textarea, select")) return;
     const key = event.key.toLowerCase();

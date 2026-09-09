@@ -182,12 +182,14 @@
     const node = svg ? document.createElementNS(SVG_NS, spec.tag || "div") : document.createElement(spec.tag || "div");
     if (spec.class) node.setAttribute("class", spec.class);
     for (const [property, value] of Object.entries(spec.style || {})) node.style.setProperty(property, String(value));
+    for (const [key, value] of Object.entries(spec.attrs || {})) if (value != null) node.setAttribute(key, String(value));
+    // Internal selection metadata must not be replaceable by authored attributes.
     if (spec.source) {
       node.dataset.dsComponent = spec.source.component || "";
       node.dataset.dsNodePath = JSON.stringify(spec.source.path || []);
       if (spec.source.nodeId) node.dataset.dsNodeId = spec.source.nodeId;
+      else delete node.dataset.dsNodeId;
     }
-    for (const [key, value] of Object.entries(spec.attrs || {})) if (value != null) node.setAttribute(key, String(value));
     for (const child of spec.children || []) {
       const childNode = specToDom(child, svg);
       if (childNode) node.append(childNode);
