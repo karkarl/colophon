@@ -1,0 +1,297 @@
+{
+  "meta": {
+    "version": 3,
+    "updatedBy": "starter",
+    "note": "Hybrid Auto Layout and freeform component patterns for Northlight. Edit in the Colophon canvas or by hand."
+  },
+  "components": [
+    {
+      "name": "Button",
+      "note": "Primary action. One per view — it's where the eye should land.",
+      "props": {
+        "children": "Save changes",
+        "variant": "primary"
+      },
+      "root": {
+        "id": "button-root",
+        "el": "button",
+        "class": "ds-btn ds-btn-{variant}",
+        "layout": {
+          "mode": "horizontal",
+          "padding": {
+            "x": "5",
+            "y": "3"
+          },
+          "align": "center",
+          "justify": "center",
+          "width": "hug"
+        },
+        "children": [
+          "{children}"
+        ]
+      }
+    },
+    {
+      "name": "Field",
+      "note": "Text input with a label above it. Labels are quiet; the field is the subject.",
+      "props": {
+        "label": "Project name",
+        "placeholder": "Northlight"
+      },
+      "root": {
+        "id": "field-root",
+        "el": "label",
+        "class": "ds-field",
+        "layout": {
+          "mode": "vertical",
+          "gap": "2",
+          "width": "fill"
+        },
+        "children": [
+          {
+            "id": "field-label",
+            "el": "span",
+            "class": "ds-field-label",
+            "children": [
+              "{label}"
+            ]
+          },
+          {
+            "id": "field-input",
+            "el": "input",
+            "class": "ds-input",
+            "attrs": {
+              "placeholder": "{placeholder}"
+            },
+            "layout": {
+              "padding": {
+                "x": "4",
+                "y": "3"
+              },
+              "width": "fill"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Card",
+      "note": "Content card. Flat by default — a hairline border, not a drop shadow. Never nest a card inside another card.",
+      "props": {
+        "title": "Weekly digest",
+        "body": "12 changes across 3 repos."
+      },
+      "root": {
+        "id": "card-root",
+        "el": "article",
+        "class": "ds-card",
+        "layout": {
+          "mode": "vertical",
+          "gap": "2",
+          "padding": "5",
+          "width": "fill"
+        },
+        "children": [
+          {
+            "id": "card-title",
+            "el": "h3",
+            "class": "ds-card-title",
+            "children": [
+              "{title}"
+            ]
+          },
+          {
+            "id": "card-body",
+            "el": "p",
+            "class": "ds-card-body",
+            "children": [
+              "{body}"
+            ]
+          },
+          {
+            "id": "card-link",
+            "el": "a",
+            "class": "ds-link",
+            "attrs": {
+              "href": "#"
+            },
+            "margin": {
+              "top": "1"
+            },
+            "children": [
+              "Open report →"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "Badge",
+      "note": "Status pill. Uses semantic color tokens, never a raw hex.",
+      "props": {
+        "children": "Live",
+        "tone": "positive"
+      },
+      "root": {
+        "id": "badge-root",
+        "el": "span",
+        "class": "ds-badge ds-badge-{tone}",
+        "layout": {
+          "mode": "horizontal",
+          "padding": {
+            "x": "3",
+            "y": "1"
+          },
+          "align": "center",
+          "width": "hug"
+        },
+        "children": [
+          "{children}"
+        ]
+      }
+    },
+    {
+      "name": "ExampleScreen",
+      "note": "A representative screen that combines Auto Layout with a freeform status board — the 'does it hang together' check for the whole system.",
+      "root": {
+        "id": "example-screen-root",
+        "el": "section",
+        "class": "ds-screen",
+        "layout": {
+          "mode": "vertical",
+          "gap": "5",
+          "width": "fill"
+        },
+        "children": [
+          {
+            "id": "example-screen-header",
+            "el": "header",
+            "class": "ds-screen-head",
+            "layout": {
+              "mode": "horizontal",
+              "gap": "4",
+              "align": "start",
+              "justify": "space-between",
+              "width": "fill"
+            },
+            "children": [
+              {
+                "id": "example-screen-heading",
+                "el": "div",
+                "layout": {
+                  "mode": "vertical",
+                  "gap": "1"
+                },
+                "children": [
+                  {
+                    "id": "example-screen-eyebrow",
+                    "el": "p",
+                    "class": "ds-eyebrow",
+                    "children": [
+                      "Workspace"
+                    ]
+                  },
+                  {
+                    "id": "example-screen-title",
+                    "el": "h2",
+                    "class": "ds-screen-title",
+                    "children": [
+                      "Good morning, Karen"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "example-screen-status",
+                "component": "Badge",
+                "props": {
+                  "children": "All systems normal",
+                  "tone": "positive"
+                }
+              }
+            ]
+          },
+          {
+            "id": "example-screen-grid",
+            "el": "div",
+            "class": "ds-grid",
+            "layout": {
+              "mode": "freeform",
+              "width": "fill",
+              "height": 176
+            },
+            "children": [
+              {
+                "id": "example-screen-deploys",
+                "component": "Card",
+                "position": {
+                  "mode": "absolute",
+                  "x": 0,
+                  "y": 0
+                },
+                "props": {
+                  "title": "Deploys",
+                  "body": "3 shipped today. Last one 20 minutes ago."
+                },
+                "layout": {
+                  "width": 280,
+                  "height": 148
+                }
+              },
+              {
+                "id": "example-screen-reviews",
+                "component": "Card",
+                "position": {
+                  "mode": "absolute",
+                  "x": 300,
+                  "y": 0
+                },
+                "props": {
+                  "title": "Review queue",
+                  "body": "2 PRs waiting on you."
+                },
+                "layout": {
+                  "width": 280,
+                  "height": 148
+                }
+              }
+            ]
+          },
+          {
+            "id": "example-screen-actions",
+            "el": "div",
+            "class": "ds-row",
+            "layout": {
+              "mode": "horizontal",
+              "gap": "4",
+              "align": "end",
+              "wrap": true,
+              "width": "fill"
+            },
+            "children": [
+              {
+                "id": "example-screen-field",
+                "component": "Field",
+                "props": {
+                  "label": "Invite a teammate",
+                  "placeholder": "name@company.com"
+                },
+                "layout": {
+                  "grow": true
+                }
+              },
+              {
+                "id": "example-screen-submit",
+                "component": "Button",
+                "props": {
+                  "children": "Send invite",
+                  "variant": "primary"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
