@@ -120,7 +120,9 @@ Open the **Design System** canvas to see the system rendered live:
   Appearance controls inherit from the parent/class by default and write sparse
   overrides for typography, colors, radius, shadow, and text alignment. Drag layers
   before, after, or inside another element;
-  duplicate/delete layers; and undo/redo before saving.
+  duplicate/delete layers; and undo/redo before saving. In Inspect mode, drag an
+  absolutely positioned child directly on a freeform preview to update its
+  parent-relative X/Y coordinates live; one undo step is recorded when it is dropped.
 
 `components.jsonc` v3 uses stable IDs and token names for semantic layout, with
 fixed pixel dimensions reserved for intentional freeform composition:

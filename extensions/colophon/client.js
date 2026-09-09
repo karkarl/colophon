@@ -21,6 +21,7 @@ let state = {
   theme: "light", validation: null, page: "brand",
   inspectMode: false, selection: null,
   inspectorTab: "properties", componentPast: [], componentFuture: [], dragPath: null,
+  freeformDrag: null, suppressInspectClickUntil: 0,
   spacingSnap: true,
 };
 
@@ -960,6 +961,7 @@ function renderComponentProperties() {
       type: "number",
       step: "any",
       value: position[axis] ?? 0,
+      "data-position-axis": axis,
       onchange: (event) => commitComponentMutation(() => {
         const selected = selectedComponentNode();
         selected.position ||= { mode: "absolute", x: 0, y: 0 };
@@ -1134,7 +1136,112 @@ function applyInspectHighlight() {
     const path = node.dataset.designPath || node.dataset.dsNodePath;
     const selected = state.selection && file === state.selection.file && path === JSON.stringify(state.selection.path);
     node.classList.toggle("is-inspected", !!selected);
+    if (node.dataset.dsNodePath) {
+      const nodePath = JSON.parse(node.dataset.dsNodePath);
+      const componentNode = valueAtPath(state.componentsDoc, nodePath);
+      const parentNode = valueAtPath(state.componentsDoc, nodePath.slice(0, -2));
+      node.classList.toggle("is-freeform-movable",
+        componentNode?.position?.mode === "absolute" && parentNode?.layout?.mode === "freeform");
+    }
   }
+}
+
+function freeformDragTarget(start) {
+  let element = start?.closest?.("[data-ds-node-path]");
+  while (element && $("#app").contains(element)) {
+    const path = JSON.parse(element.dataset.dsNodePath || "[]");
+    const node = valueAtPath(state.componentsDoc, path);
+    const parentPath = path.slice(0, -2);
+    const parent = valueAtPath(state.componentsDoc, parentPath);
+    if (node?.position?.mode === "absolute" && parent?.layout?.mode === "freeform") {
+      return { element, path, node, parentElement: element.offsetParent || element.parentElement };
+    }
+    element = element.parentElement?.closest?.("[data-ds-node-path]");
+  }
+  return null;
+}
+
+function updateFreeformPosition(path, x, y) {
+  const key = pathKey(path);
+  for (const element of document.querySelectorAll("[data-ds-node-path]")) {
+    if (element.dataset.dsNodePath !== key) continue;
+    element.style.left = `${x}px`;
+    element.style.top = `${y}px`;
+  }
+  for (const axis of ["x", "y"]) {
+    const input = $(`[data-position-axis="${axis}"]`);
+    if (input) input.value = String(axis === "x" ? x : y);
+  }
+  const selected = selectedComponentNode();
+  if (selected && pathKey(state.selection.path) === key) {
+    $("#inspect-json").value = JSON.stringify(selected, null, 2);
+  }
+}
+
+function beginFreeformDrag(event) {
+  if (!state.inspectMode || event.button !== 0 || state.freeformDrag) return;
+  const target = freeformDragTarget(event.target);
+  if (!target) return;
+  const parentRect = target.parentElement?.getBoundingClientRect();
+  const scaleX = parentRect && target.parentElement.offsetWidth ? parentRect.width / target.parentElement.offsetWidth : 1;
+  const scaleY = parentRect && target.parentElement.offsetHeight ? parentRect.height / target.parentElement.offsetHeight : 1;
+  state.freeformDrag = {
+    ...target,
+    pointerId: event.pointerId,
+    before: clone(state.componentsDoc),
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: target.node.position.x,
+    originY: target.node.position.y,
+    scaleX: scaleX || 1,
+    scaleY: scaleY || 1,
+    moved: false,
+  };
+  selectDesignPath("components.jsonc", target.path, componentLayerLabel(target.node).detail);
+  target.element.classList.add("is-freeform-dragging");
+  document.body.classList.add("freeform-drag-active");
+  target.element.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function moveFreeformDrag(event) {
+  const drag = state.freeformDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const x = Math.round(drag.originX + (event.clientX - drag.startX) / drag.scaleX);
+  const y = Math.round(drag.originY + (event.clientY - drag.startY) / drag.scaleY);
+  if (x === drag.node.position.x && y === drag.node.position.y) return;
+  drag.moved = true;
+  drag.node.position.x = x;
+  drag.node.position.y = y;
+  updateFreeformPosition(drag.path, x, y);
+  event.preventDefault();
+}
+
+function finishFreeformDrag(event, cancelled = false) {
+  const drag = state.freeformDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  drag.element.releasePointerCapture?.(event.pointerId);
+  drag.element.classList.remove("is-freeform-dragging");
+  document.body.classList.remove("freeform-drag-active");
+  state.freeformDrag = null;
+  state.suppressInspectClickUntil = Date.now() + 500;
+  if (cancelled) {
+    drag.node.position.x = drag.originX;
+    drag.node.position.y = drag.originY;
+    updateFreeformPosition(drag.path, drag.originX, drag.originY);
+  } else if (drag.moved) {
+    state.componentPast.push(drag.before);
+    if (state.componentPast.length > 50) state.componentPast.shift();
+    state.componentFuture = [];
+    state.design.componentsDoc = state.componentsDoc;
+    markComponentsDirty();
+    renderInspector();
+    applyInspectHighlight();
+    postDesignSelection();
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
 }
 
 function selectionPayload() {
@@ -2060,8 +2167,18 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     positionValidationSlot();
   });
-  $("#app").addEventListener("click", (event) => {
+  const app = $("#app");
+  app.addEventListener("pointerdown", beginFreeformDrag, true);
+  app.addEventListener("pointermove", moveFreeformDrag, true);
+  app.addEventListener("pointerup", (event) => finishFreeformDrag(event), true);
+  app.addEventListener("pointercancel", (event) => finishFreeformDrag(event, true), true);
+  app.addEventListener("click", (event) => {
     if (!state.inspectMode) return;
+    if (Date.now() < state.suppressInspectClickUntil) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     const renderedNode = event.target.closest("[data-ds-node-path]");
     if (renderedNode) {
       event.preventDefault();
