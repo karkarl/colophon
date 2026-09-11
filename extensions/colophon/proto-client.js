@@ -429,9 +429,9 @@ async function attachSelection() {
         draft: state.dirty,
       }),
     });
-    button.textContent = "Attached";
-    $("#save-status").textContent = `${result.title} added to chat`;
-    setTimeout(() => { button.textContent = "Attach to chat"; button.disabled = false; }, 1400);
+    button.textContent = "Sent";
+    $("#save-status").textContent = `${result.title} sent to chat`;
+    setTimeout(() => { button.textContent = "Send to chat"; button.disabled = false; }, 1400);
   } catch (error) {
     button.disabled = false;
     $("#editor-error").textContent = error.message || String(error);

@@ -216,7 +216,7 @@ A second canvas turns the design system into **click-through prototypes** — so
 - **Device frames** — preview each screen in web breakpoints, desktop-app windows (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including native app chrome.
 - **Interactions (v1)** — navigate between screens, simple state (toggles, tabs), open/close modals, and visibility bound to state. Click through it live in the canvas, rendered with your real tokens + components in Light/Dark/High-contrast.
 - **Inspect and edit** — toggle Inspect to select the exact rendered JSON element, edit its object in place, drag layers to reorder or reparent them, and save the resulting scene graph back to `prototypes.jsonc`.
-- **Attach to chat** — selected elements can be added to the next Copilot message as a structured object containing the source, screen, exact JSON Pointer path, and element payload.
+- **Send to chat** — selected elements can be sent to Copilot as context for the next request, including the source, screen, exact JSON Pointer path, draft state, and element payload.
 - **Convert to code** — a first-pass `codegen` action turns the JSONC scene graph and component intent into code for the configured production target. The current web target emits React/JSX using `ds-*` conventions; a native port target emits a hand-off scaffold and porting notes for WinUI/SwiftUI through the same authority mechanism.
 - **`prototype` tool** — Copilot authors and reads prototypes from conversation: `action` of `read` (flow outline), `validate` (dangling navigation / unknown components or tokens), `patch` (surgical scene-graph ops), `codegen` (convert a screen), `export`(standalone browser artifact), or `publish` (explicit GitHub Pages deployment).
 
@@ -236,7 +236,7 @@ A second canvas turns the design system into **click-through prototypes** — so
 **Colophon canvas:**
 - `inspect_selection` — return the exact selected `design.json` or `components.jsonc`
   object and its JSON Pointer path.
-- `attach_selection` — add that object to the next chat message as structured context.
+- `attach_selection` — send that object to chat as context for the user's next request.
 - `read` — return the current system as a text summary.
 - `init` — scaffold `.agents/design/` (non-destructive); `mode: "starter" | "scratch"`.
 - `scan` — scan existing UI and return a proposed system (text + evidence); writes nothing.
@@ -246,7 +246,7 @@ A second canvas turns the design system into **click-through prototypes** — so
 **Prototype canvas:**
 - `read` / `outline` — return the Markdown flow outline (screens, nodes, navigation).
 - `inspect_selection` — return the exact selected JSON element and its JSON Pointer path.
-- `attach_selection` — add that selection to the next chat message as structured extension context.
+- `attach_selection` — send that selection to chat as context for the user's next request.
 - `patch` — apply surgical scene-graph ops (`upsertScreen`, `setNode`, `patchNode`,
   `setNav`, …) and save.
 - `validate` — dangling navigation targets, unknown component/token references.

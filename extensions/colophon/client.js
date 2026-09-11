@@ -1363,8 +1363,8 @@ async function attachDesignSelection() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(selection),
     });
-    button.textContent = "Attached";
-    setTimeout(() => { button.textContent = "Attach to chat"; button.disabled = false; }, 1400);
+    button.textContent = "Sent";
+    setTimeout(() => { button.textContent = "Send to chat"; button.disabled = false; }, 1400);
     return result;
   } catch (error) {
     button.disabled = false;

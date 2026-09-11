@@ -58,7 +58,7 @@ export function renderShell() {
           <div id="inspect-title" class="inspect-title">No selection</div>
           <code id="inspect-path" class="inspect-path"></code>
         </div>
-        <button type="button" id="inspect-attach-btn" class="btn" disabled>Attach to chat</button>
+        <button type="button" id="inspect-attach-btn" class="btn" disabled>Send to chat</button>
       </div>
       <div class="inspector-tabs" role="tablist" aria-label="Inspector view">
         <button type="button" id="properties-tab" role="tab" aria-selected="true" class="is-active">Properties</button>

@@ -28,6 +28,7 @@ import { codegenScreen } from "./protocodegen.mjs";
 import { componentNames, validateComponentsDoc, COMPONENTS_FILENAME } from "./componentsio.mjs";
 import { buildPrototypeExportHtml, writePrototypeExport } from "./prototypeexport.mjs";
 import { publishPrototypeToPages } from "./pagespublish.mjs";
+import { sendSelectionToChat } from "./chat-context.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 let sessionRef = null;
@@ -126,30 +127,26 @@ async function selectedPrototypeElement(entry, selection = entry?.selection) {
     screen: { id: resolved.screen.id, name: resolved.screen.name || resolved.screen.id },
     jsonPath: resolved.jsonPointer,
     element: resolved.node,
+    draft: false,
   };
 }
 
 async function attachPrototypeElement(entry, selection) {
   const selected = await selectedPrototypeElement(entry, selection);
   const title = `Prototype: ${selected.element.id || selected.element.component || "element"}`;
-  const sendAttachments = sessionRef?.rpc?.session?.extensions?.sendAttachmentsToMessage;
-  if (typeof sendAttachments !== "function") throw new Error("This Copilot host does not support composer attachments from canvases");
-  await sendAttachments({
-    instanceId: entry.instanceId,
-    attachments: [{
-      type: "extension_context",
-      title,
-      payload: {
-        kind: "colophon.prototype.element",
-        source: selected.source,
-        screen: selected.screen,
-        jsonPath: selected.jsonPath,
-        element: selected.element,
-        draft: selected.draft,
-      },
-    }],
+  const payload = {
+    kind: "colophon.prototype.element",
+    source: selected.source,
+    screen: selected.screen,
+    jsonPath: selected.jsonPath,
+    element: selected.element,
+    draft: selected.draft,
+  };
+  const result = await sendSelectionToChat(sessionRef, {
+    title,
+    payload,
   });
-  return { ok: true, title, ...selected };
+  return { ...result, ...selected };
 }
 
 function designSelectionPayload(selection) {
@@ -169,17 +166,11 @@ async function attachDesignElement(entry, selection = entry?.selection) {
   if (!entry) throw new Error("Colophon canvas instance is not open");
   const selected = designSelectionPayload(selection);
   const title = `Design: ${selected.label}`;
-  const sendAttachments = sessionRef?.rpc?.session?.extensions?.sendAttachmentsToMessage;
-  if (typeof sendAttachments !== "function") throw new Error("This Copilot host does not support composer attachments from canvases");
-  await sendAttachments({
-    instanceId: entry.instanceId,
-    attachments: [{
-      type: "extension_context",
-      title,
-      payload: { kind: "colophon.design.element", ...selected },
-    }],
+  const result = await sendSelectionToChat(sessionRef, {
+    title,
+    payload: { kind: "colophon.design.element", ...selected },
   });
-  return { ok: true, title, ...selected };
+  return { ...result, ...selected };
 }
 
 // ---- per-instance loopback servers ----------------------------------------
@@ -523,7 +514,7 @@ const canvas = createCanvas({
     },
     {
       name: "attach_selection",
-      description: "Attach the exact selected design-system JSON object to the user's next Copilot chat message as structured extension context.",
+      description: "Send the exact selected design-system JSON object to Copilot chat as context for the user's next request.",
       handler: async (ctx) => {
         const entry = servers.get(ctx.instanceId);
         try { return await attachDesignElement(entry); }
@@ -617,7 +608,7 @@ async function closeInstance(instanceId) {
 const protoCanvas = createCanvas({
   id: "prototype",
   displayName: "Prototype",
-  description: "Inspect, edit, reorder, attach, and preview exact JSON layers from this repo's device-framed click-through prototype.",
+  description: "Inspect, edit, reorder, send, and preview exact JSON layers from this repo's device-framed click-through prototype.",
   inputSchema: { type: "object", properties: { workingDirectory: { type: "string", description: "Repo/working directory whose .agents/design/prototypes.jsonc to load" } }, additionalProperties: true },
 
   open: async (ctx) => {
@@ -651,7 +642,7 @@ const protoCanvas = createCanvas({
     },
     {
       name: "attach_selection",
-      description: "Attach the exact currently selected prototype JSON element to the user's next Copilot chat message as structured extension context.",
+      description: "Send the exact currently selected prototype JSON element to Copilot chat as context for the user's next request.",
       handler: async (ctx) => {
         const entry = servers.get(ctx.instanceId);
         try { return await attachPrototypeElement(entry); }
