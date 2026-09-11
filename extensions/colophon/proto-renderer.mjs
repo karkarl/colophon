@@ -79,7 +79,7 @@ export function renderProtoShell() {
               <div id="selection-title" class="inspector-title">No selection</div>
               <code id="selection-path" class="selection-path"></code>
             </div>
-            <button type="button" id="attach-btn" class="btn" disabled>Attach to chat</button>
+            <button type="button" id="attach-btn" class="btn" disabled>Send to chat</button>
           </div>
           <textarea id="json-editor" aria-label="Selected element JSON" spellcheck="false" disabled></textarea>
           <div class="editor-actions">
