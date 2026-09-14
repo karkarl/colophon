@@ -352,6 +352,15 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
   flex: none; width: 16px; height: 16px; border: 1px solid color-mix(in srgb, var(--color-ink, #1c1a17) 18%, transparent);
   border-radius: var(--radius-sm, 4px);
 }
+.color-picker-chip.is-transparent, .color-palette-swatch.is-transparent {
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--color-line, #e4ddd0) 70%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--color-line, #e4ddd0) 70%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--color-line, #e4ddd0) 70%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--color-line, #e4ddd0) 70%, transparent) 75%);
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+  background-size: 8px 8px;
+}
 .color-palette { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; }
 .color-palette-inherit, .color-palette-custom { grid-column: 1 / -1; }
 .color-palette button, .color-palette-custom {
@@ -360,7 +369,7 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 }
 .color-palette-inherit { text-align: left; }
 .color-palette-token { display: grid; justify-items: center; gap: 2px; }
-.color-palette-token:hover, .color-palette-inherit:hover, .color-palette-custom:hover,
+.color-palette-token:hover, .color-palette-inherit:hover, .color-palette-none:hover, .color-palette-custom:hover,
 .color-palette .is-selected {
   border-color: color-mix(in srgb, var(--color-accent, #b5502a) 35%, transparent);
   background: color-mix(in srgb, var(--color-accent, #b5502a) 9%, transparent);

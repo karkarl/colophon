@@ -34,6 +34,7 @@ async function api(path, opts) {
 
 const THEMES = ["light", "dark", "highContrast"];
 const THEME_LABEL = { light: "Light", dark: "Dark", highContrast: "High contrast" };
+const APPEARANCE_NONE = "$none";
 
 function colorList(tokens) {
   const c = tokens?.colors;
@@ -464,6 +465,7 @@ function typographyPicker(label, value, kind, onchange) {
 }
 
 function appearanceColorValue(value) {
+  if (value === APPEARANCE_NONE) return "transparent";
   if (/^#[0-9a-f]{6}$/i.test(value || "")) return value;
   const token = colorList(state.tokens).find((color) => color.name === value);
   return colorValueForTheme(token, state.theme) || "transparent";
@@ -473,23 +475,28 @@ function colorPicker(label, value, onchange) {
   const colors = colorList(state.tokens).filter((color) => color?.name);
   const selectedToken = colors.find((color) => color.name === value);
   const selectedColor = appearanceColorValue(value);
+  const selectedLabel = value === APPEARANCE_NONE ? "None / transparent" : (selectedToken?.name || value);
   const details = el("details", { class: "property-picker color-property-picker" });
   const summary = el("summary", {},
     el("span", { class: "color-picker-summary" },
-      el("span", { class: "color-picker-chip", style: `background:${selectedColor}` }),
-      el("span", {}, value ? (selectedToken?.name || value) : "Inherit / class"),
+      el("span", { class: `color-picker-chip${value === APPEARANCE_NONE ? " is-transparent" : ""}`, style: `background-color:${selectedColor}` }),
+      el("span", {}, value ? selectedLabel : "Inherit / class"),
     ),
     el("span", { class: "property-picker-chevron", "aria-hidden": "true" }, "⌄"),
   );
   const palette = el("div", { class: "color-palette" });
   palette.append(el("button", {
     type: "button",
-    class: `color-palette-inherit${value ? "" : " is-selected"}`,
+    class: `color-palette-token color-palette-none${value === APPEARANCE_NONE ? " is-selected" : ""}`,
+    title: "None / transparent",
+    "aria-label": "None / transparent",
     onclick: (event) => {
       closePicker(event.currentTarget);
-      onchange("");
+      onchange(APPEARANCE_NONE);
     },
-  }, "Inherit / class"));
+  },
+  el("span", { class: "color-palette-swatch is-transparent" }),
+  el("span", { class: "color-palette-name" }, "none")));
   for (const color of colors) {
     const preview = colorValueForTheme(color, state.theme);
     palette.append(el("button", {
@@ -505,6 +512,14 @@ function colorPicker(label, value, onchange) {
     el("span", { class: "color-palette-swatch", style: `background:${preview}` }),
     el("span", { class: "color-palette-name" }, color.name)));
   }
+  palette.append(el("button", {
+    type: "button",
+    class: `color-palette-inherit${value ? "" : " is-selected"}`,
+    onclick: (event) => {
+      closePicker(event.currentTarget);
+      onchange("");
+    },
+  }, "Inherit / class"));
   const customValue = /^#[0-9a-f]{6}$/i.test(value || "") ? value : "#000000";
   const customInput = el("input", {
     type: "color",
@@ -1008,11 +1023,11 @@ function renderComponentProperties() {
     colorPicker("Border color", appearance.borderColor || "",
       (value) => commitComponentMutation(() => setAppearanceOverride("borderColor", value))),
     appearanceField("Text align", "textAlign", inheritedOptions(["start", "center", "end", "left", "right"], (value) => value[0].toUpperCase() + value.slice(1))),
-    appearanceField("Radius", "radius", inheritedOptions(radii)),
-    appearanceField("Shadow", "shadow", inheritedOptions(shadows)),
+    appearanceField("Radius", "radius", [...inheritedOptions(radii), [APPEARANCE_NONE, "None"]]),
+    appearanceField("Shadow", "shadow", [...inheritedOptions(shadows), [APPEARANCE_NONE, "None"]]),
   );
   appearanceSection.append(el("div", { class: "property-help" },
-    "Inherit removes the override from components.jsonc. Explicit choices reference design.json tokens and take precedence over parent or class styling."));
+    "Inherit removes the override from components.jsonc. None writes an explicit transparent, square, or shadowless value. Token choices take precedence over parent or class styling."));
 
   const spacing = el("section", { class: "property-section" },
     el("h3", { class: "property-section-title" }, "Outer spacing"),
