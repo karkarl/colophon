@@ -116,7 +116,8 @@ Open the **Design System** canvas to see the system rendered live:
   design-system scale by default; **Snapped** switches them to free pixel values when
   a composition needs an intentional exception. Typography pickers preview each
   design-system text style and family in its own typeface. Color pickers expose the
-  full token palette plus a native spectrum control for an explicit custom override.
+  full token palette, an explicit **None / transparent** choice, and a native
+  spectrum control for a custom override.
   Appearance controls inherit from the parent/class by default and write sparse
   overrides for typography, colors, radius, shadow, and text alignment. Drag layers
   before, after, or inside another element;
@@ -187,8 +188,9 @@ Visual values inherit through normal component classes and the element hierarchy
 An omitted `appearance` key means **inherit**; selecting a different value in
 Properties writes only that token override. Supported overrides are `fontFamily`,
 `textStyle`, `color`, `background`, `borderColor`, `radius`, `shadow`, and
-`textAlign`. Color properties may also contain an explicit six-digit hex value when
-the palette's **Custom** control is used.
+`textAlign`. Color properties may also contain an explicit six-digit hex value.
+The reserved `$none` value produces transparent colors, a square radius, or no
+shadow without colliding with design-token names.
 If a repo has no `.agents/design/` yet, the canvas shows a bundled **starter** system plus a 3-way **onboarding** panel (below).
 
 ### 2b. Seeding a repo — three ways

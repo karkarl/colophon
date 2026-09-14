@@ -201,15 +201,33 @@ test("appearance overrides produce token-bound CSS while omitted values inherit"
   });
 });
 
+test("appearance overrides support explicit none values", () => {
+  assert.deepEqual(appearanceStyle({
+    appearance: {
+      color: "$none",
+      background: "$none",
+      borderColor: "$none",
+      radius: "$none",
+      shadow: "$none",
+    },
+  }), {
+    color: "transparent",
+    "background-color": "transparent",
+    "border-color": "transparent",
+    "border-radius": "0",
+    "box-shadow": "none",
+  });
+});
+
 test("appearance overrides validate against design tokens", () => {
   const tokens = {
-    colors: [{ name: "ink" }],
+    colors: [{ name: "ink" }, { name: "transparent" }],
     typography: {
       body: { family: "system-ui" },
       scale: [{ name: "body", role: "body", size: "16px" }],
     },
-    radii: [{ name: "md" }],
-    shadows: [{ name: "sm" }],
+    radii: [{ name: "md" }, { name: "none" }],
+    shadows: [{ name: "sm" }, { name: "none" }],
   };
   const doc = {
     meta: { version: 2 },
@@ -230,6 +248,20 @@ test("appearance overrides validate against design tokens", () => {
   doc.components[0].root.appearance.color = "#2f81f7";
   assert.equal(validateComponentsDoc(doc, { tokens }).ok, true);
   assert.equal(appearanceStyle(doc.components[0].root).color, "#2f81f7");
+  doc.components[0].root.appearance = { color: "$none", background: "$none", borderColor: "$none", radius: "$none", shadow: "$none" };
+  assert.equal(validateComponentsDoc(doc, { tokens }).ok, true);
+  doc.components[0].root.appearance = { color: "transparent", background: "transparent", borderColor: "transparent", radius: "none", shadow: "none" };
+  assert.equal(validateComponentsDoc(doc, { tokens }).ok, true);
+  assert.deepEqual(appearanceStyle(doc.components[0].root), {
+    color: "var(--color-transparent)",
+    "background-color": "var(--color-transparent)",
+    "border-color": "var(--color-transparent)",
+    "border-radius": "var(--radius-none)",
+    "box-shadow": "var(--shadow-none)",
+  });
+  doc.components[0].root.appearance.fontFamily = "$none";
+  assert.match(validateComponentsDoc(doc, { tokens }).errors.join("\n"), /appearance\.fontFamily: must be display, body, or mono/);
+  delete doc.components[0].root.appearance.fontFamily;
   doc.components[0].root.appearance.color = "rgb(47, 129, 247)";
   assert.match(validateComponentsDoc(doc, { tokens }).errors.join("\n"), /must be a token name/);
 });

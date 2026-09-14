@@ -195,7 +195,9 @@ const FONT_FAMILY_VALUES = new Set(["display", "body", "mono"]);
 const TEXT_ALIGN_VALUES = new Set(["start", "center", "end", "left", "right"]);
 const APPEARANCE_KEYS = new Set(["fontFamily", "textStyle", "color", "background", "borderColor", "radius", "shadow", "textAlign"]);
 const COLOR_KEYS = new Set(["color", "background", "borderColor"]);
+const NONE_KEYS = new Set(["color", "background", "borderColor", "radius", "shadow"]);
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+const APPEARANCE_NONE = "$none";
 
 function validSpace(value) {
   return (typeof value === "number" && Number.isFinite(value) && value >= 0)
@@ -244,6 +246,7 @@ function validateAppearance(node, where, errors, tokens) {
     }
     if (key === "fontFamily" && !FONT_FAMILY_VALUES.has(value)) errors.push(`${where}.appearance.fontFamily: must be display, body, or mono.`);
     else if (key === "textAlign" && !TEXT_ALIGN_VALUES.has(value)) errors.push(`${where}.appearance.textAlign: unsupported value "${value}".`);
+    else if (value === APPEARANCE_NONE && NONE_KEYS.has(key)) continue;
     else if (COLOR_KEYS.has(key) && HEX_COLOR.test(value)) continue;
     else if (!/^[A-Za-z0-9_-]+$/.test(value)) errors.push(`${where}.appearance.${key}: must be a token name.`);
   }
@@ -260,7 +263,7 @@ function validateAppearance(node, where, errors, tokens) {
   for (const [key, group] of Object.entries(groups)) {
     const value = node.appearance[key];
     const names = tokenNames(tokens, group);
-    if (value && names && !(COLOR_KEYS.has(key) && HEX_COLOR.test(value)) && !names.has(value)) {
+    if (value && names && !(value === APPEARANCE_NONE && NONE_KEYS.has(key)) && !(COLOR_KEYS.has(key) && HEX_COLOR.test(value)) && !names.has(value)) {
       errors.push(`${where}.appearance.${key}: references unknown ${group} token "${value}".`);
     }
   }
@@ -508,12 +511,12 @@ export function appearanceStyle(node) {
     style["letter-spacing"] = `${prefix}-tracking, normal)`;
   }
   if (appearance.fontFamily) style["font-family"] = `var(--font-${appearance.fontFamily})`;
-  const colorValue = (value) => HEX_COLOR.test(value) ? value : `var(--color-${value})`;
+  const colorValue = (value) => value === APPEARANCE_NONE ? "transparent" : (HEX_COLOR.test(value) ? value : `var(--color-${value})`);
   if (appearance.color) style.color = colorValue(appearance.color);
   if (appearance.background) style["background-color"] = colorValue(appearance.background);
   if (appearance.borderColor) style["border-color"] = colorValue(appearance.borderColor);
-  if (appearance.radius) style["border-radius"] = `var(--radius-${appearance.radius})`;
-  if (appearance.shadow) style["box-shadow"] = `var(--shadow-${appearance.shadow})`;
+  if (appearance.radius) style["border-radius"] = appearance.radius === APPEARANCE_NONE ? "0" : `var(--radius-${appearance.radius})`;
+  if (appearance.shadow) style["box-shadow"] = appearance.shadow === APPEARANCE_NONE ? "none" : `var(--shadow-${appearance.shadow})`;
   if (appearance.textAlign) style["text-align"] = appearance.textAlign;
   return style;
 }

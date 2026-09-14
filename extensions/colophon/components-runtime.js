@@ -2,6 +2,7 @@
 // pure component expansion logic so exported files do not depend on ESM imports.
 (function () {
   const SVG_NS = "http://www.w3.org/2000/svg";
+  const APPEARANCE_NONE = "$none";
 
   function componentList(doc) {
     return Array.isArray(doc?.components) ? doc.components.filter((component) => component?.name) : [];
@@ -110,12 +111,12 @@
       style["letter-spacing"] = `${prefix}-tracking, normal)`;
     }
     if (appearance.fontFamily) style["font-family"] = `var(--font-${appearance.fontFamily})`;
-    const colorValue = (value) => /^#[0-9a-f]{6}$/i.test(value) ? value : `var(--color-${value})`;
+    const colorValue = (value) => value === APPEARANCE_NONE ? "transparent" : (/^#[0-9a-f]{6}$/i.test(value) ? value : `var(--color-${value})`);
     if (appearance.color) style.color = colorValue(appearance.color);
     if (appearance.background) style["background-color"] = colorValue(appearance.background);
     if (appearance.borderColor) style["border-color"] = colorValue(appearance.borderColor);
-    if (appearance.radius) style["border-radius"] = `var(--radius-${appearance.radius})`;
-    if (appearance.shadow) style["box-shadow"] = `var(--shadow-${appearance.shadow})`;
+    if (appearance.radius) style["border-radius"] = appearance.radius === APPEARANCE_NONE ? "0" : `var(--radius-${appearance.radius})`;
+    if (appearance.shadow) style["box-shadow"] = appearance.shadow === APPEARANCE_NONE ? "none" : `var(--shadow-${appearance.shadow})`;
     if (appearance.textAlign) style["text-align"] = appearance.textAlign;
     return style;
   }
