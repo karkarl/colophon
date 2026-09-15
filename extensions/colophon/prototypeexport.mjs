@@ -25,11 +25,13 @@ export function prototypeExportDir(workspacePath) {
 }
 
 export async function buildPrototypeExportHtml({ design, proto, validation, outline }) {
-  const [styles, componentsRuntime, protoRuntime, client] = await Promise.all([
+  const [styles, componentsRuntime, protoRuntime, client, interactions, interactionStyles] = await Promise.all([
     readAsset("proto.css"),
     readAsset("components-runtime.js"),
     readAsset("proto-render.js"),
     readAsset("proto-client.js"),
+    readAsset("components-interactions.js"),
+    readAsset("components-interactions.css"),
   ]);
   const data = {
     design: {
@@ -53,7 +55,7 @@ export async function buildPrototypeExportHtml({ design, proto, validation, outl
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content="Colophon Prototype Export" />
     <title>Prototype</title>
-    <style>${styles}</style>
+    <style>${styles}\n${interactionStyles}</style>
   </head>
   <body>
     <div class="topbar">
@@ -86,6 +88,7 @@ export async function buildPrototypeExportHtml({ design, proto, validation, outl
     <div id="outline-slot"></div>
     <div class="stage"><div id="frame-wrap" class="frame-wrap"></div></div>
     <script>window.__COLOPHON_PROTOTYPE_EXPORT__ = ${safeJson(data)};</script>
+    <script>${inlineScript(interactions)}</script>
     <script>${inlineScript(componentsRuntime)}</script>
     <script>${inlineScript(protoRuntime)}</script>
     <script>${inlineScript(client)}</script>

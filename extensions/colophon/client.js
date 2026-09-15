@@ -1613,7 +1613,8 @@ async function renderComponents(t, doc, { names = null, heading = "Components" }
   for (const name of previewNames) {
     const componentIndex = doc.components.findIndex((component) => component?.name === name);
     const card = inspectable(el("div", { class: "preview" }), "components.jsonc", ["components", componentIndex], `Component: ${name}`);
-    card.append(el("div", { class: "head" }, el("span", { class: "cname" }, name)));
+    const head = el("div", { class: "head" }, el("span", { class: "cname" }, name));
+    card.append(head);
     const stage = el("div", { class: "stage" });
     const surface = el("div", { class: "ds-preview-surface", style: "padding:20px" });
     stage.append(surface);
@@ -1622,6 +1623,14 @@ async function renderComponents(t, doc, { names = null, heading = "Components" }
     try {
       const dom = DS.renderComponent(doc, name, {});
       if (dom) surface.append(dom);
+      if (dom?.matches?.("[data-ds-states]") || dom?.querySelector?.("[data-ds-states]")) {
+        const select = el("select", { "aria-label": `${name} preview state` },
+          ...[["live", "Live"], ["rest", "Rest"], ["hover", "Hover"], ["pressed", "Pressed"], ["hoverPressed", "Hover + pressed"], ["disabled", "Disabled"]]
+            .map(([value, label]) => el("option", { value }, label)));
+        select.disabled = state.inspectMode;
+        select.addEventListener("change", () => window.DSInteractions.forceState(dom, select.value));
+        head.append(el("label", { class: "preview-state" }, "State", select));
+      }
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);
       surface.append(el("div", { class: "err" }, "Render error: " + msg));
@@ -1640,7 +1649,7 @@ function checkComponentPreviews(doc) {
   const DS = window.DSComp;
   if (!DS || !doc) return;
   for (const name of DS.componentNames(doc)) {
-    try { DS.renderComponent(doc, name, {}); }
+    try { window.DSInteractions.disposeTree(DS.renderComponent(doc, name, {})); }
     catch (error) {
       state.componentBuildError = String(error && error.message ? error.message : error);
       return;
@@ -2084,13 +2093,14 @@ async function render() {
   const gen = ++renderSeq;
   const t = state.tokens;
   const root = $("#app");
+  window.DSInteractions?.disposeTree(root);
   root.textContent = "";
 
   renderValidation();
   const page = activePage();
   const content = el("div", { class: "page-content", tabindex: "-1" });
   const pageContent = await page.render(t);
-  if (gen !== renderSeq) return; // a newer render superseded this one
+  if (gen !== renderSeq) { window.DSInteractions?.disposeTree(pageContent); return; }
   content.append(pageContent);
   root.append(el("div", { class: "canvas-layout" }, renderPageNavigation(), content));
   applyInspectHighlight();
@@ -2190,6 +2200,11 @@ window.addEventListener("DOMContentLoaded", () => {
   $("#validate-btn")?.addEventListener("click", doValidate);
   $("#inspect-btn")?.addEventListener("click", async () => {
     state.inspectMode = !state.inspectMode;
+    window.DSInteractions?.resetTree($("#app"));
+    for (const select of document.querySelectorAll(".preview-state select")) {
+      select.value = "live";
+      select.disabled = state.inspectMode;
+    }
     $("#inspect-btn").classList.toggle("is-active", state.inspectMode);
     $("#inspect-btn").setAttribute("aria-pressed", String(state.inspectMode));
     $("#design-inspector").hidden = !state.inspectMode;

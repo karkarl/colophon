@@ -191,6 +191,78 @@ Properties writes only that token override. Supported overrides are `fontFamily`
 `textAlign`. Color properties may also contain an explicit six-digit hex value.
 The reserved `$none` value produces transparent colors, a square radius, or no
 shadow without colliding with design-token names.
+
+#### Interactive component previews
+
+Element and component-reference nodes can optionally declare `states` and `on`:
+
+```json
+{
+  "id": "picker",
+  "el": "button",
+  "attrs": { "type": "button" },
+  "appearance": { "background": "$none", "color": "ink" },
+  "states": {
+    "hover": { "background": "line" },
+    "pressed": { "background": "paper" },
+    "hoverPressed": { "background": "surface" },
+    "disabled": { "color": "muted" }
+  },
+  "control": {
+    "chrome": "none",
+    "focus": { "kind": "outline", "color": "accent" }
+  },
+  "on": { "click": { "open": "PickerOptions" } },
+  "children": ["Format"]
+}
+```
+
+Each state is a sparse `appearance` override with the same validation, including
+existing six-digit hex and `$none` support. The precedence is base, hover, pressed,
+then hoverPressed when both apply. Disabled is exclusive (base plus disabled).
+Omitted properties restore their previous inline/class/inherited values. On a
+component reference, states merge by state and property over the component root;
+an explicit `on` replaces the root's action, and `control` merges by field.
+Existing definitions without these fields retain their styling.
+Interaction metadata (`states`, `on`, and `control`) is supported only outside SVG
+subtrees. Validation rejects it on SVG roots and descendants, including expanded
+component references. Put interactions on an HTML button wrapping an SVG icon.
+
+Defining `states.disabled` does not disable a control. Use `attrs.disabled: true`
+for native controls or `attrs["aria-disabled"]: "true"`. The gallery's **State**
+selector offers Live, Rest, Hover, Pressed, Hover + pressed, and Disabled for
+screenshots. It applies to state-bearing nodes in that preview only, never saves
+to JSON, and cannot re-enable an authored disabled control. Live follows primary
+pointer and button keyboard input. Inspect mode selects/edits layers instead of
+opening flyouts.
+Entering Inspect clears forced preview states and disables the State selector so
+temporary disabled previews do not block layer selection.
+
+`on.click.open` is a literal, exact component name, not a node ID or interpolated
+prop. The target renders with its own defaults and design tokens in a non-clipping
+flyout. Only one flyout opens at a time; nested flyouts are not supported.
+Escape restores trigger focus; outside click and focus leaving dismiss without
+stealing focus. Native radio changes select and dismiss. Radio groups are isolated
+per component render. Selection is transient: reopening restores defaults and does
+not update the trigger's label. These interactions work in the gallery, Prototype
+canvas, and self-contained exports; they do not define production framework behavior.
+
+Run `node --test extensions/colophon/*.test.mjs` for regression coverage. The browser
+tests use installed Chrome/Edge without an npm dependency; set `COLOPHON_BROWSER`
+to a Chromium executable on other hosts (otherwise those tests report a skip).
+
+`control` is an **opt-in** browser chrome reset/focus treatment for native buttons,
+textual inputs, textareas, and `contenteditable` elements. `chrome: "none"` removes
+the browser bevel/border and textarea resize handle, and requires a visible
+`focus` replacement. Focus `kind` is `outline` or `underline`; `color` must name a
+design color token (not a literal color or `$none`). Text entry uses focus; buttons
+use keyboard focus visibility. Forced-colors mode retains a visible focus cue.
+Control eligibility is checked after resolving component defaults and authored
+reference props, including interpolated input types and `contenteditable` values.
+Overrides that resolve to unsupported controls are rejected.
+No global Windows styling or raw-CSS escape hatch is introduced; ordinary Field
+and Button patterns are unchanged. Edit these optional fields in the JSON inspector.
+
 If a repo has no `.agents/design/` yet, the canvas shows a bundled **starter** system plus a 3-way **onboarding** panel (below).
 
 ### 2b. Seeding a repo — three ways

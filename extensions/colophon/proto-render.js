@@ -248,6 +248,7 @@
   // Mount any React `component` nodes collected during the DOM build.
   // Render the runtime's current screen (and any open modal) into `surface`.
   function renderScreen(surface, runtime, tokens) {
+    window.DSInteractions?.disposeTree(surface);
     surface.innerHTML = "";
     const screen = runtime.screen();
     if (!screen) { surface.append(el("div", { class: "proto-empty" }, "No screen selected.")); return; }

@@ -20,6 +20,9 @@ test("writes a self-contained prototype export", async () => {
     assert.equal(output.path, path.join(workspace, ".agents", "design", "prototype-export", "index.html"));
     assert.match(saved, /window\.__COLOPHON_PROTOTYPE_EXPORT__/);
     assert.match(saved, /window\.DSComp/);
+    assert.match(saved, /window\.DSInteractions/);
+    assert.match(saved, /\.ds-flyout/);
+    assert.ok(saved.indexOf("window.DSInteractions =") < saved.indexOf("window.DSComp ="));
     assert.match(saved, /window\.ProtoRender/);
     assert.match(saved, /Standalone export/);
   } finally {
