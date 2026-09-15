@@ -1,0 +1,52 @@
+.ds-flyout {
+  position: fixed;
+  z-index: 10000;
+  width: max-content;
+  overflow: auto;
+  transform-origin: top left;
+  transition: none;
+}
+[data-ds-chrome="none"] {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+textarea[data-ds-chrome="none"] { resize: none; }
+[data-ds-focus]:focus { outline: none; }
+[data-ds-focus="outline"]:focus-visible {
+  outline: 2px solid var(--ds-focus-color);
+  outline-offset: 2px;
+}
+[data-ds-focus="underline"]:is(input, textarea, [contenteditable]):focus,
+[data-ds-focus="underline"]:focus-visible {
+  /* A visible focus cue must survive authored inline shadow overrides. */
+  box-shadow: inset 0 -2px var(--ds-focus-color) !important;
+}
+[data-ds-states] {
+  transition: color 160ms ease-out, background-color 160ms ease-out, border-color 160ms ease-out;
+}
+.ds-btn[data-ds-states]:hover { filter: none; }
+.ds-btn-secondary[data-ds-states]:hover { background: transparent; }
+.ds-btn-secondary[data-ds-states] { background: transparent; }
+.preview-state { margin-left: auto; font: var(--text-caption-size) var(--font-body); color: var(--color-muted); }
+.preview-state select {
+  margin-left: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-ds-states] { transition: none; }
+}
+@media (forced-colors: active) {
+  [data-ds-focus]:focus-visible,
+  [data-ds-focus]:is(input, textarea, [contenteditable]):focus {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}

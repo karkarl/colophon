@@ -6,6 +6,65 @@
   },
   "components": [
     {
+      "name": "SubtlePicker",
+      "note": "A quiet publishing-format picker. Hover or press to see its states; click to open transient radio options.",
+      "root": {
+        "id": "subtle-picker",
+        "el": "button",
+        "attrs": { "type": "button" },
+        "layout": { "mode": "horizontal", "padding": { "x": "4", "y": "2" }, "width": "hug", "align": "center" },
+        "appearance": { "background": "$none", "color": "ink", "textStyle": "small", "radius": "md" },
+        "control": { "chrome": "none", "focus": { "kind": "outline", "color": "accent" } },
+        "states": {
+          "hover": { "background": "line" },
+          "pressed": { "background": "paper" },
+          "hoverPressed": { "background": "surface" },
+          "disabled": { "color": "muted", "background": "$none" }
+        },
+        "on": { "click": { "open": "PickerOptions" } },
+        "children": ["Format ▾"]
+      }
+    },
+    {
+      "name": "PickerOptions",
+      "note": "Native radio options. Each preview has an isolated group. Selecting closes the flyout; reopening restores defaults.",
+      "root": {
+        "id": "picker-options",
+        "el": "div",
+        "attrs": { "role": "group", "aria-label": "Publishing format" },
+        "layout": { "mode": "vertical", "gap": "3", "padding": "4", "width": "hug" },
+        "appearance": { "background": "surface", "color": "ink", "textStyle": "small", "radius": "md", "shadow": "md" },
+        "children": [
+          {
+            "id": "format-field-note", "el": "label",
+            "layout": { "mode": "horizontal", "gap": "2", "align": "center" },
+            "children": [{ "id": "format-note-input", "el": "input", "attrs": { "type": "radio", "name": "format", "value": "note", "checked": true } }, "Field note"]
+          },
+          {
+            "id": "format-changelog", "el": "label",
+            "layout": { "mode": "horizontal", "gap": "2", "align": "center" },
+            "children": [{ "id": "format-changelog-input", "el": "input", "attrs": { "type": "radio", "name": "format", "value": "changelog" } }, "Changelog"]
+          },
+          {
+            "id": "format-essay", "el": "label",
+            "layout": { "mode": "horizontal", "gap": "2", "align": "center" },
+            "children": [{ "id": "format-essay-input", "el": "input", "attrs": { "type": "radio", "name": "format", "value": "essay" } }, "Technical essay"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "BorderlessComposer",
+      "note": "Typeable, borderless textarea with an accent underline on focus. The standard Field remains unchanged.",
+      "root": {
+        "id": "borderless-composer", "el": "textarea",
+        "attrs": { "aria-label": "Field note draft", "placeholder": "Write a field note", "rows": 3 },
+        "layout": { "padding": "3", "width": "fill" },
+        "appearance": { "textStyle": "body", "color": "ink", "background": "$none" },
+        "control": { "chrome": "none", "focus": { "kind": "underline", "color": "accent" } }
+      }
+    },
+    {
       "name": "Button",
       "note": "Primary action. One per view — it's where the eye should land.",
       "props": {

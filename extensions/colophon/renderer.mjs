@@ -76,6 +76,8 @@ export function renderShell() {
         <span id="inspect-error" role="alert"></span>
       </div>
     </aside>
+    <link rel="stylesheet" href="/components-interactions.css" />
+    <script src="/components-interactions.js"></script>
     <script type="module" src="/components-render.mjs"></script>
     <script src="/client.js"></script>
   </body>

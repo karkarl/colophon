@@ -193,6 +193,7 @@ function buildDevice(preset, w, h) {
 let currentSurface = null;
 function renderFrame() {
   const wrap = $("#frame-wrap");
+  window.DSInteractions?.disposeTree(wrap);
   wrap.innerHTML = "";
   const preset = findDevice(state.deviceId);
   const { device, surface } = buildDevice(preset, state.w, state.h);
@@ -250,6 +251,7 @@ function layerLabel(node) {
 }
 function setDirty(dirty = true) {
   state.dirty = dirty;
+  if (window.__COLOPHON_PROTOTYPE_EXPORT__) return;
   $("#save-btn").disabled = !dirty || state.saving;
   $("#save-status").textContent = state.saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
 }
@@ -348,6 +350,7 @@ function moveLayerBefore(sourcePath, targetPath) {
   rebuildRuntime();
 }
 function renderElementEditor() {
+  if (window.__COLOPHON_PROTOTYPE_EXPORT__) return;
   const node = valueAtPath(state.proto?.doc, state.selectedPath || []);
   const selected = !!node && !!ProtoRender.nodeKind(node);
   const label = selected ? layerLabel(node) : null;
@@ -576,8 +579,9 @@ function wire() {
   $("#rotate-btn").addEventListener("click", () => { const w = state.w; state.w = state.h; state.h = w; syncSizeInputs(); renderFrame(); });
   $("#zoom-select").addEventListener("change", (e) => { state.zoom = e.target.value === "fit" ? "fit" : parseFloat(e.target.value); applyZoom(); });
   $("#screen-select").addEventListener("change", (e) => state.runtime?.setScreen(e.target.value));
-  $("#inspect-btn").addEventListener("click", () => {
+  $("#inspect-btn")?.addEventListener("click", () => {
     state.inspectMode = !state.inspectMode;
+    window.DSInteractions?.resetTree($("#frame-wrap"));
     $("#inspect-btn").classList.toggle("is-active", state.inspectMode);
     $("#inspect-btn").setAttribute("aria-pressed", String(state.inspectMode));
     $("#inspector").hidden = !state.inspectMode;
@@ -593,9 +597,9 @@ function wire() {
     event.stopImmediatePropagation();
     try { selectPath(JSON.parse(target.dataset.protoPath)); } catch { /* invalid renderer metadata */ }
   }, true);
-  $("#apply-json-btn").addEventListener("click", applyJsonEdit);
-  $("#save-btn").addEventListener("click", () => savePrototype());
-  $("#attach-btn").addEventListener("click", () => attachSelection());
+  $("#apply-json-btn")?.addEventListener("click", applyJsonEdit);
+  $("#save-btn")?.addEventListener("click", () => savePrototype());
+  $("#attach-btn")?.addEventListener("click", () => attachSelection());
   $("#back-btn").addEventListener("click", () => state.runtime?.dispatch({ back: true }));
   $("#reload-btn").addEventListener("click", () => {
     if (window.__COLOPHON_PROTOTYPE_EXPORT__) window.location.reload();

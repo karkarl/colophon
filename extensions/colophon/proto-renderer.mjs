@@ -90,6 +90,8 @@ export function renderProtoShell() {
       </aside>
     </div>
 
+    <link rel="stylesheet" href="/components-interactions.css" />
+    <script src="/components-interactions.js"></script>
     <script src="/components-runtime.js"></script>
     <script src="/proto-render.js"></script>
     <script src="/proto-client.js"></script>

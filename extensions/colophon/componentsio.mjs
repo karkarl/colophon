@@ -198,6 +198,67 @@ const COLOR_KEYS = new Set(["color", "background", "borderColor"]);
 const NONE_KEYS = new Set(["color", "background", "borderColor", "radius", "shadow"]);
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const APPEARANCE_NONE = "$none";
+const STATE_NAMES = new Set(["hover", "pressed", "hoverPressed", "disabled"]);
+const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+function validateInteraction(node, where, errors, tokens, map) {
+  if (node.states != null) {
+    if (!object(node.states)) errors.push(`${where}.states: must be an object.`);
+    else for (const [state, appearance] of Object.entries(node.states)) {
+      if (!STATE_NAMES.has(state)) errors.push(`${where}.states: unknown state "${state}".`);
+      if (!object(appearance)) errors.push(`${where}.states.${state}: must be an appearance object.`);
+      else {
+        const stateErrors = [];
+        validateAppearance({ appearance }, where, stateErrors, tokens);
+        errors.push(...stateErrors.map((error) => error.replace(`${where}.appearance`, `${where}.states.${state}`)));
+      }
+    }
+  }
+  if (node.on != null) {
+    if (!object(node.on) || Object.keys(node.on).some((key) => key !== "click")
+      || !object(node.on.click) || Object.keys(node.on.click).some((key) => key !== "open")
+      || typeof node.on.click.open !== "string" || !Object.hasOwn(map, node.on.click.open)) {
+      errors.push(`${where}.on: expected { click: { open: "DefinedComponentName" } } with a literal component name.`);
+    }
+  }
+  if (node.control == null) return;
+  const control = node.control;
+  if (!object(control)) { errors.push(`${where}.control: must be an object.`); return; }
+  for (const key of Object.keys(control)) {
+    if (!["chrome", "focus"].includes(key)) errors.push(`${where}.control: unknown property "${key}".`);
+  }
+  if (control.chrome != null && control.chrome !== "none") errors.push(`${where}.control.chrome: must be none.`);
+  if (control.focus != null) {
+    const focus = control.focus;
+    const colors = tokenNames(tokens, "colors");
+    if (!object(focus) || !["outline", "underline"].includes(focus.kind)
+      || Object.keys(focus).some((key) => !["kind", "color"].includes(key))
+      || typeof focus.color !== "string" || !/^[A-Za-z0-9_-]+$/.test(focus.color)
+      || (colors && !colors.has(focus.color))) {
+      errors.push(`${where}.control.focus: requires kind outline or underline and a defined color token.`);
+    }
+  }
+}
+
+function validateResolvedInteractions(spec, where, errors, inSvg = false) {
+  if (!spec || typeof spec === "string") return;
+  const svg = inSvg || spec.tag === "svg";
+  if (svg) {
+    for (const key of ["states", "on", "control"]) {
+      if (spec[key] != null) errors.push(`${where}.${key}: interaction metadata is not supported in SVG subtrees.`);
+    }
+  } else if (spec.control) {
+    if (spec.control.chrome === "none" && !spec.control.focus) errors.push(`${where}.control: removing chrome requires a visible focus treatment.`);
+    const editable = ["true", "plaintext-only", ""].includes(String(spec.attrs?.contenteditable ?? false));
+    const textInput = spec.tag === "input" && ["text", "search", "url", "tel", "email", "password", "number"].includes(spec.attrs?.type || "text");
+    if (!editable && spec.tag !== "button" && spec.tag !== "textarea" && !textInput) {
+      errors.push(`${where}.control: only buttons, textual inputs, textareas, and editable elements support control styling.`);
+    }
+  }
+  for (const [index, child] of (spec.children || []).entries()) {
+    validateResolvedInteractions(child, `${where}.children[${index}]`, errors, svg);
+  }
+}
 
 function validSpace(value) {
   return (typeof value === "number" && Number.isFinite(value) && value >= 0)
@@ -349,6 +410,7 @@ export function validateComponentsDoc(doc, { text = null, tokens = null } = {}) 
 
   // Structural walk: known node kinds, and component refs resolve to a defined name.
   const nameSet = new Set(names);
+  const map = getComponentMap(d);
   const version = Number(d.meta?.version || 0);
   const requiresIds = version >= 2;
   for (const c of d.components) {
@@ -367,6 +429,7 @@ export function validateComponentsDoc(doc, { text = null, tokens = null } = {}) 
         ids.add(node.id);
       }
       validateAutoLayout(node, where, errors, tokens);
+      validateInteraction(node, where, errors, tokens, map);
       if (node.layout?.mode === "freeform" && version < 3) errors.push(`${where}.layout.mode: freeform requires components.jsonc v3.`);
       for (const dimension of ["width", "height"]) {
         const value = node.layout?.[dimension];
@@ -389,6 +452,12 @@ export function validateComponentsDoc(doc, { text = null, tokens = null } = {}) 
     });
   }
 
+  // Resolve props and reference overrides exactly as rendering does, after shapes are valid.
+  if (!errors.length) {
+    for (const c of d.components) {
+      validateResolvedInteractions(expandInstance(d, c.name), `${c.name}.root`, errors);
+    }
+  }
   return { ok: errors.length === 0, errors, warnings, names };
 }
 
@@ -530,8 +599,22 @@ function mergeNodeStyle(spec, node, source) {
   return {
     ...spec,
     style: { ...(spec.style || {}), ...nodeStyle(node) },
+    ...interactionSpec(node, spec),
     source,
   };
+}
+
+function interactionSpec(node, base = {}) {
+  const result = {};
+  if (node.states != null) {
+    result.states = { ...base.states };
+    for (const [state, appearance] of Object.entries(node.states)) {
+      result.states[state] = { ...base.states?.[state], ...appearanceStyle({ appearance }) };
+    }
+  }
+  if (node.on != null) result.on = node.on;
+  if (node.control != null) result.control = { ...base.control, ...node.control };
+  return result;
 }
 
 // Expand a component instance into a normalized spec tree:
@@ -566,6 +649,7 @@ export function expandNode(doc, node, props, seen = [], source = null) {
     class: null,
     attrs: {},
     style: nodeStyle(node),
+    ...interactionSpec(node),
     source: source ? { ...source, nodeId: node.id || null } : null,
     children: [],
   };

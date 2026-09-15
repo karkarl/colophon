@@ -127,7 +127,20 @@
 
   function mergeNodeStyle(spec, node, source) {
     if (!spec || typeof spec === "string") return spec;
-    return { ...spec, style: { ...(spec.style || {}), ...nodeStyle(node) }, source };
+    return { ...spec, style: { ...(spec.style || {}), ...nodeStyle(node) }, ...interactionSpec(node, spec), source };
+  }
+
+  function interactionSpec(node, base = {}) {
+    const result = {};
+    if (node.states != null) {
+      result.states = { ...base.states };
+      for (const [state, appearance] of Object.entries(node.states)) {
+        result.states[state] = { ...base.states?.[state], ...appearanceStyle({ appearance }) };
+      }
+    }
+    if (node.on != null) result.on = node.on;
+    if (node.control != null) result.control = { ...base.control, ...node.control };
+    return result;
   }
 
   function expandInstance(doc, name, callerProps = {}, seen = []) {
@@ -161,6 +174,7 @@
       class: node.class == null ? null : interpolate(node.class, props),
       attrs: {},
       style: nodeStyle(node),
+      ...interactionSpec(node),
       source: source ? { ...source, nodeId: node.id || null } : null,
       children: [],
     };
@@ -176,14 +190,20 @@
     return spec;
   }
 
-  function specToDom(spec, inSvg = false) {
+  function specToDom(spec, inSvg = false, context = null) {
+    if (!context) {
+      const ctx = window.DSInteractions.createContext(() => { throw new Error("Flyouts require renderComponent with a component document."); });
+      return window.DSInteractions.mount(specToDom(spec, inSvg, ctx), ctx);
+    }
     if (spec == null) return null;
     if (typeof spec === "string") return document.createTextNode(spec);
     const svg = inSvg || spec.tag === "svg";
     const node = svg ? document.createElementNS(SVG_NS, spec.tag || "div") : document.createElement(spec.tag || "div");
     if (spec.class) node.setAttribute("class", spec.class);
     for (const [property, value] of Object.entries(spec.style || {})) node.style.setProperty(property, String(value));
-    for (const [key, value] of Object.entries(spec.attrs || {})) if (value != null) node.setAttribute(key, String(value));
+    for (const [key, value] of Object.entries(spec.attrs || {})) {
+      if (value != null && !(value === false && ["disabled", "checked", "readonly", "multiple"].includes(key))) node.setAttribute(key, String(value));
+    }
     // Internal selection metadata must not be replaceable by authored attributes.
     if (spec.source) {
       node.dataset.dsComponent = spec.source.component || "";
@@ -192,10 +212,20 @@
       else delete node.dataset.dsNodeId;
     }
     for (const child of spec.children || []) {
-      const childNode = specToDom(child, svg);
+      const childNode = specToDom(child, svg, context);
       if (childNode) node.append(childNode);
     }
+    if (!svg) window.DSInteractions.attach(node, spec, context);
     return node;
+  }
+
+  function renderComponent(doc, name, props, options = {}) {
+    const interactions = window.DSInteractions;
+    const context = interactions.createContext((target, opts) => {
+      if (!Object.hasOwn(getComponentMap(doc), target)) throw new Error(`Unknown flyout component "${target}".`);
+      return renderComponent(doc, target, {}, opts);
+    }, options);
+    return interactions.mount(specToDom(expandInstance(doc, name, props || {}), false, context), context);
   }
 
   window.DSComp = {
@@ -203,6 +233,6 @@
     getComponentMap,
     expandInstance,
     specToDom,
-    renderComponent(doc, name, props) { return specToDom(expandInstance(doc, name, props || {})); },
+    renderComponent,
   };
 }());
