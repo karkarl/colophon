@@ -57,7 +57,8 @@ let state = {
   validation: null, showOutline: false, showValidation: false, exportPath: null,
   inspectMode: false, selectedPath: null, dragPath: null,
   dirty: false, saving: false, suppressChangedUntil: 0,
-  editRevision: 0,
+  inspectorTab: "properties", past: [], future: [], propertyEdit: null,
+  freeformDrag: null, suppressInspectClickUntil: 0, savedDocument: null,
 };
 
 async function api(path, opts) {
@@ -196,7 +197,9 @@ function buildDevice(preset, w, h) {
 }
 
 let currentSurface = null;
+let renderedScreenId = null;
 function renderFrame() {
+  cancelFreeformDrag();
   const wrap = $("#frame-wrap");
   window.DSInteractions?.disposeTree(wrap);
   wrap.innerHTML = "";
@@ -209,7 +212,18 @@ function renderFrame() {
 }
 function renderSurface() {
   if (!currentSurface || !state.runtime) return;
+  const sameScreen = renderedScreenId === state.runtime.currentId;
+  const scroll = new Map((sameScreen ? [...currentSurface.querySelectorAll("[data-proto-path]")] : []).map((node) =>
+    [node.dataset.protoPath, { top: node.scrollTop, left: node.scrollLeft }]));
+  const surfaceScroll = { top: sameScreen ? currentSurface.scrollTop : 0, left: sameScreen ? currentSurface.scrollLeft : 0 };
   ProtoRender.renderScreen(currentSurface, state.runtime, state.design?.tokens || {});
+  renderedScreenId = state.runtime.currentId;
+  currentSurface.scrollTop = surfaceScroll.top;
+  currentSurface.scrollLeft = surfaceScroll.left;
+  for (const node of currentSurface.querySelectorAll("[data-proto-path]")) {
+    const previous = scroll.get(node.dataset.protoPath);
+    if (previous) { node.scrollTop = previous.top; node.scrollLeft = previous.left; }
+  }
   applySelectionHighlight();
   syncScreenNav();
 }
@@ -255,12 +269,158 @@ function layerLabel(node) {
   return { kind, detail: String(detail) };
 }
 function setDirty(dirty = true) {
-  if (dirty) state.editRevision++;
   state.dirty = dirty;
   if (window.__COLOPHON_PROTOTYPE_EXPORT__) return;
-  for (const id of ["save-btn", "nav-save-btn"]) $(`#${id}`).disabled = !dirty || state.saving;
+  for (const id of ["save-btn", "nav-save-btn"]) $(`#${id}`).disabled = !dirty || state.saving || !!state.freeformDrag;
   for (const id of ["export-btn", "publish-btn"]) $(`#${id}`).disabled = dirty || state.saving;
   setSaveStatus(state.saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved");
+}
+function refreshDirty() {
+  setDirty(JSON.stringify(state.proto.doc) !== state.savedDocument);
+  updateHistoryButtons();
+}
+function clone(value) { return JSON.parse(JSON.stringify(value)); }
+function editorSnapshot() {
+  return { doc: clone(state.proto.doc), path: state.selectedPath?.slice() || null, screenId: state.runtime?.currentId };
+}
+function restoreSnapshot(snapshot) {
+  state.proto.doc = clone(snapshot.doc);
+  state.selectedPath = snapshot.path?.slice() || null;
+  state.runtime.updateDocument(state.proto.doc);
+  if (snapshot.screenId && state.runtime.currentId !== snapshot.screenId) state.runtime.setScreen(snapshot.screenId);
+}
+function prototypeTokenNames() {
+  const tokens = state.design?.tokens || {};
+  return {
+    colors: colorList(tokens).map((token) => token.name),
+    spacing: (tokens.spacing?.scale || []).map((token) => token.name),
+    radii: (tokens.radii || []).map((token) => token.name),
+    shadows: (tokens.shadows || []).map((token) => token.name),
+    textStyles: (tokens.typography?.scale || []).map((token) => token.name),
+    fontFamilies: ["body", "display", "mono"],
+  };
+}
+function validateDraft() {
+  const errors = [];
+  const tokens = prototypeTokenNames();
+  const visit = (node, parent) => {
+    if (!node || typeof node !== "object" || Array.isArray(node) || !ProtoRender.nodeKind(node)) {
+      errors.push("Each layer must be an object with a layout, component, text, image, or spacer kind.");
+      return;
+    }
+    errors.push(...ProtoLayout.validateNode(node, parent, tokens).errors);
+    if (node.component && !state.runtime.componentNames.includes(node.component)) errors.push(`Unknown component "${node.component}".`);
+    if (node.children != null && !Array.isArray(node.children)) errors.push("Layer children must be an array.");
+    else for (const child of node.children || []) visit(child, node);
+  };
+  for (const screen of state.proto.doc.screens || []) {
+    if (screen.root) visit(screen.root, null);
+    for (const modal of screen.modals || []) if (modal.root) visit(modal.root, null);
+  }
+  if (errors.length) throw new Error(errors.join(" "));
+}
+function editorError(error) {
+  $("#editor-error").textContent = error?.message || String(error);
+}
+function updateHistoryButtons() {
+  if (window.__COLOPHON_PROTOTYPE_EXPORT__) return;
+  $("#layers-undo-btn").disabled = state.past.length === 0 || !!state.freeformDrag;
+  $("#layers-redo-btn").disabled = state.future.length === 0 || !!state.freeformDrag;
+  const editable = state.selectedPath?.at(-2) === "children";
+  $("#layers-duplicate-btn").disabled = !editable;
+  $("#layers-delete-btn").disabled = !editable;
+}
+function recordMutation(before) {
+  if (JSON.stringify(before.doc) === JSON.stringify(state.proto.doc)) return;
+  state.past.push(before);
+  if (state.past.length > 50) state.past.shift();
+  state.future = [];
+  state.validation = null;
+  state.showValidation = false;
+  renderValidation();
+}
+function commitPrototypeMutation(mutator) {
+  if (state.freeformDrag) cancelFreeformDrag();
+  if (state.propertyEdit && !commitPropertyEdit()) return false;
+  const before = editorSnapshot();
+  try {
+    mutator();
+    validateDraft();
+    recordMutation(before);
+    refreshDirty();
+    rebuildRuntime();
+    return true;
+  } catch (error) {
+    restoreSnapshot(before);
+    rebuildRuntime();
+    editorError(error);
+    return false;
+  }
+}
+function previewPropertyEdit(mutator) {
+  if (!state.selectedPath) return false;
+  state.propertyEdit ||= { before: editorSnapshot(), error: null };
+  const previous = clone(state.proto.doc);
+  try {
+    mutator(valueAtPath(state.proto.doc, state.selectedPath));
+    validateDraft();
+    state.propertyEdit.error = null;
+    $("#editor-error").textContent = "";
+    state.runtime.updateDocument(state.proto.doc);
+    refreshDirty();
+    renderSurface();
+    $("#json-editor").value = JSON.stringify(valueAtPath(state.proto.doc, state.selectedPath), null, 2);
+    return true;
+  } catch (error) {
+    state.proto.doc = previous;
+    state.runtime.updateDocument(previous);
+    state.propertyEdit.error = error;
+    editorError(error);
+    return false;
+  }
+}
+function commitPropertyEdit(mutator) {
+  if (mutator && !state.propertyEdit) {
+    return commitPrototypeMutation(() => mutator(valueAtPath(state.proto.doc, state.selectedPath)));
+  }
+  if (mutator) previewPropertyEdit(mutator);
+  const edit = state.propertyEdit;
+  if (!edit) return true;
+  state.propertyEdit = null;
+  if (edit.error) {
+    restoreSnapshot(edit.before);
+    refreshDirty();
+    rebuildRuntime();
+    editorError(edit.error);
+    return false;
+  }
+  recordMutation(edit.before);
+  refreshDirty();
+  if (mutator) rebuildRuntime();
+  else {
+    renderElementEditor({ preserveProperties: true });
+    postSelection();
+  }
+  return true;
+}
+function cancelPropertyEdit() {
+  const edit = state.propertyEdit;
+  if (!edit) return;
+  state.propertyEdit = null;
+  restoreSnapshot(edit.before);
+  refreshDirty();
+  rebuildRuntime();
+}
+function restoreHistory(direction) {
+  cancelFreeformDrag();
+  if (!commitPropertyEdit()) return;
+  const from = direction === "undo" ? state.past : state.future;
+  const to = direction === "undo" ? state.future : state.past;
+  if (!from.length) return;
+  to.push(editorSnapshot());
+  restoreSnapshot(from.pop());
+  refreshDirty();
+  rebuildRuntime();
 }
 function setSaveStatus(message) {
   for (const id of ["save-status", "nav-save-status"]) $(`#${id}`).textContent = message;
@@ -269,6 +429,10 @@ function applySelectionHighlight() {
   if (!currentSurface) return;
   for (const node of currentSurface.querySelectorAll("[data-proto-path]")) {
     node.classList.toggle("proto-selected", !!state.selectedPath && node.dataset.protoPath === pathKey(state.selectedPath));
+    const path = JSON.parse(node.dataset.protoPath);
+    const value = valueAtPath(state.proto.doc, path);
+    const parent = valueAtPath(state.proto.doc, path.slice(0, -2));
+    node.classList.toggle("is-freeform-movable", value?.position?.mode === "absolute" && parent?.layout === "freeform");
   }
 }
 function postSelection() {
@@ -278,9 +442,10 @@ function postSelection() {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ screenId: state.runtime?.currentId, path: state.selectedPath, element, draft: state.dirty }),
-  }).catch(() => {});
+  }).catch((error) => editorError(new Error(`Could not share selection: ${error.message}`)));
 }
 function selectPath(path, { notify = true } = {}) {
+  if (state.propertyEdit && !commitPropertyEdit()) return;
   const node = valueAtPath(state.proto?.doc, path);
   if (!node || !ProtoRender.nodeKind(node)) return;
   state.selectedPath = path.slice();
@@ -288,6 +453,12 @@ function selectPath(path, { notify = true } = {}) {
   renderElementEditor();
   applySelectionHighlight();
   if (notify) postSelection();
+}
+function clearLayerDrop() {
+  for (const row of document.querySelectorAll(".layer-row")) {
+    row.classList.remove("is-drop-before", "is-drop-after", "is-drop-inside");
+    delete row.dataset.dropPlacement;
+  }
 }
 function renderLayerNode(node, path, depth, root = false) {
   const { kind, detail } = layerLabel(node);
@@ -306,21 +477,34 @@ function renderLayerNode(node, path, depth, root = false) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", pathKey(path));
     });
-    row.addEventListener("dragend", () => { state.dragPath = null; row.classList.remove("is-drop-before"); });
-    row.addEventListener("dragover", (event) => {
-      if (!state.dragPath || isPathPrefix(state.dragPath, path)) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      row.classList.add("is-drop-before");
-    });
-    row.addEventListener("dragleave", () => row.classList.remove("is-drop-before"));
-    row.addEventListener("drop", (event) => {
-      event.preventDefault();
-      row.classList.remove("is-drop-before");
-      moveLayerBefore(state.dragPath, path);
-      state.dragPath = null;
-    });
+    row.addEventListener("dragend", () => { state.dragPath = null; clearLayerDrop(); });
   }
+  row.addEventListener("dragover", (event) => {
+    if (!state.dragPath || isPathPrefix(state.dragPath, path)) return;
+    const bounds = row.getBoundingClientRect();
+    const ratio = (event.clientY - bounds.top) / bounds.height;
+    const inside = ProtoRender.nodeKind(node) === "layout";
+    const placement = root ? (inside ? "inside" : null)
+      : ratio < .28 ? "before" : ratio > .72 ? "after" : inside ? "inside" : "before";
+    if (!placement) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearLayerDrop();
+    row.dataset.dropPlacement = placement;
+    row.classList.add(`is-drop-${placement}`);
+    event.dataTransfer.dropEffect = "move";
+  });
+  row.addEventListener("dragleave", clearLayerDrop);
+  row.addEventListener("drop", (event) => {
+    if (!state.dragPath || !row.dataset.dropPlacement) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const source = state.dragPath.slice();
+    const placement = row.dataset.dropPlacement;
+    state.dragPath = null;
+    clearLayerDrop();
+    moveLayer(source, path, placement);
+  });
   const fragment = document.createDocumentFragment();
   fragment.append(row);
   for (const [index, child] of (node.children || []).entries()) {
@@ -331,35 +515,82 @@ function renderLayerNode(node, path, depth, root = false) {
 function renderLayers() {
   const slot = $("#layers");
   if (!slot) return;
+  const scrollTop = slot.scrollTop;
   slot.innerHTML = "";
   const index = currentScreenIndex();
   const screen = state.proto?.doc?.screens?.[index];
   if (!screen?.root) {
     slot.append(el("div", { class: "proto-empty" }, "No layers on this screen."));
+    updateHistoryButtons();
     return;
   }
   slot.append(renderLayerNode(screen.root, ["screens", index, "root"], 0, true));
   for (const [modalIndex, modal] of (screen.modals || []).entries()) {
     if (modal?.root) slot.append(renderLayerNode(modal.root, ["screens", index, "modals", modalIndex, "root"], 0, true));
   }
+  slot.scrollTop = scrollTop;
+  updateHistoryButtons();
 }
-function moveLayerBefore(sourcePath, targetPath) {
-  if (!sourcePath || !targetPath || isPathPrefix(sourcePath, targetPath)) return;
-  const doc = state.proto?.doc;
-  const sourceNode = valueAtPath(doc, sourcePath);
-  const targetNode = valueAtPath(doc, targetPath);
-  const sourceParent = valueAtPath(doc, sourcePath.slice(0, -1));
-  if (!sourceNode || !targetNode || !Array.isArray(sourceParent)) return;
-  sourceParent.splice(sourceParent.indexOf(sourceNode), 1);
-  const freshTargetPath = findPathByReference(doc, targetNode);
-  const targetParent = freshTargetPath && valueAtPath(doc, freshTargetPath.slice(0, -1));
-  if (!freshTargetPath || !Array.isArray(targetParent)) return;
-  targetParent.splice(freshTargetPath[freshTargetPath.length - 1], 0, sourceNode);
-  state.selectedPath = findPathByReference(doc, sourceNode);
-  setDirty();
-  rebuildRuntime();
+function moveLayer(sourcePath, targetPath, placement = "before") {
+  return commitPrototypeMutation(() => {
+    if (!sourcePath || !targetPath || isPathPrefix(sourcePath, targetPath)) throw new Error("A layer cannot be moved into itself.");
+    const doc = state.proto.doc;
+    const node = valueAtPath(doc, sourcePath);
+    const target = valueAtPath(doc, targetPath);
+    const sourceChildren = valueAtPath(doc, sourcePath.slice(0, -1));
+    const parent = placement === "inside" ? target : valueAtPath(doc, targetPath.slice(0, -2));
+    const oldParent = valueAtPath(doc, sourcePath.slice(0, -2));
+    if (!node || !target || sourcePath.at(-2) !== "children" || !Array.isArray(sourceChildren)) throw new Error("Root layers cannot be moved.");
+    if (!["before", "after", "inside"].includes(placement) || ProtoRender.nodeKind(parent) !== "layout") throw new Error("Drop layers inside a layout or beside one of its children.");
+    if (placement !== "inside" && targetPath.at(-2) !== "children") throw new Error("Cannot move a layer beside a root.");
+    const destination = parent.children ||= [];
+    if (!Array.isArray(destination)) throw new Error("The destination's children must be an array.");
+    sourceChildren.splice(sourceChildren.indexOf(node), 1);
+    const index = placement === "inside" ? destination.length : destination.indexOf(target) + (placement === "after" ? 1 : 0);
+    destination.splice(index, 0, node);
+    if (oldParent !== parent) {
+      if (parent.layout === "freeform") node.position = { mode: "absolute", x: 0, y: 0 };
+      else delete node.position;
+    }
+    state.selectedPath = findPathByReference(doc, node);
+  });
 }
-function renderElementEditor() {
+function duplicateLayer() {
+  commitPrototypeMutation(() => {
+    const path = state.selectedPath;
+    if (path?.at(-2) !== "children") throw new Error("Select a non-root layer to duplicate.");
+    const node = clone(valueAtPath(state.proto.doc, path));
+    const assignIds = (child) => {
+      child.id = `layer-${crypto.randomUUID()}`;
+      for (const item of child.children || []) assignIds(item);
+    };
+    assignIds(node);
+    const children = valueAtPath(state.proto.doc, path.slice(0, -1));
+    children.splice(path.at(-1) + 1, 0, node);
+    state.selectedPath = findPathByReference(state.proto.doc, node);
+  });
+}
+function deleteLayer() {
+  commitPrototypeMutation(() => {
+    const path = state.selectedPath;
+    if (path?.at(-2) !== "children") throw new Error("Root layers cannot be deleted.");
+    valueAtPath(state.proto.doc, path.slice(0, -1)).splice(path.at(-1), 1);
+    state.selectedPath = path.slice(0, -2);
+  });
+}
+function setInspectorTab(tab) {
+  if (state.propertyEdit && !commitPropertyEdit()) return;
+  state.inspectorTab = tab === "json" ? "json" : "properties";
+  for (const name of ["properties", "json"]) {
+    const active = name === state.inspectorTab;
+    $(`#${name}-tab`).classList.toggle("is-active", active);
+    $(`#${name}-tab`).setAttribute("aria-selected", String(active));
+    $(`#${name}-tab`).tabIndex = active ? 0 : -1;
+  }
+  $("#proto-properties").hidden = state.inspectorTab !== "properties";
+  $("#proto-json-panel").hidden = state.inspectorTab !== "json";
+}
+function renderElementEditor({ preserveProperties = false } = {}) {
   if (window.__COLOPHON_PROTOTYPE_EXPORT__) return;
   const node = valueAtPath(state.proto?.doc, state.selectedPath || []);
   const selected = !!node && !!ProtoRender.nodeKind(node);
@@ -372,17 +603,27 @@ function renderElementEditor() {
   $("#attach-btn").disabled = !selected || !!window.__COLOPHON_PROTOTYPE_EXPORT__;
   $("#json-editor").value = selected ? JSON.stringify(node, null, 2) : "";
   $("#editor-error").textContent = "";
+  if (preserveProperties && selected) {
+    const row = [...document.querySelectorAll(".layer-row")].find((item) => item.dataset.layerPath === pathKey(state.selectedPath));
+    const button = row?.querySelector("button");
+    if (button) {
+      button.title = label.detail;
+      button.lastChild.textContent = label.detail;
+    }
+  }
+  if (!preserveProperties) ProtoProperties.render($("#proto-properties"), {
+    node: selected ? node : null,
+    parent: selected ? valueAtPath(state.proto.doc, state.selectedPath.slice(0, -2)) : null,
+    tokens: state.design?.tokens || {}, theme: state.theme,
+    componentNames: state.runtime?.componentNames || [],
+    onPreview: previewPropertyEdit, onCommit: commitPropertyEdit, onCancel: cancelPropertyEdit,
+  });
+  setInspectorTab(state.inspectorTab);
+  updateHistoryButtons();
 }
 function rebuildRuntime(currentId = state.runtime?.currentId) {
-  state.runtime = ProtoRender.createRuntime({ doc: state.proto.doc, componentsDoc: state.design.componentsDoc });
-  state.runtime.onChange(() => renderSurface());
-  state.runtime.onNavigate(() => {
-    state.selectedPath = null;
-    syncScreenNav();
-    renderLayers();
-    renderElementEditor();
-  });
-  if (currentId) state.runtime.setScreen(currentId);
+  state.runtime.updateDocument(state.proto.doc);
+  if (currentId && state.runtime.currentId !== currentId) state.runtime.setScreen(currentId);
   fillScreenNav();
   renderLayers();
   renderElementEditor();
@@ -395,30 +636,122 @@ function applyJsonEdit() {
     if (!next || typeof next !== "object" || Array.isArray(next) || !ProtoRender.nodeKind(next)) {
       throw new Error("Element JSON must be an object with a layout, component, text, image, or spacer kind.");
     }
-    replaceAtPath(state.proto.doc, state.selectedPath, next);
-    setDirty();
-    rebuildRuntime();
-    $("#editor-error").textContent = "";
+    commitPrototypeMutation(() => replaceAtPath(state.proto.doc, state.selectedPath, next));
   } catch (error) {
     $("#editor-error").textContent = error.message || String(error);
   }
 }
+function freeformTarget(start) {
+  let element = start.closest?.("[data-proto-path]");
+  while (element && currentSurface?.contains(element)) {
+    const path = JSON.parse(element.dataset.protoPath);
+    const node = valueAtPath(state.proto.doc, path);
+    const parent = valueAtPath(state.proto.doc, path.slice(0, -2));
+    if (node?.position?.mode === "absolute" && parent?.layout === "freeform") {
+      return { element, path, node, parentElement: element.offsetParent || element.parentElement };
+    }
+    element = element.parentElement?.closest("[data-proto-path]");
+  }
+  return null;
+}
+function beginFreeformDrag(event) {
+  if (!state.inspectMode || event.button !== 0 || state.freeformDrag) return;
+  if (state.propertyEdit && !commitPropertyEdit()) return;
+  const target = freeformTarget(event.target);
+  if (!target) return;
+  const rect = target.parentElement.getBoundingClientRect();
+  state.freeformDrag = {
+    ...target, before: editorSnapshot(), pointerId: event.pointerId,
+    startX: event.clientX, startY: event.clientY,
+    originX: target.node.position.x, originY: target.node.position.y,
+    scaleX: rect.width / target.parentElement.offsetWidth || 1,
+    scaleY: rect.height / target.parentElement.offsetHeight || 1,
+    parentLeft: rect.left, parentTop: rect.top,
+    scrollLeft: target.parentElement.scrollLeft, scrollTop: target.parentElement.scrollTop,
+    active: false,
+  };
+  event.preventDefault();
+}
+function updateFreeformPosition(drag, x, y) {
+  drag.node.position.x = x;
+  drag.node.position.y = y;
+  drag.element.style.left = `${x}px`;
+  drag.element.style.top = `${y}px`;
+  for (const axis of ["x", "y"]) {
+    const input = $(`[data-position-axis="${axis}"]`);
+    if (input) input.value = String(axis === "x" ? x : y);
+  }
+  $("#json-editor").value = JSON.stringify(drag.node, null, 2);
+}
+function moveFreeformDrag(event) {
+  const drag = state.freeformDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const dx = event.clientX - drag.startX;
+  const dy = event.clientY - drag.startY;
+  if (!drag.active) {
+    if (Math.hypot(dx, dy) < 4) return;
+    drag.active = true;
+    selectPath(drag.path, { notify: false });
+    drag.element.classList.add("is-freeform-dragging");
+    document.body.classList.add("freeform-drag-active");
+    try { drag.element.setPointerCapture(event.pointerId); }
+    catch (error) { if (error.name !== "NotFoundError") throw error; }
+  }
+  const rect = drag.parentElement.getBoundingClientRect();
+  const x = drag.originX + (dx - rect.left + drag.parentLeft) / drag.scaleX + drag.parentElement.scrollLeft - drag.scrollLeft;
+  const y = drag.originY + (dy - rect.top + drag.parentTop) / drag.scaleY + drag.parentElement.scrollTop - drag.scrollTop;
+  updateFreeformPosition(drag, Math.round(x), Math.round(y));
+  setDirty(true);
+  updateHistoryButtons();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+function finishFreeformDrag(event, cancelled = false) {
+  const drag = state.freeformDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  state.freeformDrag = null;
+  if (drag.element.hasPointerCapture(event.pointerId)) drag.element.releasePointerCapture(event.pointerId);
+  drag.element.classList.remove("is-freeform-dragging");
+  document.body.classList.remove("freeform-drag-active");
+  if (!drag.active) return;
+  state.suppressInspectClickUntil = Date.now() + 500;
+  let error = null;
+  try {
+    if (cancelled) restoreSnapshot(drag.before);
+    else { validateDraft(); recordMutation(drag.before); }
+  } catch (failure) {
+    restoreSnapshot(drag.before);
+    error = failure;
+  }
+  refreshDirty();
+  rebuildRuntime();
+  if (error) editorError(error);
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+function cancelFreeformDrag() {
+  const drag = state.freeformDrag;
+  if (!drag) return;
+  finishFreeformDrag({ pointerId: drag.pointerId, preventDefault() {}, stopImmediatePropagation() {} }, true);
+}
 async function savePrototype() {
+  if (state.freeformDrag || !commitPropertyEdit()) return;
   if (!state.dirty || state.saving) return;
   state.saving = true;
-  setDirty(true);
-  const revision = state.editRevision;
+  setDirty(state.dirty);
+  const savedDocument = JSON.stringify(state.proto.doc);
   try {
     state.suppressChangedUntil = Date.now() + 750;
     const result = await api("/api/prototypes/save", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ doc: state.proto.doc }),
+      body: `{"doc":${savedDocument}}`,
     });
     state.proto.source = "repo";
     state.saving = false;
-    const changedDuringSave = state.editRevision !== revision;
-    setDirty(changedDuringSave);
+    state.savedDocument = savedDocument;
+    const changedDuringSave = JSON.stringify(state.proto.doc) !== savedDocument;
+    refreshDirty();
     if (!changedDuringSave) state.validation = result.validation;
     $("#screen-nav-error").textContent = "";
     renderSourcePill();
@@ -426,13 +759,14 @@ async function savePrototype() {
   } catch (error) {
     state.suppressChangedUntil = 0;
     state.saving = false;
-    setDirty(true);
+    refreshDirty();
     if (error.validation) state.validation = error.validation;
     setSaveStatus("Save failed");
     $("#screen-nav-error").textContent = error.message || "Save failed";
   }
 }
 async function attachSelection() {
+  if (!commitPropertyEdit()) return;
   if (!state.selectedPath) return;
   const button = $("#attach-btn");
   try {
@@ -457,6 +791,7 @@ async function attachSelection() {
 }
 
 function applyZoom() {
+  cancelFreeformDrag();
   const wrap = $("#frame-wrap");
   if (state.zoom === "fit") {
     const stage = $(".stage");
@@ -494,6 +829,8 @@ function fillScreenNav() {
     const row = el("li", {}, el("button", {
       type: "button", class: "screen-nav-link", "data-screen-id": screen.id, title: label,
       onclick: () => {
+        cancelFreeformDrag();
+        if (!commitPropertyEdit()) return;
         if (state.runtime.currentId !== screen.id) state.runtime.dispatch({ navigate: screen.id });
       },
     }, label));
@@ -546,6 +883,7 @@ function fillSectionOptions(select, selected = "") {
   select.value = selected;
 }
 function openScreenDialog(kind, assignScreenId = "") {
+  if (!commitPropertyEdit()) return;
   const dialog = $("#screen-dialog");
   dialog.dataset.kind = kind;
   dialog.dataset.assignScreenId = assignScreenId;
@@ -561,15 +899,6 @@ function openScreenDialog(kind, assignScreenId = "") {
   dialog.showModal();
   $("#screen-name").focus();
 }
-function finishScreenEdit(currentId = state.runtime?.currentId) {
-  state.selectedPath = null;
-  state.validation = null;
-  state.showValidation = false;
-  renderValidation();
-  $("#screen-nav-error").textContent = "";
-  setDirty();
-  rebuildRuntime(currentId);
-}
 function addScreenOrSection(event) {
   event.preventDefault();
   const name = $("#screen-name").value.trim();
@@ -581,13 +910,16 @@ function addScreenOrSection(event) {
   const kind = $("#screen-dialog").dataset.kind;
   const id = `${kind}-${crypto.randomUUID()}`;
   if (kind === "section") {
-    if (!Array.isArray(state.proto.doc.sections)) state.proto.doc.sections = [];
-    state.proto.doc.sections.push({ id, name });
-    const screen = state.proto.doc.screens.find((screen) => screen.id === $("#screen-dialog").dataset.assignScreenId);
-    if (screen) screen.sectionId = id;
-    finishScreenEdit();
+    if (!commitPrototypeMutation(() => {
+      if (!Array.isArray(state.proto.doc.sections)) state.proto.doc.sections = [];
+      state.proto.doc.sections.push({ id, name });
+      const screen = state.proto.doc.screens.find((screen) => screen.id === $("#screen-dialog").dataset.assignScreenId);
+      if (screen) screen.sectionId = id;
+      state.selectedPath = null;
+    })) return;
   } else {
     let sectionId = $("#new-screen-section").value;
+    let newSection = null;
     if ($("#new-screen-section").selectedOptions[0]?.dataset.action === "add-section") {
       const sectionName = $("#new-section-name").value.trim();
       if (!sectionName) {
@@ -596,44 +928,55 @@ function addScreenOrSection(event) {
         return;
       }
       sectionId = `section-${crypto.randomUUID()}`;
-      if (!Array.isArray(state.proto.doc.sections)) state.proto.doc.sections = [];
-      state.proto.doc.sections.push({ id: sectionId, name: sectionName });
+      newSection = { id: sectionId, name: sectionName };
     }
-    state.proto.doc.screens.push({
-      id, name, device: state.deviceId,
-      ...(sectionId ? { sectionId } : {}),
-      root: { id: `${id}-root`, layout: "stack", children: [
-        { id: `${id}-title`, text: name, style: "title" },
-      ] },
-    });
-    finishScreenEdit(id);
+    if (!commitPrototypeMutation(() => {
+      if (newSection) {
+        if (!Array.isArray(state.proto.doc.sections)) state.proto.doc.sections = [];
+        state.proto.doc.sections.push(newSection);
+      }
+      state.proto.doc.screens.push({
+        id, name, device: state.deviceId,
+        ...(sectionId ? { sectionId } : {}),
+        root: { id: `${id}-root`, layout: "stack", children: [
+          { id: `${id}-title`, text: name, style: "title" },
+        ] },
+      });
+      state.selectedPath = null;
+    })) return;
+    state.runtime.setScreen(id);
   }
+  $("#screen-nav-error").textContent = "";
   $("#screen-dialog").close();
   if (kind === "screen") $("#screen-list [aria-current]")?.focus();
 }
 function deleteCurrentScreen() {
+  cancelFreeformDrag();
+  if (!commitPropertyEdit()) return;
   const screen = state.runtime?.screen();
   if (!screen) return;
   if (!window.confirm(`Delete "${screen.name || screen.id}"? Links to this screen and flows that start here will also be removed. Save to keep this deletion.`)) return;
-  const doc = state.proto.doc;
-  const index = doc.screens.indexOf(screen);
-  doc.screens.splice(index, 1);
-  // Only remove navigation references, never matching text or arbitrary state values.
-  const removeLinks = (node) => {
-    if (!node || typeof node !== "object") return;
-    if (node.on?.tap?.navigate === screen.id) {
-      delete node.on.tap.navigate;
-      if (!Object.keys(node.on.tap).length) delete node.on.tap;
-      if (!Object.keys(node.on).length) delete node.on;
+  commitPrototypeMutation(() => {
+    const doc = state.proto.doc;
+    const index = doc.screens.indexOf(screen);
+    doc.screens.splice(index, 1);
+    // Only remove navigation references, never matching text or arbitrary state values.
+    const removeLinks = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (node.on?.tap?.navigate === screen.id) {
+        delete node.on.tap.navigate;
+        if (!Object.keys(node.on.tap).length) delete node.on.tap;
+        if (!Object.keys(node.on).length) delete node.on;
+      }
+      for (const child of node.children || []) removeLinks(child);
+    };
+    for (const remaining of doc.screens) {
+      removeLinks(remaining.root);
+      for (const modal of remaining.modals || []) removeLinks(modal.root);
     }
-    for (const child of node.children || []) removeLinks(child);
-  };
-  for (const remaining of doc.screens) {
-    removeLinks(remaining.root);
-    for (const modal of remaining.modals || []) removeLinks(modal.root);
-  }
-  doc.flows = (doc.flows || []).filter((flow) => flow.start !== screen.id);
-  finishScreenEdit(doc.screens[Math.min(index, doc.screens.length - 1)]?.id);
+    doc.flows = (doc.flows || []).filter((flow) => flow.start !== screen.id);
+    state.selectedPath = null;
+  });
   ($("#screen-list [aria-current]") || $("#add-screen-btn")).focus();
 }
 
@@ -706,11 +1049,16 @@ async function copyExportPath() {
 
 // ---- load ------------------------------------------------------------------
 async function load() {
+  cancelFreeformDrag();
   const previousScreen = state.runtime?.currentId;
   const data = window.__COLOPHON_PROTOTYPE_EXPORT__ || await api("/api/prototypes");
   await whenDSComp();
   state.design = data.design;
   state.proto = data.proto;
+  state.past = [];
+  state.future = [];
+  state.propertyEdit = null;
+  state.savedDocument = JSON.stringify(state.proto.doc);
   state.validation = data.validation;
   state.runtime = ProtoRender.createRuntime({ doc: data.proto.doc, componentsDoc: data.design.componentsDoc });
   state.runtime.onChange(() => { renderSurface(); });
@@ -749,6 +1097,7 @@ function wire() {
   $("#screen-dialog-cancel")?.addEventListener("click", () => $("#screen-dialog").close());
   $("#delete-screen-btn")?.addEventListener("click", deleteCurrentScreen);
   $("#screen-section")?.addEventListener("change", (event) => {
+    if (!commitPropertyEdit()) return;
     const screen = state.runtime?.screen();
     if (!screen) return;
     if (event.target.selectedOptions[0]?.dataset.action === "add-section") {
@@ -756,9 +1105,12 @@ function wire() {
       openScreenDialog("section", screen.id);
       return;
     }
-    if (event.target.value) screen.sectionId = event.target.value;
-    else delete screen.sectionId;
-    finishScreenEdit();
+    const sectionId = event.target.value;
+    commitPrototypeMutation(() => {
+      if (sectionId) screen.sectionId = sectionId;
+      else delete screen.sectionId;
+      state.selectedPath = null;
+    });
   });
   $("#nav-save-btn")?.addEventListener("click", () => savePrototype());
   $("#device-select").addEventListener("change", (e) => setDevice(e.target.value));
@@ -767,30 +1119,82 @@ function wire() {
   $("#rotate-btn").addEventListener("click", () => { const w = state.w; state.w = state.h; state.h = w; syncSizeInputs(); renderFrame(); });
   $("#zoom-select").addEventListener("change", (e) => { state.zoom = e.target.value === "fit" ? "fit" : parseFloat(e.target.value); applyZoom(); });
   $("#inspect-btn")?.addEventListener("click", () => {
+    cancelFreeformDrag();
+    if (!commitPropertyEdit()) return;
     state.inspectMode = !state.inspectMode;
     window.DSInteractions?.resetTree($("#frame-wrap"));
     $("#inspect-btn").classList.toggle("is-active", state.inspectMode);
     $("#inspect-btn").setAttribute("aria-pressed", String(state.inspectMode));
     $("#inspector").hidden = !state.inspectMode;
+    $("#layers-panel").hidden = !state.inspectMode;
     $("#frame-wrap").classList.toggle("inspect-mode", state.inspectMode);
     if (state.inspectMode) { renderLayers(); renderElementEditor(); }
     applyZoom();
   });
   $("#frame-wrap").addEventListener("click", (event) => {
     if (!state.inspectMode) return;
+    if (Date.now() < state.suppressInspectClickUntil) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     const target = event.target.closest("[data-proto-path]");
     if (!target) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     try { selectPath(JSON.parse(target.dataset.protoPath)); } catch { /* invalid renderer metadata */ }
   }, true);
+  $("#frame-wrap").addEventListener("pointerdown", beginFreeformDrag, true);
+  $("#frame-wrap").addEventListener("dragstart", (event) => {
+    if (state.inspectMode) event.preventDefault();
+  }, true);
+  window.addEventListener("pointermove", moveFreeformDrag, true);
+  window.addEventListener("pointerup", (event) => finishFreeformDrag(event), true);
+  window.addEventListener("pointercancel", (event) => finishFreeformDrag(event, true), true);
+  window.addEventListener("lostpointercapture", (event) => finishFreeformDrag(event, true), true);
+  window.addEventListener("blur", cancelFreeformDrag);
+  $("#layers-undo-btn")?.addEventListener("click", () => restoreHistory("undo"));
+  $("#layers-redo-btn")?.addEventListener("click", () => restoreHistory("redo"));
+  $("#layers-duplicate-btn")?.addEventListener("click", duplicateLayer);
+  $("#layers-delete-btn")?.addEventListener("click", deleteLayer);
+  for (const name of ["properties", "json"]) {
+    $(`#${name}-tab`)?.addEventListener("click", () => setInspectorTab(name));
+    $(`#${name}-tab`)?.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? "properties" : event.key === "End" ? "json" : name === "json" ? "properties" : "json";
+      setInspectorTab(next);
+      $(`#${next}-tab`).focus();
+    });
+  }
+  document.addEventListener("keydown", (event) => {
+    if (!state.inspectMode) return;
+    if (event.key === "Escape") {
+      if (state.freeformDrag || state.propertyEdit) {
+        event.preventDefault();
+        cancelFreeformDrag();
+        cancelPropertyEdit();
+      }
+      return;
+    }
+    if (event.target.closest("input, textarea, select, [contenteditable=true]")) return;
+    if ((event.ctrlKey || event.metaKey) && ["z", "y"].includes(event.key.toLowerCase())) {
+      event.preventDefault();
+      restoreHistory(event.shiftKey || event.key.toLowerCase() === "y" ? "redo" : "undo");
+    }
+  });
   $("#apply-json-btn")?.addEventListener("click", applyJsonEdit);
   $("#save-btn")?.addEventListener("click", () => savePrototype());
   $("#attach-btn")?.addEventListener("click", () => attachSelection());
-  $("#back-btn").addEventListener("click", () => state.runtime?.dispatch({ back: true }));
+  $("#back-btn").addEventListener("click", () => {
+    cancelFreeformDrag();
+    if (commitPropertyEdit()) state.runtime?.dispatch({ back: true });
+  });
   $("#reload-btn").addEventListener("click", () => {
     if (window.__COLOPHON_PROTOTYPE_EXPORT__) window.location.reload();
-    else load().catch((e) => console.error(e));
+    else if (!state.dirty || window.confirm("Reload from disk and discard local prototype edits?")) {
+      load().catch((error) => { $("#screen-nav-error").textContent = `Reload failed: ${error.message}`; });
+    }
   });
   $("#validate-btn").addEventListener("click", async () => {
     try {
@@ -809,6 +1213,7 @@ function wire() {
   $("#outline-btn").addEventListener("click", () => toggleOutline().catch((e) => console.error(e)));
   $("#source-pill").addEventListener("click", () => copyExportPath());
   $("#export-btn")?.addEventListener("click", async () => {
+    if (state.freeformDrag || !commitPropertyEdit() || state.dirty || state.saving) return;
     try {
       const result = await api("/api/prototypes/export", { method: "POST" });
       state.exportPath = result.path;
@@ -816,6 +1221,7 @@ function wire() {
     } catch (e) { $("#source-pill").textContent = "Export failed"; $("#source-pill").title = e.message || String(e); }
   });
   $("#publish-btn")?.addEventListener("click", async () => {
+    if (state.freeformDrag || !commitPropertyEdit() || state.dirty || state.saving) return;
     $("#export-menu").hidden = true;
     $("#export-menu-btn").setAttribute("aria-expanded", "false");
     if (!window.confirm("Publish this prototype to GitHub Pages? This creates a commit on the gh-pages branch.")) return;
@@ -845,6 +1251,10 @@ function wire() {
       state.theme = btn.dataset.theme;
       for (const b of document.querySelectorAll(".theme-btn")) { const on = b === btn; b.classList.toggle("is-active", on); b.setAttribute("aria-pressed", String(on)); }
       applyVars();
+      if (!window.__COLOPHON_PROTOTYPE_EXPORT__) {
+        cancelFreeformDrag();
+        if (commitPropertyEdit()) renderElementEditor();
+      }
     });
   }
 
@@ -855,10 +1265,11 @@ function wire() {
       const es = new EventSource("/events");
       es.addEventListener("changed", () => {
         if (state.saving || Date.now() < state.suppressChangedUntil) return;
-        if (state.dirty) { setSaveStatus("File changed on disk — reload to replace local edits"); return; }
-        load().catch(() => {});
+        if (state.dirty || state.propertyEdit || state.freeformDrag) { setSaveStatus("File changed on disk — reload to replace local edits"); return; }
+        load().catch((error) => { $("#screen-nav-error").textContent = `Reload failed: ${error.message}`; });
       });
-    } catch { /* no SSE */ }
+      es.addEventListener("error", () => setSaveStatus("Live file updates disconnected; reconnecting"));
+    } catch (error) { $("#screen-nav-error").textContent = `Live file updates unavailable: ${error.message}`; }
   }
 }
 

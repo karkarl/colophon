@@ -33,6 +33,7 @@ export function renderProtoShell() {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Prototype</title>
     <link rel="stylesheet" href="/proto.css" />
+    <link rel="stylesheet" href="/property-controls.css" />
   </head>
   <body>
     <div class="topbar">
@@ -81,6 +82,20 @@ export function renderProtoShell() {
 
     <div id="outline-slot"></div>
     <div class="prototype-layout">
+      <aside id="layers-panel" class="layers-panel" aria-labelledby="layers-title" hidden>
+        <div class="inspector-head">
+          <div id="layers-title" class="inspector-title">Layers</div>
+          <div class="layers-history" role="group" aria-label="Edit history">
+            <button type="button" id="layers-undo-btn" class="btn icon-btn" title="Undo" aria-label="Undo" disabled>↶</button>
+            <button type="button" id="layers-redo-btn" class="btn icon-btn" title="Redo" aria-label="Redo" disabled>↷</button>
+          </div>
+        </div>
+        <div id="layers" class="layers" aria-label="Prototype layers"></div>
+        <div class="layers-actions">
+          <button type="button" id="layers-duplicate-btn" class="btn" disabled>Duplicate</button>
+          <button type="button" id="layers-delete-btn" class="btn danger" disabled>Delete</button>
+        </div>
+      </aside>
       ${renderScreenNav({ editable: true })}
     <div class="workspace">
       <div class="stage">
@@ -90,12 +105,11 @@ export function renderProtoShell() {
       <aside id="inspector" class="inspector" hidden>
         <div class="inspector-head">
           <div>
-            <div class="inspector-title">Layers</div>
+            <div class="inspector-title">Layer editor</div>
             <div id="save-status" class="save-status">Saved</div>
           </div>
           <button type="button" id="save-btn" class="btn primary" disabled>Save</button>
         </div>
-        <div id="layers" class="layers" aria-label="Prototype layers"></div>
         <div class="element-editor">
           <div class="editor-head">
             <div>
@@ -104,11 +118,18 @@ export function renderProtoShell() {
             </div>
             <button type="button" id="attach-btn" class="btn" disabled>Send to chat</button>
           </div>
-          <textarea id="json-editor" aria-label="Selected element JSON" spellcheck="false" disabled></textarea>
-          <div class="editor-actions">
-            <span id="editor-error" class="editor-error" role="alert"></span>
-            <button type="button" id="apply-json-btn" class="btn" disabled>Apply JSON</button>
+          <div class="inspector-tabs" role="tablist" aria-label="Layer editor">
+            <button type="button" id="properties-tab" class="is-active" role="tab" aria-selected="true" aria-controls="proto-properties">Properties</button>
+            <button type="button" id="json-tab" role="tab" aria-selected="false" aria-controls="proto-json-panel">JSON</button>
           </div>
+          <div id="proto-properties" role="tabpanel" aria-labelledby="properties-tab"></div>
+          <div id="proto-json-panel" role="tabpanel" aria-labelledby="json-tab" hidden>
+            <textarea id="json-editor" aria-label="Selected element JSON" spellcheck="false" disabled></textarea>
+            <div class="editor-actions">
+              <button type="button" id="apply-json-btn" class="btn" disabled>Apply JSON</button>
+            </div>
+          </div>
+          <div id="editor-error" class="editor-error" role="alert"></div>
         </div>
       </aside>
     </div>
@@ -135,7 +156,10 @@ export function renderProtoShell() {
     <link rel="stylesheet" href="/components-interactions.css" />
     <script src="/components-interactions.js"></script>
     <script src="/components-runtime.js"></script>
+    <script src="/proto-layout.js"></script>
     <script src="/proto-render.js"></script>
+    <script src="/property-controls.js"></script>
+    <script src="/proto-properties.js"></script>
     <script src="/proto-client.js"></script>
   </body>
 </html>`;

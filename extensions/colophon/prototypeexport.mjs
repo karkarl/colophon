@@ -26,13 +26,14 @@ export function prototypeExportDir(workspacePath) {
 }
 
 export async function buildPrototypeExportHtml({ design, proto, validation, outline }) {
-  const [styles, componentsRuntime, protoRuntime, client, interactions, interactionStyles] = await Promise.all([
+  const [styles, componentsRuntime, protoRuntime, client, interactions, interactionStyles, protoLayout] = await Promise.all([
     readAsset("proto.css"),
     readAsset("components-runtime.js"),
     readAsset("proto-render.js"),
     readAsset("proto-client.js"),
     readAsset("components-interactions.js"),
     readAsset("components-interactions.css"),
+    readAsset("proto-layout.js"),
   ]);
   const data = {
     design: {
@@ -95,6 +96,7 @@ export async function buildPrototypeExportHtml({ design, proto, validation, outl
     <script>window.__COLOPHON_PROTOTYPE_EXPORT__ = ${safeJson(data)};</script>
     <script>${inlineScript(interactions)}</script>
     <script>${inlineScript(componentsRuntime)}</script>
+    <script>${inlineScript(protoLayout)}</script>
     <script>${inlineScript(protoRuntime)}</script>
     <script>${inlineScript(client)}</script>
   </body>
