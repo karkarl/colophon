@@ -46,8 +46,19 @@
 .property-picker > summary::-webkit-details-marker { display: none; }
 .property-picker > summary:focus-visible { outline: 2px solid var(--editor-accent, var(--color-accent, #b5502a)); outline-offset: 1px; }
 .property-picker-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.property-picker-chevron { flex: none; color: var(--color-muted, #6b6459); }
-.property-picker[open] .property-picker-chevron { transform: rotate(180deg); }
+.property-picker-chevron {
+  display: grid; place-items: center; flex: none; width: var(--space-3, 12px); height: var(--space-3, 12px);
+  color: var(--color-muted, #6b6459); pointer-events: none;
+}
+.property-picker-chevron::before {
+  content: ""; width: var(--space-1, 4px); height: var(--space-1, 4px);
+  border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg);
+}
+.property-select { position: relative; min-width: 0; }
+.property-select select { appearance: none; padding-right: var(--space-6, 32px); }
+.property-select > .property-picker-chevron {
+  position: absolute; right: var(--space-2, 8px); top: 50%; transform: translateY(-50%);
+}
 .property-picker-menu, .color-palette, .spacing-option-menu {
   position: fixed; z-index: 60; display: grid; gap: 3px; padding: 5px;
   overflow: auto; overscroll-behavior: contain;

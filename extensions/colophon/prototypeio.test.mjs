@@ -209,6 +209,7 @@ test("shared styles resolve dimensions, boxes, freeform coordinates and no-layou
 
 test("appearance matches component-system CSS and sparse overrides beat legacy values", () => {
   for (const appearance of [
+    { borderWidth: 0 }, { borderWidth: 0.5 }, { borderWidth: 4, borderColor: "accent" },
     { textStyle: "heading", fontFamily: "mono", color: "ink", background: "#abcdef", borderColor: "accent", textAlign: "center", radius: "md", shadow: "sm" },
     { color: "$none", background: "$none", borderColor: "$none", radius: "$none", shadow: "$none" },
     { color: "transparent", radius: "none", shadow: "none" },
@@ -224,6 +225,13 @@ test("appearance matches component-system CSS and sparse overrides beat legacy v
   assert.equal(css["font-size"], "var(--text-heading-size)");
   assert.equal(css["border-radius"], "0");
   assert.deepEqual(node, before);
+});
+
+test("prototype border thickness rejects invalid pixel values", () => {
+  for (const borderWidth of [-1, NaN, Infinity, -Infinity, "2", "2px", "$none", null, true, {}]) {
+    const { errors } = validateNode({ text: "", appearance: { borderWidth } }, null, tokenNames);
+    assert.match(errors.join("\n"), /appearance\.borderWidth: must be a non-negative finite pixel number/);
+  }
 });
 
 test("runtime replacement preserves state, navigation history and valid open modals without emitting", () => {

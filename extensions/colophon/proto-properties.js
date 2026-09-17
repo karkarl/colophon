@@ -27,7 +27,7 @@
     const prefs = preferences.get(slot) || { snapped: true };
     preferences.set(slot, prefs);
     const controls = window.PropertyControls.create({ tokens, theme, spacingSnap: () => prefs.snapped });
-    const { el, propertyField, propertySelect, spacingCombo, typographyPicker, colorPicker,
+    const { el, propertyField, propertySelect, spacingCombo, pixelNumberbox, typographyPicker, colorPicker,
       inheritedOptions, alignmentControl, boxEditor, updateBoxValue } = controls;
     if (!node || typeof node !== "object") {
       slot.append(el("div", { class: "properties-empty" }, "Select a layer in the preview or Layers panel to edit its properties."));
@@ -46,7 +46,10 @@
         pending = true;
         lastValue = input.value;
         const raw = input.value;
-        const result = onPreview((selected) => mutate(selected, parse(raw)));
+        const result = onPreview((selected) => {
+          if (input.validity.badInput) throw new Error("Enter a finite number.");
+          mutate(selected, parse(raw));
+        });
         input.setAttribute("aria-invalid", String(result === false));
       };
       const finish = () => {
@@ -256,6 +259,8 @@
     for (const [label, key] of [["Text color", "color"], ["Background", "background"], ["Border color", "borderColor"]]) {
       appearanceSection.grid.append(colorPicker(label, appearanceValue(key), appearanceCommit(key), { gesture: gesture(updateAppearance(key)) }));
     }
+    appearanceSection.grid.append(pixelNumberbox("Border thickness (px)", appearance.borderWidth,
+      appearanceCommit("borderWidth"), { gesture: gesture(updateAppearance("borderWidth")) }));
     appearanceSection.grid.append(propertySelect("Text align", appearanceValue("textAlign"),
       inheritedOptions(["start", "center", "end", "left", "right", "justify"]), (event) => appearanceCommit("textAlign")(event.target.value)));
     for (const [label, key, group] of [["Radius", "radius", "radii"], ["Shadow", "shadow", "shadows"]]) {

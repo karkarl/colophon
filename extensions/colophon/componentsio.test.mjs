@@ -201,6 +201,25 @@ test("appearance overrides produce token-bound CSS while omitted values inherit"
   });
 });
 
+test("border thickness validates finite non-negative pixels in base and state overrides", () => {
+  const root = { el: "div", appearance: {}, states: { hover: {} } };
+  const doc = { components: [{ name: "Border", root }] };
+  for (const borderWidth of [0, 0.5, 1, 4, 100]) {
+    root.appearance.borderWidth = borderWidth;
+    root.states.hover.borderWidth = borderWidth;
+    assert.equal(validateComponentsDoc(doc).ok, true);
+    assert.deepEqual(appearanceStyle(root), { "border-width": `${borderWidth}px`, "border-style": "solid" });
+    assert.deepEqual(expandInstance(doc, "Border").states.hover, appearanceStyle(root));
+  }
+  for (const borderWidth of [-1, NaN, Infinity, -Infinity, "2", "2px", "$none", null, true, {}]) {
+    root.appearance.borderWidth = borderWidth;
+    root.states.hover.borderWidth = borderWidth;
+    const { errors } = validateComponentsDoc(doc);
+    assert.match(errors.join("\n"), /appearance\.borderWidth: must be a non-negative finite pixel number/);
+    assert.match(errors.join("\n"), /states\.hover\.borderWidth: must be a non-negative finite pixel number/);
+  }
+});
+
 test("appearance overrides support explicit none values", () => {
   assert.deepEqual(appearanceStyle({
     appearance: {

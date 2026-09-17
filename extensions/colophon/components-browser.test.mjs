@@ -46,6 +46,20 @@ async function behavior(DS, doc, motionOnly = false) {
     return;
   }
   const before = JSON.stringify(doc);
+  const border = render("Border", { components: [{
+    name: "Border", root: {
+      el: "div", appearance: { borderWidth: 4, borderColor: "accent" },
+      states: { hover: { borderWidth: 0 }, pressed: { borderWidth: 2.5 } },
+    },
+  }] });
+  check(getComputedStyle(border).borderTopWidth === "4px" && getComputedStyle(border).borderTopStyle === "solid", "thickness draws a border without class styling");
+  fire(border, "pointerenter");
+  check(getComputedStyle(border).borderTopWidth === "0px", "zero state thickness removes border");
+  fire(border, "pointerdown");
+  check(border.style.borderWidth === "2.5px", "fractional state thickness");
+  fire(border, "pointerleave");
+  fire(document, "pointerup");
+  check(getComputedStyle(border).borderTopWidth === "4px", "state cleanup restores border thickness");
   const initial = picker.style.backgroundColor;
   fire(picker, "pointerenter");
   check(picker.style.backgroundColor === "var(--color-line)", "hover");
@@ -360,7 +374,47 @@ async function shellBehavior(kind) {
     picker.click();
     check(!document.querySelector(".ds-flyout"), "Inspect selects instead of opening");
     check(document.querySelector("#design-inspector").hidden === false, "inspector remains usable");
+    const borderInput = () => document.querySelector('#inspect-properties input[aria-label="Border thickness (px)"]');
+    const editBorder = async (value) => {
+      const input = borderInput();
+      input.value = value;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitUntil(() => borderInput() !== input || input.getAttribute("aria-invalid") === "true", "border edit rerenders properties or reports invalid input");
+    };
+    check(borderInput()?.value === "", "component border control initially inherits");
+    const margin = document.querySelector('#inspect-properties input[aria-label="Margin All"]');
+    check(borderInput().closest(".spacing-combo") && margin, "border thickness reuses the margin numberbox");
+    for (const property of ["height", "fontFamily", "fontSize", "paddingRight", "borderRadius", "backgroundColor"]) {
+      check(getComputedStyle(borderInput())[property] === getComputedStyle(margin)[property], `border thickness matches margin ${property}`);
+    }
+    for (const dropdown of document.querySelectorAll("#inspect-properties select")) {
+      check(getComputedStyle(dropdown).appearance === "none" && dropdown.parentElement.querySelector(".property-picker-chevron"), "component selects use the shared chevron, not a platform arrow");
+    }
+    for (const summary of document.querySelectorAll("#inspect-properties .property-picker > summary")) {
+      check(summary.querySelector(".property-picker-chevron")?.textContent === "", "component pickers share the CSS chevron instead of a text glyph");
+    }
+    await editBorder("4");
+    check(selectedComponentNode().appearance.borderWidth === 4, "component thickness is numeric");
+    check(getComputedStyle(document.querySelector('[data-ds-node-id="subtle-picker"]')).borderTopWidth === "4px", "component thickness overrides borderless chrome");
+    document.querySelector("#layers-undo-btn").click();
+    await waitUntil(() => borderInput()?.value === "", "component thickness undo");
+    document.querySelector("#layers-redo-btn").click();
+    await waitUntil(() => borderInput()?.value === "4", "component thickness redo");
+    document.querySelector('#inspect-properties button[aria-label="Increase Border thickness (px)"]').click();
+    await waitUntil(() => borderInput()?.value === "5", "component border stepper increments pixels");
+    borderInput().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    await waitUntil(() => borderInput()?.value === "4", "component border keyboard decrements pixels");
+    await editBorder("-1");
+    check(document.querySelector("#inspect-error").textContent && selectedComponentNode().appearance.borderWidth === 4, "invalid component thickness reports an error and rolls back");
+    await editBorder("0");
+    check(selectedComponentNode().appearance.borderWidth === 0 && borderInput().value === "0", "component zero thickness is preserved");
+    check(getComputedStyle(document.querySelector('[data-ds-node-id="subtle-picker"]')).borderTopWidth === "0px", "component zero thickness removes border");
+    document.querySelector('#inspect-properties button[aria-label="Decrease Border thickness (px)"]').click();
+    await waitUntil(() => borderInput()?.value === "0", "component decrement clamps at zero");
+    await editBorder("");
+    check(selectedComponentNode().appearance.borderWidth === undefined, "clearing component thickness restores inheritance");
     document.querySelector("#inspect-btn").click();
+    picker = await waitFor('[data-ds-node-id="subtle-picker"]');
     picker.click();
     check(!!document.querySelector(".ds-flyout"), "gallery opens flyout");
     document.querySelector('[data-theme="dark"]').click();
@@ -373,6 +427,7 @@ async function shellBehavior(kind) {
     check(getComputedStyle(document.querySelector(".ds-flyout").firstElementChild).backgroundColor === "rgb(34, 30, 26)", "dark gallery token fidelity");
   } else {
     let picker = await waitFor('[data-ds-node-id="subtle-picker"]');
+    check(getComputedStyle(picker).borderTopWidth === "4px" && getComputedStyle(picker).borderTopStyle === "solid", "prototype and standalone export preserve instance border thickness");
     const screenList = document.querySelector("#screen-list");
     const current = () => screenList.querySelector('[aria-current="page"]');
     const first = screenList.querySelector('[data-screen-id="preview"]');
@@ -551,7 +606,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     design: { source: "repo", tokens, componentsDoc },
     proto: { source: "repo", doc: { screens: [
       { id: "preview", name: "Preview", device: "responsive", root: { id: "preview-root", layout: "stack", children: [
-        { id: "picker", component: "SubtlePicker" },
+        { id: "picker", component: "SubtlePicker", appearance: { borderWidth: 4, borderColor: "accent" } },
         { id: "next-screen", text: "Next", on: { tap: { navigate: "second" } } },
       ] } },
       { id: "second", root: { id: "composer", component: "BorderlessComposer" } },
