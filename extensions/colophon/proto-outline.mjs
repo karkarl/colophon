@@ -38,6 +38,14 @@ export function buildOutline(doc, { title = "Prototype" } = {}) {
   }
 
   lines.push(`## Screens (${screens.length})`, "");
+  if (doc.sections?.length) {
+    lines.push("**Sidebar sections:**", "");
+    for (const section of doc.sections) {
+      const members = screens.filter((screen) => screen.sectionId === section.id);
+      lines.push(`- **${section.name}** (\`${section.id}\`): ${members.map((screen) => `\`${screen.id}\``).join(", ") || "_Empty_"}`);
+    }
+    lines.push("");
+  }
   for (const screen of screens) {
     lines.push(`### ${screen.name || screen.id}  \`${screen.id}\`${screen.device ? ` · ${screen.device}` : ""}`);
     const nav = [];

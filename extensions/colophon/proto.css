@@ -1,7 +1,7 @@
 /* proto.css — chrome for the Prototype canvas: top bar, device toolbar, the device
    frames (browser / Windows / macOS / phone / tablet), the scene-graph node styles, and
    the design system's own ds-* component runtime (so component nodes render on-brand).
-   Color/space/radius/font come from :root vars injected by proto-client from the tokens. */
+   Preview tokens come from proto-client; navigation chrome stays independent of them. */
 
 :root {
   --border-color-default: #d0d7de;
@@ -19,11 +19,12 @@ body {
 }
 
 /* ---------- top bar + device toolbar ---------- */
+.topbar, .devbar, .screen-nav { background: #fff; }
 .topbar, .devbar {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 14px; background: #fff; border-bottom: 1px solid var(--border-color-default);
+  padding: 8px 14px; border-bottom: 1px solid var(--border-color-default);
 }
-.topbar h1 { font-size: 14px; margin: 0; font-weight: 600; }
+.topbar h1, .screen-nav-title { font-size: 14px; margin: 0; font-weight: 600; }
 .devbar { gap: 8px; font-size: 12px; color: #3a3a3a; flex-wrap: wrap; }
 .grow { flex: 1; }
 .source-pill {
@@ -41,7 +42,7 @@ body {
 }
 .btn:hover { background: #f6f8fa; }
 .btn.primary { background: #1c1a17; color: #fff; border-color: #1c1a17; }
-.btn.is-active { background: #1c1a17; color: #fff; border-color: #1c1a17; }
+.btn.is-active, .screen-nav-link.is-active { background: #1c1a17; color: #fff; border-color: #1c1a17; }
 .btn:disabled { opacity: .5; cursor: default; }
 .icon-btn { width: 30px; padding: 5px; font-size: 16px; line-height: 1; }
 .split-button { position: relative; display: inline-flex; }
@@ -53,14 +54,14 @@ body {
   padding: 4px; border: 1px solid var(--border-color-default); border-radius: 7px;
   background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.14);
 }
-.split-menu button {
+.split-menu button, .screen-nav-link {
   width: 100%; border: 0; border-radius: 4px; padding: 7px 9px; text-align: left;
   background: transparent; color: #24292f; font: inherit; font-size: 12px; cursor: pointer;
 }
-.split-menu button:hover { background: #f6f8fa; }
+.split-menu button:hover, .screen-nav-link:hover:not(.is-active) { background: #f6f8fa; }
 
 .devbar label { display: inline-flex; align-items: center; gap: 5px; color: #57606a; }
-.devbar select, .devbar input {
+.devbar select, .devbar input, .screen-nav-editor select, .screen-dialog input, .screen-dialog select {
   font: inherit; font-size: 12px; padding: 4px 6px;
   border-radius: 6px; border: 1px solid var(--border-color-default); background: #fff;
 }
@@ -79,9 +80,48 @@ body {
   flex: 1; overflow: auto; padding: 28px;
   display: flex; position: relative; align-items: flex-start; justify-content: center;
 }
-.workspace { flex: 1; min-height: 0; display: flex; }
+.prototype-layout { flex: 1; min-height: 0; display: flex; }
+.workspace { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .workspace > .stage { min-width: 0; }
 .frame-wrap { transform-origin: top center; }
+
+/* Screen navigation shares the toolbar's neutral chrome, not the preview theme. */
+.screen-nav {
+  flex: 0 0 min(30%, 208px);
+  min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 14px;
+  border-right: 1px solid var(--border-color-default);
+}
+.screen-nav-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.screen-nav-heading[hidden] { display: none; }
+.screen-nav-subtitle { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-color-muted); }
+.screen-nav-add {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px;
+  background: transparent; color: var(--text-color-muted); cursor: pointer; font: inherit; font-size: 20px;
+}
+.screen-nav-add:hover { background: #f6f8fa; color: #24292f; }
+.screen-nav-list { display: grid; align-content: start; gap: 4px; list-style: none; padding: 0; margin: 0; }
+.screen-nav-list > li { min-width: 0; }
+#screen-list { flex: 1; min-height: 0; overflow: auto; padding: 2px; }
+.screen-nav-link { display: block; overflow-wrap: anywhere; }
+.screen-nav-link:focus-visible, .screen-nav-add:focus-visible { outline: 2px solid var(--color-focus-outline, #1c1a17); outline-offset: 2px; }
+.screen-nav-empty { padding: 8px; color: var(--text-color-muted); font-size: 12px; }
+.screen-section + .screen-section { margin-top: 12px; }
+.screen-section-title { margin: 8px 0; font-size: 12px; font-weight: 600; color: var(--text-color-muted); overflow-wrap: anywhere; }
+.screen-nav-editor { display: grid; gap: 8px; padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--border-color-default); font-size: 12px; }
+.screen-nav-editor select { width: 100%; min-width: 0; }
+.screen-nav-save { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.screen-nav-editor .editor-error, .screen-nav-save .save-status { overflow-wrap: anywhere; min-width: 0; }
+.screen-dialog {
+  width: min(400px, calc(100% - 28px)); padding: 14px;
+  border: 1px solid var(--border-color-default); border-radius: 8px;
+  background: #fff; color: #24292f;
+}
+.screen-dialog::backdrop { background: rgba(0,0,0,.32); }
+.screen-dialog form, .screen-dialog label { display: grid; gap: 8px; font-size: 12px; }
+.screen-dialog h2 { margin: 0 0 8px; font-size: 14px; }
+.screen-dialog [hidden] { display: none; }
+.screen-dialog .editor-actions { justify-content: flex-end; margin-top: 8px; }
 
 .device { background: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.14); }
 .device .viewport { overflow: hidden; background: var(--color-paper, #f7f4ee); }
