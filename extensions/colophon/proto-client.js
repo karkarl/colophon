@@ -57,12 +57,17 @@ let state = {
   validation: null, showOutline: false, showValidation: false, exportPath: null,
   inspectMode: false, selectedPath: null, dragPath: null,
   dirty: false, saving: false, suppressChangedUntil: 0,
+  editRevision: 0,
 };
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
   const payload = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
-  if (!res.ok) throw new Error(payload?.error || `${path} -> ${res.status}`);
+  if (!res.ok) {
+    const error = new Error(payload?.error || `${path} -> ${res.status}`);
+    error.validation = payload?.validation;
+    throw error;
+  }
   return payload;
 }
 
@@ -206,7 +211,7 @@ function renderSurface() {
   if (!currentSurface || !state.runtime) return;
   ProtoRender.renderScreen(currentSurface, state.runtime, state.design?.tokens || {});
   applySelectionHighlight();
-  syncScreenSelect();
+  syncScreenNav();
 }
 
 // ---- inspect, edit, and layer ordering --------------------------------------
@@ -250,10 +255,15 @@ function layerLabel(node) {
   return { kind, detail: String(detail) };
 }
 function setDirty(dirty = true) {
+  if (dirty) state.editRevision++;
   state.dirty = dirty;
   if (window.__COLOPHON_PROTOTYPE_EXPORT__) return;
-  $("#save-btn").disabled = !dirty || state.saving;
-  $("#save-status").textContent = state.saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
+  for (const id of ["save-btn", "nav-save-btn"]) $(`#${id}`).disabled = !dirty || state.saving;
+  for (const id of ["export-btn", "publish-btn"]) $(`#${id}`).disabled = dirty || state.saving;
+  setSaveStatus(state.saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved");
+}
+function setSaveStatus(message) {
+  for (const id of ["save-status", "nav-save-status"]) $(`#${id}`).textContent = message;
 }
 function applySelectionHighlight() {
   if (!currentSurface) return;
@@ -363,18 +373,17 @@ function renderElementEditor() {
   $("#json-editor").value = selected ? JSON.stringify(node, null, 2) : "";
   $("#editor-error").textContent = "";
 }
-function rebuildRuntime() {
-  const currentId = state.runtime?.currentId;
+function rebuildRuntime(currentId = state.runtime?.currentId) {
   state.runtime = ProtoRender.createRuntime({ doc: state.proto.doc, componentsDoc: state.design.componentsDoc });
   state.runtime.onChange(() => renderSurface());
   state.runtime.onNavigate(() => {
     state.selectedPath = null;
-    syncScreenSelect();
+    syncScreenNav();
     renderLayers();
     renderElementEditor();
   });
   if (currentId) state.runtime.setScreen(currentId);
-  fillScreenSelect();
+  fillScreenNav();
   renderLayers();
   renderElementEditor();
   renderSurface();
@@ -398,23 +407,29 @@ async function savePrototype() {
   if (!state.dirty || state.saving) return;
   state.saving = true;
   setDirty(true);
+  const revision = state.editRevision;
   try {
     state.suppressChangedUntil = Date.now() + 750;
-    await api("/api/prototypes/save", {
+    const result = await api("/api/prototypes/save", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ doc: state.proto.doc }),
     });
     state.proto.source = "repo";
     state.saving = false;
-    setDirty(false);
+    const changedDuringSave = state.editRevision !== revision;
+    setDirty(changedDuringSave);
+    if (!changedDuringSave) state.validation = result.validation;
+    $("#screen-nav-error").textContent = "";
     renderSourcePill();
     postSelection();
   } catch (error) {
     state.suppressChangedUntil = 0;
     state.saving = false;
     setDirty(true);
-    $("#save-status").textContent = error.message || "Save failed";
+    if (error.validation) state.validation = error.validation;
+    setSaveStatus("Save failed");
+    $("#screen-nav-error").textContent = error.message || "Save failed";
   }
 }
 async function attachSelection() {
@@ -467,13 +482,160 @@ function fillDeviceSelect() {
   sel.value = state.deviceId;
 }
 function syncSizeInputs() { $("#w").value = state.w; $("#h").value = state.h; }
-function fillScreenSelect() {
-  const sel = $("#screen-select");
-  sel.innerHTML = "";
-  for (const s of state.runtime?.screens || []) sel.append(el("option", { value: s.id }, s.name || s.id));
-  syncScreenSelect();
+function fillScreenNav() {
+  const list = $("#screen-list");
+  list.replaceChildren();
+  const sections = Array.isArray(state.proto?.doc?.sections) ? state.proto.doc.sections : [];
+  if ($("#screen-sections-heading")) $("#screen-sections-heading").hidden = sections.length === 0;
+  const groups = new Map();
+  const ungrouped = [];
+  for (const screen of state.runtime?.screens || []) {
+    const label = screen.name || screen.id;
+    const row = el("li", {}, el("button", {
+      type: "button", class: "screen-nav-link", "data-screen-id": screen.id, title: label,
+      onclick: () => {
+        if (state.runtime.currentId !== screen.id) state.runtime.dispatch({ navigate: screen.id });
+      },
+    }, label));
+    if (sections.some((section) => section.id === screen.sectionId)) {
+      if (!groups.has(screen.sectionId)) groups.set(screen.sectionId, []);
+      groups.get(screen.sectionId).push(row);
+    } else ungrouped.push(row);
+  }
+  if (ungrouped.length) {
+    if (sections.length) {
+      list.append(el("li", { class: "screen-section" },
+        el("h3", { class: "screen-section-title" }, "Ungrouped"),
+        el("ul", { class: "screen-nav-list", "aria-label": "Ungrouped" }, ungrouped)));
+    } else list.append(...ungrouped);
+  }
+  for (const section of sections) {
+    const rows = groups.get(section.id) || [];
+    list.append(el("li", { class: "screen-section", "data-section-id": section.id },
+      el("h3", { class: "screen-section-title" }, section.name),
+      el("ul", { class: "screen-nav-list", "aria-label": section.name },
+        rows.length ? rows : el("li", { class: "screen-nav-empty" }, "No screens yet."))));
+  }
+  if (!list.children.length) list.append(el("li", { class: "screen-nav-empty" }, "No screens yet."));
+  if ($("#screen-section")) fillSectionOptions($("#screen-section"));
+  syncScreenNav();
 }
-function syncScreenSelect() { const sel = $("#screen-select"); if (sel && state.runtime) sel.value = state.runtime.currentId; }
+function syncScreenNav() {
+  for (const button of $("#screen-list").querySelectorAll("[data-screen-id]")) {
+    const active = button.dataset.screenId === state.runtime?.currentId;
+    const changed = active && !button.classList.contains("is-active");
+    button.classList.toggle("is-active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+    if (changed) button.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  if ($("#screen-section")) {
+    const screen = state.runtime?.screen();
+    $("#screen-section").disabled = !screen;
+    $("#screen-section").value = screen?.sectionId || "";
+    $("#delete-screen-btn").disabled = !screen;
+  }
+}
+
+function fillSectionOptions(select, selected = "") {
+  select.replaceChildren(el("option", { value: "" }, "Ungrouped"));
+  for (const section of Array.isArray(state.proto?.doc?.sections) ? state.proto.doc.sections : []) {
+    select.append(el("option", { value: section.id }, section.name));
+  }
+  select.append(el("option", { value: "", "data-action": "add-section" }, "Add section"));
+  select.value = selected;
+}
+function openScreenDialog(kind, assignScreenId = "") {
+  const dialog = $("#screen-dialog");
+  dialog.dataset.kind = kind;
+  dialog.dataset.assignScreenId = assignScreenId;
+  $("#screen-dialog-title").textContent = kind === "section" ? "Add section" : "Add screen";
+  $("#screen-name").value = "";
+  $("#screen-name").setCustomValidity("");
+  $("#new-screen-section-field").hidden = kind === "section";
+  $("#new-section-name-field").hidden = true;
+  $("#new-section-name").disabled = true;
+  $("#new-section-name").value = "";
+  $("#new-section-name").setCustomValidity("");
+  fillSectionOptions($("#new-screen-section"), state.runtime?.screen()?.sectionId || "");
+  dialog.showModal();
+  $("#screen-name").focus();
+}
+function finishScreenEdit(currentId = state.runtime?.currentId) {
+  state.selectedPath = null;
+  state.validation = null;
+  state.showValidation = false;
+  renderValidation();
+  $("#screen-nav-error").textContent = "";
+  setDirty();
+  rebuildRuntime(currentId);
+}
+function addScreenOrSection(event) {
+  event.preventDefault();
+  const name = $("#screen-name").value.trim();
+  if (!name) {
+    $("#screen-name").setCustomValidity("Enter a name.");
+    $("#screen-name").reportValidity();
+    return;
+  }
+  const kind = $("#screen-dialog").dataset.kind;
+  const id = `${kind}-${crypto.randomUUID()}`;
+  if (kind === "section") {
+    if (!Array.isArray(state.proto.doc.sections)) state.proto.doc.sections = [];
+    state.proto.doc.sections.push({ id, name });
+    const screen = state.proto.doc.screens.find((screen) => screen.id === $("#screen-dialog").dataset.assignScreenId);
+    if (screen) screen.sectionId = id;
+    finishScreenEdit();
+  } else {
+    let sectionId = $("#new-screen-section").value;
+    if ($("#new-screen-section").selectedOptions[0]?.dataset.action === "add-section") {
+      const sectionName = $("#new-section-name").value.trim();
+      if (!sectionName) {
+        $("#new-section-name").setCustomValidity("Enter a section name.");
+        $("#new-section-name").reportValidity();
+        return;
+      }
+      sectionId = `section-${crypto.randomUUID()}`;
+      if (!Array.isArray(state.proto.doc.sections)) state.proto.doc.sections = [];
+      state.proto.doc.sections.push({ id: sectionId, name: sectionName });
+    }
+    state.proto.doc.screens.push({
+      id, name, device: state.deviceId,
+      ...(sectionId ? { sectionId } : {}),
+      root: { id: `${id}-root`, layout: "stack", children: [
+        { id: `${id}-title`, text: name, style: "title" },
+      ] },
+    });
+    finishScreenEdit(id);
+  }
+  $("#screen-dialog").close();
+  if (kind === "screen") $("#screen-list [aria-current]")?.focus();
+}
+function deleteCurrentScreen() {
+  const screen = state.runtime?.screen();
+  if (!screen) return;
+  if (!window.confirm(`Delete "${screen.name || screen.id}"? Links to this screen and flows that start here will also be removed. Save to keep this deletion.`)) return;
+  const doc = state.proto.doc;
+  const index = doc.screens.indexOf(screen);
+  doc.screens.splice(index, 1);
+  // Only remove navigation references, never matching text or arbitrary state values.
+  const removeLinks = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (node.on?.tap?.navigate === screen.id) {
+      delete node.on.tap.navigate;
+      if (!Object.keys(node.on.tap).length) delete node.on.tap;
+      if (!Object.keys(node.on).length) delete node.on;
+    }
+    for (const child of node.children || []) removeLinks(child);
+  };
+  for (const remaining of doc.screens) {
+    removeLinks(remaining.root);
+    for (const modal of remaining.modals || []) removeLinks(modal.root);
+  }
+  doc.flows = (doc.flows || []).filter((flow) => flow.start !== screen.id);
+  finishScreenEdit(doc.screens[Math.min(index, doc.screens.length - 1)]?.id);
+  ($("#screen-list [aria-current]") || $("#add-screen-btn")).focus();
+}
 
 function setDevice(id) {
   const d = findDevice(id);
@@ -554,7 +716,7 @@ async function load() {
   state.runtime.onChange(() => { renderSurface(); });
   state.runtime.onNavigate(() => {
     state.selectedPath = null;
-    syncScreenSelect();
+    syncScreenNav();
     renderLayers();
     renderElementEditor();
   });
@@ -569,16 +731,41 @@ async function load() {
 
   state.selectedPath = null;
   setDirty(false);
-  fillDeviceSelect(); syncSizeInputs(); fillScreenSelect(); applyVars(); renderValidation(); renderFrame(); renderLayers(); renderElementEditor();
+  fillDeviceSelect(); syncSizeInputs(); fillScreenNav(); applyVars(); renderValidation(); renderFrame(); renderLayers(); renderElementEditor();
 }
 
 function wire() {
+  $("#add-screen-btn")?.addEventListener("click", () => openScreenDialog("screen"));
+  $("#add-section-btn")?.addEventListener("click", () => openScreenDialog("section"));
+  $("#screen-form")?.addEventListener("submit", addScreenOrSection);
+  $("#screen-name")?.addEventListener("input", () => $("#screen-name").setCustomValidity(""));
+  $("#new-section-name")?.addEventListener("input", () => $("#new-section-name").setCustomValidity(""));
+  $("#new-screen-section")?.addEventListener("change", (event) => {
+    const adding = event.target.selectedOptions[0]?.dataset.action === "add-section";
+    $("#new-section-name-field").hidden = !adding;
+    $("#new-section-name").disabled = !adding;
+    if (adding) $("#new-section-name").focus();
+  });
+  $("#screen-dialog-cancel")?.addEventListener("click", () => $("#screen-dialog").close());
+  $("#delete-screen-btn")?.addEventListener("click", deleteCurrentScreen);
+  $("#screen-section")?.addEventListener("change", (event) => {
+    const screen = state.runtime?.screen();
+    if (!screen) return;
+    if (event.target.selectedOptions[0]?.dataset.action === "add-section") {
+      event.target.value = screen.sectionId || "";
+      openScreenDialog("section", screen.id);
+      return;
+    }
+    if (event.target.value) screen.sectionId = event.target.value;
+    else delete screen.sectionId;
+    finishScreenEdit();
+  });
+  $("#nav-save-btn")?.addEventListener("click", () => savePrototype());
   $("#device-select").addEventListener("change", (e) => setDevice(e.target.value));
   $("#w").addEventListener("change", (e) => { state.w = Math.max(120, parseInt(e.target.value, 10) || state.w); renderFrame(); });
   $("#h").addEventListener("change", (e) => { state.h = Math.max(120, parseInt(e.target.value, 10) || state.h); renderFrame(); });
   $("#rotate-btn").addEventListener("click", () => { const w = state.w; state.w = state.h; state.h = w; syncSizeInputs(); renderFrame(); });
   $("#zoom-select").addEventListener("change", (e) => { state.zoom = e.target.value === "fit" ? "fit" : parseFloat(e.target.value); applyZoom(); });
-  $("#screen-select").addEventListener("change", (e) => state.runtime?.setScreen(e.target.value));
   $("#inspect-btn")?.addEventListener("click", () => {
     state.inspectMode = !state.inspectMode;
     window.DSInteractions?.resetTree($("#frame-wrap"));
@@ -605,7 +792,20 @@ function wire() {
     if (window.__COLOPHON_PROTOTYPE_EXPORT__) window.location.reload();
     else load().catch((e) => console.error(e));
   });
-  $("#validate-btn").addEventListener("click", () => { state.showValidation = true; renderValidation(); });
+  $("#validate-btn").addEventListener("click", async () => {
+    try {
+      if (!window.__COLOPHON_PROTOTYPE_EXPORT__) {
+        state.validation = await api("/api/prototypes/validate", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ doc: state.proto.doc }),
+        });
+      }
+      state.showValidation = true;
+      renderValidation();
+    } catch (error) {
+      $("#screen-nav-error").textContent = `Validation failed: ${error.message}`;
+    }
+  });
   $("#outline-btn").addEventListener("click", () => toggleOutline().catch((e) => console.error(e)));
   $("#source-pill").addEventListener("click", () => copyExportPath());
   $("#export-btn")?.addEventListener("click", async () => {
@@ -654,8 +854,8 @@ function wire() {
     try {
       const es = new EventSource("/events");
       es.addEventListener("changed", () => {
-        if (Date.now() < state.suppressChangedUntil) return;
-        if (state.dirty) { $("#save-status").textContent = "File changed on disk — reload to replace local edits"; return; }
+        if (state.saving || Date.now() < state.suppressChangedUntil) return;
+        if (state.dirty) { setSaveStatus("File changed on disk — reload to replace local edits"); return; }
         load().catch(() => {});
       });
     } catch { /* no SSE */ }

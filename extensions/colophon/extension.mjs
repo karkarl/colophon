@@ -358,7 +358,7 @@ async function handle(entry, req, res) {
     return sendJson(res, 200, { markdown: buildOutline(proto.doc, { title: "Prototype" }) });
   }
 
-  if (pathname === "/api/prototypes/save" && req.method === "POST") {
+  if (["/api/prototypes/save", "/api/prototypes/validate"].includes(pathname) && req.method === "POST") {
     try {
       const { doc } = await readBody(req);
       const design = await loadDesign(entry.workdir);
@@ -366,12 +366,13 @@ async function handle(entry, req, res) {
         componentNames: componentNamesFrom(design),
         tokenNames: tokenNamesFrom(design.tokens),
       });
+      if (pathname === "/api/prototypes/validate") return sendJson(res, 200, validation);
       if (!validation.ok) return sendJson(res, 400, { error: `Prototype is invalid: ${validation.errors.join(" ")}`, validation });
       const out = await savePrototypes(entry.workdir, doc);
       if (!entry.watcher) watchDesign(entry);
       broadcast(entry, "changed");
       log(`Saved prototypes to ${out.path}`);
-      return sendJson(res, 200, { ok: true, path: out.path });
+      return sendJson(res, 200, { ok: true, path: out.path, validation });
     } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
   }
 
@@ -663,7 +664,7 @@ const protoCanvas = createCanvas({
     },
     {
       name: "patch",
-      description: "Apply surgical scene-graph ops (setState/setMeta/upsertScreen/deleteScreen/setNode/patchNode/deleteNode/insertNode/setNav) to prototypes.jsonc and save. Prefer this over rewriting the whole file so diffs stay small.",
+      description: "Apply surgical scene-graph ops (setState/setMeta/upsertSection/upsertScreen/deleteScreen/setNode/patchNode/deleteNode/insertNode/setNav) to prototypes.jsonc and save. Sections are {id,name}; screen.sectionId assigns a sidebar group. Prefer this over rewriting the whole file so diffs stay small.",
       inputSchema: { type: "object", properties: { ops: { type: "array", items: { type: "object" }, description: "Ordered list of scene-graph ops." }, workingDirectory: { type: "string" } }, required: ["ops"], additionalProperties: false },
       handler: async (ctx) => {
         const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
@@ -832,7 +833,7 @@ const protoTool = {
     type: "object",
     properties: {
       action: { type: "string", enum: ["read", "validate", "patch", "codegen", "export", "publish"], description: "read (default): flow outline. validate: check the graph. patch: apply ops + save. codegen: convert a screen. export: write standalone HTML. publish: explicitly deploy it to GitHub Pages." },
-      ops: { type: "array", items: { type: "object" }, description: "For action=patch: ordered scene-graph ops (setState/setMeta/upsertScreen/deleteScreen/setNode/patchNode/deleteNode/insertNode/setNav)." },
+      ops: { type: "array", items: { type: "object" }, description: "For action=patch: ordered scene-graph ops (setState/setMeta/upsertSection/upsertScreen/deleteScreen/setNode/patchNode/deleteNode/insertNode/setNav). Sections are {id,name}; screen.sectionId assigns a sidebar group." },
       screenId: { type: "string", description: "For action=codegen: the screen id to convert." },
       name: { type: "string", description: "For action=publish: optional URL-safe name for the published prototype." },
       workingDirectory: { type: "string", description: "Repo/working directory. Defaults to this session's repo." },

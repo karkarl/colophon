@@ -286,6 +286,26 @@ When it seeds a repository, Colophon idempotently adds a managed `AGENTS.md` blo
 ### 4. Prototype canvas: click-through mockups from the design system
 A second canvas turns the design system into **click-through prototypes** — so a team can shape a flow by talking to Copilot instead of redlining in Figma, review it visually, then convert a screen to code.
 
+The **Screens** menu on the left lists screens in document order and highlights the current screen. Choose a screen to navigate, or use **Back** to return; the menu also follows click-through navigation. It uses the toolbar's neutral styling, independent of the prototype's design tokens and preview theme. Standalone exports use the same menu.
+
+Use the **+** beside **Screens** to name a new screen. With no sections, the
+**Sections** subtitle is hidden and the section dropdown offers **Ungrouped** and
+**Add section**. Choose **Add section** to create a group and assign the selected
+screen to it. The new-screen dialog offers the same option with a section-name
+field, creating the screen and group together. Once a section exists, the
+**Sections** subtitle and its **+** appear. Use **Selected screen's section** to move
+a screen into an existing group or back to **Ungrouped**.
+**Delete screen** asks for confirmation and removes links to that screen and flows
+that start there. Changes remain drafts until **Save** in the sidebar or inspector;
+save errors leave the draft intact. You can delete the last screen and start again.
+Exports preserve the groups but omit authoring controls.
+
+Groups are stored in `prototypes.jsonc` as optional `sections: [{ "id": "onboarding",
+"name": "Onboarding" }]`; each grouped screen has a `sectionId`. Section order follows
+the array, with ungrouped screens first and document order preserved within each
+group. Existing files without sections keep their flat list. Agent patches can use
+`upsertSection` with a `section` object, then `upsertScreen` with `screen.sectionId`.
+
 - **Format** — prototypes live at `.agents/design/prototypes.jsonc`: a framework-agnostic **scene graph** (layout primitives + references to your `components.jsonc` by name + **navigation as data**), never shipping code. It's pure data, so it renders safely and Copilot can patch a single node by id without rewriting the file. Every save re-emits a stable, key-ordered file plus a Markdown flow outline for painless PR review.
 - **Device frames** — preview each screen in web breakpoints, desktop-app windows (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including native app chrome.
 - **Interactions (v1)** — navigate between screens, simple state (toggles, tabs), open/close modals, and visibility bound to state. Click through it live in the canvas, rendered with your real tokens + components in Light/Dark/High-contrast.

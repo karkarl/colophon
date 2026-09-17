@@ -28,6 +28,7 @@ const HEADER = `// prototypes.jsonc — click-through prototypes built from this
 // the Prototype canvas. Node kinds: layout | component | text | image | spacer. Every node
 // may carry id, on (interactions), visibleWhen/hiddenWhen. Actions: navigate, back,
 // setState, toggle, openModal, closeModal. This file is regenerated with stable key order
+// Optional sections: [{ id, name }]. A screen's sectionId assigns it to a sidebar group.
 // on save — use "note" fields for durable annotations.
 `;
 
@@ -72,8 +73,8 @@ export function parsePrototypes(text) {
 // Priority order for object keys so diffs are stable regardless of author order.
 const KEY_ORDER = [
   "$schema", "meta", "version", "updatedBy", "updatedAt", "note",
-  "state", "screens", "flows",
-  "id", "name", "device", "start",
+  "state", "sections", "screens", "flows",
+  "id", "name", "sectionId", "device", "start",
   "layout", "component", "text", "image", "spacer",
   "direction", "columns", "gap", "padding", "align", "justify", "wrap",
   "background", "radius", "grow", "size", "fit", "width", "height",
@@ -164,6 +165,7 @@ function normalizeDoc(doc) {
     state: d.state && typeof d.state === "object" ? d.state : {},
     screens: Array.isArray(d.screens) ? d.screens : [],
     flows: Array.isArray(d.flows) ? d.flows : [],
+    ...(d.sections !== undefined ? { sections: d.sections } : {}),
   };
 }
 
@@ -272,6 +274,16 @@ export function applyOps(inputDoc, ops) {
           if (idx >= 0) doc.screens[idx] = op.screen; else doc.screens.push(op.screen);
           break;
         }
+        case "upsertSection": {
+          if (typeof op.section?.id !== "string" || !op.section.id.trim() ||
+              typeof op.section?.name !== "string" || !op.section.name.trim()) {
+            throw new Error("upsertSection requires a non-empty section.id and section.name");
+          }
+          if (!doc.sections) doc.sections = [];
+          const idx = doc.sections.findIndex((section) => section.id === op.section.id);
+          if (idx >= 0) doc.sections[idx] = op.section; else doc.sections.push(op.section);
+          break;
+        }
         case "deleteScreen": {
           const before = doc.screens.length;
           doc.screens = doc.screens.filter((s) => s.id !== op.screenId);
@@ -358,6 +370,19 @@ export function validatePrototypes(doc, { componentNames = [], tokenNames = {} }
   const radii = new Set(tokenNames.radii || []);
 
   const seenIds = new Set();
+  const sectionIds = new Set();
+  if (d.sections !== undefined && !Array.isArray(d.sections)) {
+    errors.push("Sections must be an array.");
+  }
+  for (const section of Array.isArray(d.sections) ? d.sections : []) {
+    if (typeof section?.id !== "string" || !section.id.trim()) {
+      errors.push("A section is missing a non-empty id.");
+      continue;
+    }
+    if (sectionIds.has(section.id)) errors.push(`Duplicate section id "${section.id}".`);
+    sectionIds.add(section.id);
+    if (typeof section.name !== "string" || !section.name.trim()) errors.push(`Section "${section.id}" is missing a name.`);
+  }
 
   if (!d.screens.length) warnings.push("No screens defined yet.");
 
@@ -367,6 +392,9 @@ export function validatePrototypes(doc, { componentNames = [], tokenNames = {} }
 
   for (const screen of d.screens) {
     if (!screen?.id) { errors.push("A screen is missing an id."); continue; }
+    if (screen.sectionId != null && !sectionIds.has(screen.sectionId)) {
+      errors.push(`Screen "${screen.id}" belongs to unknown section "${screen.sectionId}".`);
+    }
     walkScreen(screen, (node) => {
       if (node.id) {
         if (seenIds.has(node.id)) warnings.push(`Duplicate node id "${node.id}" (ids should be unique for surgical patches).`);

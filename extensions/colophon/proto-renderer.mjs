@@ -1,6 +1,30 @@
 // proto-renderer.mjs — the iframe shell for the Prototype canvas. Real UI lives in
 // proto-client.js / proto.css (served statically) and proto-render.js (the interpreter).
 
+export function renderScreenNav({ editable = false } = {}) {
+  return `<nav class="screen-nav" aria-labelledby="screen-nav-title">
+      <div class="screen-nav-heading">
+        <h2 id="screen-nav-title" class="screen-nav-title">Screens</h2>
+        ${editable ? `<button type="button" id="add-screen-btn" class="screen-nav-add" aria-label="Add screen" title="Add screen">+</button>` : ""}
+      </div>
+      ${editable ? `<div id="screen-sections-heading" class="screen-nav-heading" hidden>
+        <h3 class="screen-nav-subtitle">Sections</h3>
+        <button type="button" id="add-section-btn" class="screen-nav-add" aria-label="Add section" title="Add section">+</button>
+      </div>` : ""}
+      <ul id="screen-list" class="screen-nav-list"></ul>
+      ${editable ? `<div class="screen-nav-editor">
+        <label for="screen-section">Selected screen's section</label>
+        <select id="screen-section" disabled></select>
+        <button type="button" id="delete-screen-btn" class="btn" disabled>Delete screen</button>
+        <div class="screen-nav-save">
+          <span id="nav-save-status" class="save-status" role="status">Saved</span>
+          <button type="button" id="nav-save-btn" class="btn primary" disabled>Save</button>
+        </div>
+        <div id="screen-nav-error" class="editor-error" role="alert"></div>
+      </div>` : ""}
+    </nav>`;
+}
+
 export function renderProtoShell() {
   return `<!doctype html>
 <html>
@@ -53,12 +77,11 @@ export function renderProtoShell() {
       <span class="grow"></span>
       <button type="button" id="inspect-btn" class="btn" title="Inspect and edit prototype layers" aria-pressed="false">Inspect</button>
       <button type="button" id="back-btn" class="btn" title="Back">←</button>
-      <label>Screen
-        <select id="screen-select"></select>
-      </label>
     </div>
 
     <div id="outline-slot"></div>
+    <div class="prototype-layout">
+      ${renderScreenNav({ editable: true })}
     <div class="workspace">
       <div class="stage">
         <div id="validation-slot" aria-live="polite"></div>
@@ -89,6 +112,25 @@ export function renderProtoShell() {
         </div>
       </aside>
     </div>
+    </div>
+
+    <dialog id="screen-dialog" class="screen-dialog" aria-labelledby="screen-dialog-title">
+      <form id="screen-form">
+        <h2 id="screen-dialog-title">Add screen</h2>
+        <label for="screen-name">Name</label>
+        <input id="screen-name" name="name" required maxlength="120" autocomplete="off" />
+        <label id="new-screen-section-field">Section
+          <select id="new-screen-section"></select>
+        </label>
+        <label id="new-section-name-field" hidden>New section name
+          <input id="new-section-name" required disabled maxlength="120" autocomplete="off" />
+        </label>
+        <div class="editor-actions">
+          <button type="button" id="screen-dialog-cancel" class="btn">Cancel</button>
+          <button type="submit" class="btn primary">Add</button>
+        </div>
+      </form>
+    </dialog>
 
     <link rel="stylesheet" href="/components-interactions.css" />
     <script src="/components-interactions.js"></script>

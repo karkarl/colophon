@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { designDirFor } from "./designio.mjs";
+import { renderScreenNav } from "./proto-renderer.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const PROTOTYPE_EXPORT_DIRNAME = "prototype-export";
@@ -82,11 +83,15 @@ export async function buildPrototypeExportHtml({ design, proto, validation, outl
       <label>Zoom <select id="zoom-select"><option value="fit">Fit</option><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option></select></label>
       <span class="grow"></span>
       <button type="button" id="back-btn" class="btn" title="Back">Back</button>
-      <label>Screen <select id="screen-select"></select></label>
     </div>
     <div id="validation-slot" aria-live="polite"></div>
     <div id="outline-slot"></div>
-    <div class="stage"><div id="frame-wrap" class="frame-wrap"></div></div>
+    <div class="prototype-layout">
+      ${renderScreenNav()}
+      <div class="workspace">
+        <div class="stage"><div id="frame-wrap" class="frame-wrap"></div></div>
+      </div>
+    </div>
     <script>window.__COLOPHON_PROTOTYPE_EXPORT__ = ${safeJson(data)};</script>
     <script>${inlineScript(interactions)}</script>
     <script>${inlineScript(componentsRuntime)}</script>
