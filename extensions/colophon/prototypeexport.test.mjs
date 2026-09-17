@@ -11,6 +11,9 @@ test("prototype shell includes the shared screen menu before the preview", () =>
   const html = renderProtoShell();
   assert.ok(html.includes(renderScreenNav({ editable: true })));
   assert.ok(html.indexOf('id="screen-list"') < html.indexOf('id="frame-wrap"'));
+  assert.ok(html.indexOf('id="layers-panel"') < html.indexOf('id="screen-list"'));
+  assert.ok(html.indexOf('id="frame-wrap"') < html.indexOf('id="inspector"'));
+  assert.equal((html.match(/id="layers"/g) || []).length, 1);
   assert.doesNotMatch(html, /id="screen-select"/);
   assert.match(html, /id="add-screen-btn"/);
   assert.match(html, /id="add-section-btn"/);
@@ -36,7 +39,7 @@ test("writes a self-contained prototype export", async () => {
     assert.match(saved, /window\.ProtoRender/);
     assert.match(saved, /Standalone export/);
     assert.ok(saved.includes(renderScreenNav()));
-    assert.doesNotMatch(saved, /id="(?:add-screen-btn|delete-screen-btn|screen-dialog)"/);
+    assert.doesNotMatch(saved, /id="(?:add-screen-btn|delete-screen-btn|screen-dialog|layers-panel|inspector)"/);
     assert.doesNotMatch(saved, /id="screen-select"/);
   } finally {
     await rm(workspace, { recursive: true, force: true });

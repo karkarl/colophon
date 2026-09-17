@@ -309,7 +309,27 @@ group. Existing files without sections keep their flat list. Agent patches can u
 - **Format** — prototypes live at `.agents/design/prototypes.jsonc`: a framework-agnostic **scene graph** (layout primitives + references to your `components.jsonc` by name + **navigation as data**), never shipping code. It's pure data, so it renders safely and Copilot can patch a single node by id without rewriting the file. Every save re-emits a stable, key-ordered file plus a Markdown flow outline for painless PR review.
 - **Device frames** — preview each screen in web breakpoints, desktop-app windows (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including native app chrome.
 - **Interactions (v1)** — navigate between screens, simple state (toggles, tabs), open/close modals, and visibility bound to state. Click through it live in the canvas, rendered with your real tokens + components in Light/Dark/High-contrast.
-- **Inspect and edit** — toggle Inspect to select the exact rendered JSON element, edit its object in place, drag layers to reorder or reparent them, and save the resulting scene graph back to `prototypes.jsonc`.
+- **Structured properties** — toggle **Inspect** to select a layer in the preview or
+  Layers tree. Layers and its history/actions occupy the left sidebar, before
+  Screens; Properties / JSON stay on the right of the preview. **Properties** is
+  the default tab: edit its stable ID, text, image,
+  component-instance content, layout, dimensions, padding, margin, and sparse
+  appearance overrides. Typography previews, palette swatches, explicit **None**,
+  custom colors, and snapped/free spacing reuse Colophon's token-backed controls.
+  Instance content changes never modify a component definition. **JSON** remains
+  available for exact edits, including navigation and complex props.
+  Editor buttons and selection/focus highlights use neutral chrome; preview
+  components and palette swatches retain the design system's own colors.
+- **Live local draft** — typing previews valid changes immediately. Finishing an
+  input commits one local edit; **Escape** cancels its preview. Invalid values show
+  an error instead of entering the saved document. Changes stay local until
+  **Save** writes `prototypes.jsonc`; save failures preserve the draft.
+- **History and movement** — undo/redo applies to property edits, JSON edits, and
+  layer operations. Duplicate creates fresh IDs; delete removes the selected
+  layer. Drop before/after a tree row to reorder, or inside a layout to reparent.
+  In a **freeform** layout, drag a directly positioned child in the preview:
+  its parent-relative pixel coordinates change without flattening the tree.
+  Each completed drag is one undoable edit, and Escape cancels an active drag.
 - **Send to chat** — selected elements can be sent to Copilot as context for the next request, including the source, screen, exact JSON Pointer path, draft state, and element payload.
 - **Convert to code** — a first-pass `codegen` action turns the JSONC scene graph and component intent into code for the configured production target. The current web target emits React/JSX using `ds-*` conventions; a native port target emits a hand-off scaffold and porting notes for WinUI/SwiftUI through the same authority mechanism.
 - **`prototype` tool** — Copilot authors and reads prototypes from conversation: `action` of `read` (flow outline), `validate` (dangling navigation / unknown components or tokens), `patch` (surgical scene-graph ops), `codegen` (convert a screen), `export`(standalone browser artifact), or `publish` (explicit GitHub Pages deployment).
@@ -363,11 +383,14 @@ extensions/colophon/              the canvas extension:
   sources.mjs     seed generators: scratch skeleton, token importer, codebase scanner
   renderer.mjs    tiny iframe shell (design canvas)
   client.js       the in-canvas inspector app (onboarding, render, edit, live previews)
+  property-controls.js / property-controls.css  shared token-backed inspector controls
   styles.css      canvas chrome + the ds-* component runtime (from tokens)
   prototypeio.mjs  load / save / surgically patch / validate prototypes.jsonc (scene graph)
   proto-render.js  in-canvas JSON→DOM interpreter + interaction/state runtime
   components-runtime.js  browser-only component runtime used by standalone exports
   proto-client.js  the Prototype canvas app (device frames, inspect/edit/layers, click-through)
+  proto-properties.js  structured properties with caller-owned preview/commit transactions
+  proto-layout.js  shared flat layout, appearance validation, and styling
   proto-renderer.mjs / proto.css   prototype iframe shell + device-frame styles
   proto-outline.mjs                Markdown flow-outline generator
   protocodegen.mjs                 convert a screen to code for the port target
@@ -383,9 +406,13 @@ extensions/colophon/              the canvas extension:
   drag/reparent, duplicate/delete, undo/redo, and exact JSON fallback for
   `components.jsonc` layers. Fixed/min/max dimensions, absolute positioning,
   responsive variants, and multi-selection are not yet part of the component schema.
-- Prototype layers can be selected, edited as JSON, reordered/reparented by dragging, and
-  saved in the canvas. Native `codegen` remains a best-effort hand-off scaffold; the
-  web/React target is deterministic.
+- Prototype layers support structured properties and JSON editing, local live
+  drafts, undo/redo, duplicate/delete, tree reordering/reparenting, and direct
+  freeform movement. The model stays flat: `layout` is a discriminator such as
+  `"stack"`, `"row"`, `"grid"`, `"scroll"`, `"freeform"`, or `"none"`; dimensions,
+  spacing, margin, and `position` live on the node, not a nested layout object.
+  Standalone exports include rendering and navigation, not authoring controls.
+  Native `codegen` remains a best-effort hand-off scaffold; the web/React target is deterministic.
 - Canvas APIs are an experimental SDK surface and may change.
 
 ## Installation and team setup

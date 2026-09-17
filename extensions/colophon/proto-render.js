@@ -32,7 +32,7 @@
   // just captures the doc + the defined names so the interpreter can render `component`
   // nodes and report unknown references.
   function prepareComponents(doc) {
-    const DS = window.DSComp;
+    const DS = globalThis.window?.DSComp || globalThis.DSComp;
     if (!doc || !DS) return { doc: null, names: [], error: DS ? null : "component interpreter not loaded" };
     try {
       return { doc, names: DS.componentNames(doc), error: null };
@@ -78,7 +78,7 @@
   function createRuntime({ doc, componentsDoc }) {
     const prepared = prepareComponents(componentsDoc || null);
     const state = { ...(doc.state || {}) };
-    const screens = doc.screens || [];
+    let screens = doc.screens || [];
     let currentId = screens[0]?.id || null;
     let openModalId = null;
     const history = [];
@@ -104,12 +104,26 @@
       get currentId() { return currentId; },
       setScreen(id) { if (screens.some((s) => s.id === id)) { currentId = id; openModalId = null; onChange(); } },
       get openModalId() { return openModalId; },
+      updateDocument(nextDoc) {
+        doc = nextDoc || {};
+        screens = Array.isArray(doc.screens) ? doc.screens : [];
+        const ids = new Set(screens.map((screen) => screen.id));
+        for (let i = history.length - 1; i >= 0; i--) if (!ids.has(history[i])) history.splice(i, 1);
+        if (!ids.has(currentId)) {
+          currentId = screens[0]?.id || null;
+          openModalId = null;
+        }
+        if (openModalId && !(screens.find((screen) => screen.id === currentId)?.modals || []).some((modal) => modal.id === openModalId)) openModalId = null;
+        for (const [key, value] of Object.entries(doc.state || {})) {
+          if (!Object.hasOwn(state, key)) state[key] = value;
+        }
+      },
       dispatch,
       onChange(cb) { onChange = cb; },
       onNavigate(cb) { onNavigate = cb; },
       screen() { return screens.find((s) => s.id === currentId) || null; },
-      screens,
-      doc,
+      get screens() { return screens; },
+      get doc() { return doc; },
     };
   }
 
@@ -126,48 +140,16 @@
 
   // ---- node renderers -----------------------------------------------------
   function spaceVar(v) { return v == null ? null : `var(--space-${v})`; }
+  const styledComponents = new WeakSet();
 
   function renderLayout(node, ctx) {
-    const kind = node.layout;
-    const style = [];
-    if (kind === "grid") {
-      style.push("display:grid");
-      style.push(`grid-template-columns:repeat(${node.columns || 1}, minmax(0, 1fr))`);
-    } else {
-      style.push("display:flex");
-      const horizontal = kind === "row" || node.direction === "horizontal";
-      style.push(`flex-direction:${horizontal ? "row" : "column"}`);
-      if (kind === "row") style.push("flex-wrap:wrap");
-      if (node.wrap) style.push("flex-wrap:wrap");
-      // A node scrolls internally when it's an explicit `layout:"scroll"` region, or
-      // (only inside a `fit:"screen"` app shell) when it opts in with `scroll:true`.
-      const wantsScroll = kind === "scroll" || (node.scroll === true && ctx.fitScreen);
-      if (wantsScroll) {
-        style.push("overflow:auto");
-        // Let the scroll region shrink below its content so the overflow actually
-        // scrolls instead of stretching its flex parent (the min-*:0 flexbox gotcha).
-        if (ctx.fitScreen) style.push("min-height:0", "min-width:0");
-      }
+    const box = el("div", { class: "proto-node proto-layout" });
+    const wantsScroll = node.layout === "scroll" || (node.scroll === true && ctx.fitScreen);
+    if (wantsScroll) box.style.overflow = "auto";
+    if (ctx.fitScreen && (wantsScroll || node.grow)) {
+      box.style.minHeight = "0";
+      box.style.minWidth = "0";
     }
-    if (node.gap != null) style.push(`gap:${spaceVar(node.gap)}`);
-    if (node.padding != null) style.push(`padding:${spaceVar(node.padding)}`);
-    if (node.align) style.push(`align-items:${node.align}`);
-    if (node.justify) style.push(`justify-content:${node.justify}`);
-    if (node.background) style.push(`background:var(--color-${node.background})`);
-    if (node.radius) style.push(`border-radius:var(--radius-${node.radius})`);
-    if (node.grow) {
-      style.push("flex:1");
-      // Inside a pinned app shell, grown regions must be allowed to shrink so their
-      // scrolling children bound to the viewport instead of growing the whole surface.
-      if (ctx.fitScreen) style.push("min-height:0", "min-width:0");
-    }
-    // Fixed sizes on a layout node (e.g. a caption-button reserve spacer). Numbers are px.
-    // A width/height without `grow` holds its basis so it doesn't collapse in a flex row.
-    const dim = (v) => (typeof v === "number" ? `${v}px` : v);
-    if (node.width != null) { style.push(`width:${dim(node.width)}`); if (!node.grow) style.push("flex:0 0 auto"); }
-    if (node.height != null) style.push(`height:${dim(node.height)}`);
-    style.push("box-sizing:border-box");
-    const box = el("div", { class: "proto-node proto-layout", style: style.join(";") });
     for (const [index, child] of (node.children || []).entries()) {
       const rendered = renderNode(child, { ...ctx, path: [...ctx.path, "children", index] });
       if (rendered) box.append(rendered);
@@ -176,15 +158,13 @@
   }
 
   function renderText(node, ctx) {
-    const tag = /^(display|title|heading)$/.test(node.style) ? "h2" : "p";
-    return el(tag, { class: "proto-node proto-text", style: textStyle(node.style || "body", ctx.type, node.color) }, node.text);
+    const style = node.appearance?.textStyle || node.style || "body";
+    const tag = /^(display|title|heading)$/.test(style) ? "h2" : "p";
+    return el(tag, { class: "proto-node proto-text", style: textStyle(style, ctx.type, node.color) }, node.text);
   }
 
   function renderImage(node) {
     const style = [];
-    if (node.width) style.push(`width:${node.width}`);
-    if (node.height) style.push(`height:${node.height}`);
-    if (node.radius) style.push(`border-radius:var(--radius-${node.radius})`);
     const src = node.image || node.src;
     if (src && /^(https?:|data:|\/)/.test(src)) {
       style.push(`object-fit:${node.fit || "cover"}`);
@@ -206,7 +186,26 @@
     const known = ctx.componentsDoc && ctx.componentNames && ctx.componentNames.includes(name);
     if (DS && ctx.componentsDoc && known) {
       try {
-        const dom = DS.renderComponent(ctx.componentsDoc, name, node.props || {});
+        let dom;
+        const interactions = window.DSInteractions;
+        if (DS.expandInstance && DS.specToDom && interactions?.createContext && interactions?.mount) {
+          const spec = DS.expandInstance(ctx.componentsDoc, name, node.props || {});
+          const context = interactions.createContext((target, options) => {
+            if (!ctx.componentNames.includes(target)) throw new Error(`Unknown flyout component "${target}".`);
+            return DS.renderComponent(ctx.componentsDoc, target, {}, options);
+          });
+          // Apply instance overrides before interaction listeners capture their rest
+          // styles, so hover/pressed transitions restore this instance, not the library.
+          const instance = spec && typeof spec === "object"
+            ? { ...spec, style: { ...(spec.style || {}), ...window.ProtoLayout.style(node) } }
+            : spec;
+          dom = interactions.mount(DS.specToDom(instance, false, context), context);
+          if (dom?.nodeType === 1) styledComponents.add(dom);
+        } else dom = DS.renderComponent(ctx.componentsDoc, name, node.props || {});
+        if (dom?.nodeType === 1) {
+          dom.classList.add("proto-node", "proto-component");
+          return dom;
+        }
         if (dom) host.append(dom);
         return host;
       } catch (e) {
@@ -233,6 +232,17 @@
     else if (kind === "component") dom = renderComponent(node, ctx);
     else dom = el("div", { class: "proto-err" }, `Unknown node "${node.id || "?"}"`);
 
+    const css = window.ProtoLayout.style(node);
+    // Legacy text styles use buildTypeScale's aliases and fallbacks. Explicit
+    // appearance.textStyle uses the same CSS token overrides as components.
+    if (kind === "text" && !node.appearance?.textStyle) {
+      for (const key of ["font-family", "font-size", "line-height", "font-weight", "letter-spacing"]) delete css[key];
+      if (node.appearance?.fontFamily) css["font-family"] = `var(--font-${node.appearance.fontFamily})`;
+    }
+    if (!styledComponents.has(dom)) {
+      for (const [property, value] of Object.entries(css)) dom.style.setProperty(property, value);
+    }
+
     dom.dataset.protoPath = JSON.stringify(ctx.path || []);
     if (node.id) dom.dataset.protoNodeId = node.id;
     dom.dataset.protoKind = kind || "unknown";
@@ -240,7 +250,11 @@
     const tap = node.on?.tap;
     if (tap) {
       dom.classList.add("proto-tappable");
-      dom.addEventListener("click", (e) => { e.stopPropagation(); ctx.dispatch(tap); });
+      dom.addEventListener("click", (e) => {
+        if (e.defaultPrevented) return;
+        e.stopPropagation();
+        ctx.dispatch(tap);
+      });
     }
     return dom;
   }
@@ -273,7 +287,7 @@
     const root = renderNode(screen.root, ctx);
     if (root) {
       root.classList.add("proto-screen-root");
-      if (fitScreen) { root.style.flex = "1 1 auto"; root.style.minHeight = "0"; }
+      if (fitScreen && screen.root.height == null) { root.style.flex = "1 1 auto"; root.style.minHeight = "0"; }
       surface.append(root);
     }
 
@@ -290,5 +304,7 @@
     }
   }
 
-  window.ProtoRender = { createRuntime, renderScreen, buildTypeScale, nodeKind };
+  const api = { createRuntime, renderScreen, buildTypeScale, nodeKind };
+  globalThis.ProtoRender = api;
+  if (typeof window !== "undefined") window.ProtoRender = api;
 })();

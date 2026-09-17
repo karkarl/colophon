@@ -12,6 +12,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { designDirFor, DESIGN_SUBPATH } from "./designio.mjs";
+import "./proto-layout.js";
+
+const { validateNode } = globalThis.ProtoLayout;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_DIR = path.join(HERE, "sample");
@@ -28,6 +31,10 @@ const HEADER = `// prototypes.jsonc — click-through prototypes built from this
 // the Prototype canvas. Node kinds: layout | component | text | image | spacer. Every node
 // may carry id, on (interactions), visibleWhen/hiddenWhen. Actions: navigate, back,
 // setState, toggle, openModal, closeModal. This file is regenerated with stable key order
+// Layouts: stack, row, grid, scroll, freeform, none. Common fields: width/height
+// (hug, fill, pixels or CSS length), gap, padding/margin (token, pixels or edge box),
+// appearance (sparse component-system overrides). Only direct freeform children may
+// carry position: { mode: "absolute", x, y }. Appearance overrides legacy flat styles.
 // Optional sections: [{ id, name }]. A screen's sectionId assigns it to a sidebar group.
 // on save — use "note" fields for durable annotations.
 `;
@@ -76,9 +83,9 @@ const KEY_ORDER = [
   "state", "sections", "screens", "flows",
   "id", "name", "sectionId", "device", "start",
   "layout", "component", "text", "image", "spacer",
-  "direction", "columns", "gap", "padding", "align", "justify", "wrap",
+  "direction", "columns", "gap", "padding", "margin", "align", "justify", "wrap",
   "background", "radius", "grow", "size", "fit", "width", "height",
-  "style", "color", "alt", "src", "props",
+  "position", "appearance", "style", "color", "alt", "src", "props",
   "on", "visibleWhen", "hiddenWhen",
   "root", "modals", "children",
 ];
@@ -365,9 +372,6 @@ export function validatePrototypes(doc, { componentNames = [], tokenNames = {} }
   const d = normalizeDoc(doc);
   const screenIds = new Set(d.screens.map((s) => s?.id).filter(Boolean));
   const comps = new Set(componentNames);
-  const colors = new Set(tokenNames.colors || []);
-  const spaces = new Set(tokenNames.spacing || []);
-  const radii = new Set(tokenNames.radii || []);
 
   const seenIds = new Set();
   const sectionIds = new Set();
@@ -395,7 +399,7 @@ export function validatePrototypes(doc, { componentNames = [], tokenNames = {} }
     if (screen.sectionId != null && !sectionIds.has(screen.sectionId)) {
       errors.push(`Screen "${screen.id}" belongs to unknown section "${screen.sectionId}".`);
     }
-    walkScreen(screen, (node) => {
+    walkScreen(screen, (node, parent) => {
       if (node.id) {
         if (seenIds.has(node.id)) warnings.push(`Duplicate node id "${node.id}" (ids should be unique for surgical patches).`);
         seenIds.add(node.id);
@@ -405,11 +409,10 @@ export function validatePrototypes(doc, { componentNames = [], tokenNames = {} }
       if (kind === "component" && comps.size && !comps.has(node.component)) {
         errors.push(`Screen "${screen.id}": component "${node.component}" is not defined in components.jsonc.`);
       }
-      if (node.background && colors.size && !colors.has(node.background)) warnings.push(`Screen "${screen.id}": background token "${node.background}" is not a defined color.`);
-      if (node.color && colors.size && !colors.has(node.color)) warnings.push(`Screen "${screen.id}": color token "${node.color}" is not a defined color.`);
-      if (node.gap && spaces.size && !spaces.has(String(node.gap))) warnings.push(`Screen "${screen.id}": gap "${node.gap}" is not a defined spacing step.`);
-      if (node.padding && spaces.size && !spaces.has(String(node.padding))) warnings.push(`Screen "${screen.id}": padding "${node.padding}" is not a defined spacing step.`);
-      if (node.radius && radii.size && !radii.has(node.radius)) warnings.push(`Screen "${screen.id}": radius "${node.radius}" is not a defined radius.`);
+      const validation = validateNode(node, parent, tokenNames);
+      const where = `Screen "${screen.id}", node "${node.id || "?"}": `;
+      errors.push(...validation.errors.map((message) => where + message));
+      warnings.push(...validation.warnings.map((message) => where + message));
 
       const tap = node.on?.tap;
       if (tap?.navigate && !screenIds.has(tap.navigate)) errors.push(`Screen "${screen.id}", node "${node.id}": navigates to unknown screen "${tap.navigate}".`);

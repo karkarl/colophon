@@ -89,6 +89,9 @@ function tokenNamesFrom(tokens) {
     colors: colorList(tokens).map((c) => c.name),
     spacing: (tokens?.spacing?.scale || []).map((s) => String(s.name)),
     radii: (tokens?.radii || []).map((r) => r.name),
+    shadows: (tokens?.shadows || []).map((shadow) => shadow.name),
+    textStyles: (tokens?.typography?.scale || []).map((style) => style.name),
+    fontFamilies: ["display", "body", "mono"].filter((role) => tokens?.typography?.[role]?.family),
   };
 }
 
@@ -179,6 +182,8 @@ const servers = new Map(); // instanceId -> { server, url, workdir, sse:Set, wat
 const STATIC = {
   "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "/client.js": { file: "client.js", type: "text/javascript; charset=utf-8" },
+  "/property-controls.js": { file: "property-controls.js", type: "text/javascript; charset=utf-8" },
+  "/property-controls.css": { file: "property-controls.css", type: "text/css; charset=utf-8" },
   "/componentsio.mjs": { file: "componentsio.mjs", type: "text/javascript; charset=utf-8" },
   "/components-render.mjs": { file: "components-render.mjs", type: "text/javascript; charset=utf-8" },
   "/components-runtime.js": { file: "components-runtime.js", type: "text/javascript; charset=utf-8" },
@@ -187,6 +192,8 @@ const STATIC = {
   "/proto.css": { file: "proto.css", type: "text/css; charset=utf-8" },
   "/proto-client.js": { file: "proto-client.js", type: "text/javascript; charset=utf-8" },
   "/proto-render.js": { file: "proto-render.js", type: "text/javascript; charset=utf-8" },
+  "/proto-layout.js": { file: "proto-layout.js", type: "text/javascript; charset=utf-8" },
+  "/proto-properties.js": { file: "proto-properties.js", type: "text/javascript; charset=utf-8" },
 };
 
 async function readBody(req) {

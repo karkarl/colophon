@@ -10,6 +10,7 @@ export function renderShell() {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Design System</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/property-controls.css" />
   </head>
   <body>
     <div class="topbar">
@@ -79,6 +80,7 @@ export function renderShell() {
     <link rel="stylesheet" href="/components-interactions.css" />
     <script src="/components-interactions.js"></script>
     <script type="module" src="/components-render.mjs"></script>
+    <script src="/property-controls.js"></script>
     <script src="/client.js"></script>
   </body>
 </html>`;

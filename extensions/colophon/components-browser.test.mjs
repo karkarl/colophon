@@ -589,7 +589,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ["/api/design/select", ["application/json", "{}"]],
     ["/events", ["text/event-stream", ": connected\n\n"]],
   ]);
-  for (const name of ["client.js", "styles.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-render.js", "components-runtime.js"]) {
+  for (const name of ["client.js", "styles.css", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
     resources.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   let prototypeWorkspace;

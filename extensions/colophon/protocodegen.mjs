@@ -8,6 +8,9 @@
 
 import { readAuthority, portLines } from "./designio.mjs";
 import { walkScreen, nodeKind } from "./prototypeio.mjs";
+import "./proto-layout.js";
+
+const { style: nodeStyle } = globalThis.ProtoLayout;
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1).replace(/[^A-Za-z0-9]/g, "") : s);
 const pascal = (s) => (s || "screen").split(/[^A-Za-z0-9]+/).filter(Boolean).map(cap).join("") || "Screen";
@@ -41,17 +44,15 @@ function collectState(screen) {
 const spaceVar = (v) => `var(--space-${v})`;
 
 function styleObj(node) {
-  const s = [];
-  const kind = node.layout;
-  if (kind === "grid") { s.push("display:'grid'", `gridTemplateColumns:'repeat(${node.columns || 1}, minmax(0, 1fr))'`); }
-  else { s.push("display:'flex'"); s.push(`flexDirection:'${kind === "row" || node.direction === "horizontal" ? "row" : "column"}'`); if (kind === "row" || node.wrap) s.push("flexWrap:'wrap'"); }
-  if (node.gap != null) s.push(`gap:'${spaceVar(node.gap)}'`);
-  if (node.padding != null) s.push(`padding:'${spaceVar(node.padding)}'`);
-  if (node.align) s.push(`alignItems:'${node.align}'`);
-  if (node.justify) s.push(`justifyContent:'${node.justify}'`);
-  if (node.background) s.push(`background:'var(--color-${node.background})'`);
-  if (node.radius) s.push(`borderRadius:'var(--radius-${node.radius})'`);
-  return `{${s.join(", ")}}`;
+  const kind = nodeKind(node);
+  const defaults = kind === "spacer"
+    ? { flex: "0 0 auto", width: spaceVar(node.size || "4"), height: spaceVar(node.size || "4") }
+    : kind === "image" ? { "object-fit": node.fit || "cover" }
+      : kind === "text" ? { margin: "0", color: "var(--color-ink)" } : {};
+  const common = nodeStyle(kind === "text" && !node.style ? { ...node, style: "body" } : node);
+  const css = { ...defaults, ...common, ...(node.on?.tap ? { cursor: "pointer" } : {}) };
+  const react = Object.fromEntries(Object.entries(css).map(([key, value]) => [key.replace(/-([a-z])/g, (_, c) => c.toUpperCase()), value]));
+  return JSON.stringify({ ...(kind === "component" && typeof node.props?.style === "object" ? node.props.style : {}), ...react });
 }
 
 function handler(tap, state) {
@@ -75,32 +76,31 @@ function textTag(style) { return /^(display|title|heading)$/.test(style) ? "h2" 
 function reactNode(node, state, indent) {
   const pad = "  ".repeat(indent);
   const kind = nodeKind(node);
+  const tap = node.on?.tap;
+  const interaction = tap ? ` onClick={(event) => { if (event.defaultPrevented) return; event.stopPropagation(); (${handler(tap, state)})(); }}` : "";
+  const style = ` style={${styleObj(node)}}`;
   let jsx;
   if (kind === "layout") {
     const kids = (node.children || []).map((c) => reactNode(c, state, indent + 1)).filter(Boolean).join("\n");
-    jsx = `${pad}<div style={${styleObj(node)}}>\n${kids}\n${pad}</div>`;
+    jsx = `${pad}<div${style}${interaction}>\n${kids}\n${pad}</div>`;
   } else if (kind === "text") {
-    const tag = textTag(node.style);
-    const cls = node.style === "eyebrow" ? ' className="ds-eyebrow"' : "";
-    const st = node.color ? ` style={{color:'var(--color-${node.color})'}}` : "";
-    jsx = `${pad}<${tag}${cls}${st}>${node.text || ""}</${tag}>`;
+    const textStyle = node.appearance?.textStyle || node.style;
+    const tag = textTag(textStyle);
+    const cls = textStyle === "eyebrow" ? ' className="ds-eyebrow"' : "";
+    jsx = `${pad}<${tag}${cls}${style}${interaction}>{${JSON.stringify(node.text || "")}}</${tag}>`;
   } else if (kind === "component") {
     const props = node.props || {};
-    const attrs = Object.entries(props).filter(([k]) => k !== "children").map(([k, v]) => ` ${k}={${JSON.stringify(v)}}`).join("");
+    const attrs = Object.entries(props).filter(([k]) => k !== "children" && k !== "style" && !(tap && k === "onClick")).map(([k, v]) => ` ${k}={${JSON.stringify(v)}}`).join("");
     jsx = props.children != null
-      ? `${pad}<${node.component}${attrs}>${props.children}</${node.component}>`
-      : `${pad}<${node.component}${attrs} />`;
+      ? `${pad}<${node.component}${attrs}${style}${interaction}>{${JSON.stringify(props.children)}}</${node.component}>`
+      : `${pad}<${node.component}${attrs}${style}${interaction} />`;
   } else if (kind === "image") {
-    jsx = `${pad}<img src=${JSON.stringify(node.image || node.src || "")} alt=${JSON.stringify(node.alt || "")} style={{objectFit:'${node.fit || "cover"}'}} />`;
+    jsx = `${pad}<img src={${JSON.stringify(node.image || node.src || "")}} alt={${JSON.stringify(node.alt || "")}}${style}${interaction} />`;
   } else if (kind === "spacer") {
-    jsx = `${pad}<div style={{flex:'0 0 auto', width:'${spaceVar(node.size || "4")}', height:'${spaceVar(node.size || "4")}'}} />`;
+    jsx = `${pad}<div${style}${interaction} />`;
   } else {
     jsx = `${pad}{/* unknown node ${node.id || ""} */}`;
   }
-
-  // Interaction wrapper.
-  const tap = node.on?.tap;
-  if (tap) jsx = `${pad}<span style={{cursor:'pointer'}} onClick={${handler(tap, state)}}>\n${reactNode({ ...node, on: undefined }, state, indent + 1)}\n${pad}</span>`;
 
   // Visibility wrapper.
   if (node.visibleWhen) jsx = `${pad}{${condExpr(node.visibleWhen, false)} && (\n${jsx}\n${pad})}`;
@@ -134,6 +134,8 @@ function generateReact(screen, doc) {
 ${importLine}
 // Generated from prototypes.jsonc screen "${screen.id}". Styling uses the design system's
 // CSS variables + ds-* component classes. Wire the navigate prop to your router.
+// Components must forward style/onClick to their instance root; do not wrap positioned
+// nodes. Freeform coordinates are relative to their immediate freeform container.
 export function ${name}({ navigate = () => {} }) {
 ${hooks.join("\n")}${hooks.length ? "\n" : ""}  return (
     <>
@@ -149,6 +151,11 @@ const NATIVE_MAP = [
   ["stack (vertical)", "StackPanel Orientation=Vertical", "VStack"],
   ["stack (horizontal) / row", "StackPanel Orientation=Horizontal", "HStack"],
   ["grid", "Grid / UniformGrid", "LazyVGrid"],
+  ["freeform + absolute x/y", "Canvas + Canvas.Left/Top", "ZStack + top-leading offset"],
+  ["none (normal flow)", "native content container", "native content container"],
+  ["hug / fill / pixel size", "Auto / Stretch / explicit size", "ideal size / max frame / frame"],
+  ["margin / padding edge boxes", "Margin / Padding", "padding / container spacing"],
+  ["appearance overrides", "instance-local resources/properties", "instance-local view modifiers"],
   ["text", "TextBlock", "Text"],
   ["image", "Image", "Image"],
   ["component (Button/Card/…)", "the native control for that component", "the native view"],
@@ -166,7 +173,8 @@ function outlineNode(node, indent) {
   else label = kind;
   const tap = node.on?.tap ? `  ⇒ ${JSON.stringify(node.on.tap)}` : "";
   const vis = node.visibleWhen ? `  (when ${JSON.stringify(node.visibleWhen)})` : "";
-  const lines = [`${pad}- ${label}${tap}${vis}`];
+  const styling = nodeStyle(node);
+  const lines = [`${pad}- ${label}${tap}${vis}${Object.keys(styling).length ? `  styles=${JSON.stringify(styling)}` : ""}`];
   for (const c of node.children || []) lines.push(outlineNode(c, indent + 1));
   return lines.join("\n");
 }
