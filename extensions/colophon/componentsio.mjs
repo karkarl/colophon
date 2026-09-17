@@ -193,7 +193,7 @@ const JUSTIFY_VALUES = new Set(["start", "center", "end", "space-between", "spac
 const SIZE_VALUES = new Set(["fill", "hug"]);
 const FONT_FAMILY_VALUES = new Set(["display", "body", "mono"]);
 const TEXT_ALIGN_VALUES = new Set(["start", "center", "end", "left", "right"]);
-const APPEARANCE_KEYS = new Set(["fontFamily", "textStyle", "color", "background", "borderColor", "radius", "shadow", "textAlign"]);
+const APPEARANCE_KEYS = new Set(["fontFamily", "textStyle", "color", "background", "borderColor", "borderWidth", "radius", "shadow", "textAlign"]);
 const COLOR_KEYS = new Set(["color", "background", "borderColor"]);
 const NONE_KEYS = new Set(["color", "background", "borderColor", "radius", "shadow"]);
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -299,6 +299,12 @@ function validateAppearance(node, where, errors, tokens) {
   for (const [key, value] of Object.entries(node.appearance)) {
     if (!APPEARANCE_KEYS.has(key)) {
       errors.push(`${where}.appearance: unknown property "${key}".`);
+      continue;
+    }
+    if (key === "borderWidth") {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        errors.push(`${where}.appearance.borderWidth: must be a non-negative finite pixel number.`);
+      }
       continue;
     }
     if (typeof value !== "string" || !value) {
@@ -584,6 +590,10 @@ export function appearanceStyle(node) {
   if (appearance.color) style.color = colorValue(appearance.color);
   if (appearance.background) style["background-color"] = colorValue(appearance.background);
   if (appearance.borderColor) style["border-color"] = colorValue(appearance.borderColor);
+  if (appearance.borderWidth != null) {
+    style["border-width"] = `${appearance.borderWidth}px`;
+    style["border-style"] = "solid";
+  }
   if (appearance.radius) style["border-radius"] = appearance.radius === APPEARANCE_NONE ? "0" : `var(--radius-${appearance.radius})`;
   if (appearance.shadow) style["box-shadow"] = appearance.shadow === APPEARANCE_NONE ? "none" : `var(--shadow-${appearance.shadow})`;
   if (appearance.textAlign) style["text-align"] = appearance.textAlign;

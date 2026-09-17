@@ -187,10 +187,19 @@ parent-relative `x` and `y`.
 Visual values inherit through normal component classes and the element hierarchy.
 An omitted `appearance` key means **inherit**; selecting a different value in
 Properties writes only that token override. Supported overrides are `fontFamily`,
-`textStyle`, `color`, `background`, `borderColor`, `radius`, `shadow`, and
+`textStyle`, `color`, `background`, `borderColor`, `borderWidth`, `radius`, `shadow`, and
 `textAlign`. Color properties may also contain an explicit six-digit hex value.
 The reserved `$none` value produces transparent colors, a square radius, or no
 shadow without colliding with design-token names.
+**Border thickness (px)** in both component and prototype Properties writes
+`appearance.borderWidth`, a non-negative finite pixel number (fractions allowed).
+An explicit thickness draws a solid border using the selected border color, or
+the existing CSS color; `0` removes it. Clear the field to remove the width/style
+override and restore class or component styling. The same property is supported
+in component interaction states and standalone exports.
+The thickness field uses the same numberbox and increment/decrement buttons as
+Margin, but always edits pixels rather than snapping to spacing tokens. Arrow
+keys step by one pixel. Property dropdowns share a single down-chevron icon.
 
 #### Interactive component previews
 

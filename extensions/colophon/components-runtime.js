@@ -115,6 +115,10 @@
     if (appearance.color) style.color = colorValue(appearance.color);
     if (appearance.background) style["background-color"] = colorValue(appearance.background);
     if (appearance.borderColor) style["border-color"] = colorValue(appearance.borderColor);
+    if (appearance.borderWidth != null) {
+      style["border-width"] = `${appearance.borderWidth}px`;
+      style["border-style"] = "solid";
+    }
     if (appearance.radius) style["border-radius"] = appearance.radius === APPEARANCE_NONE ? "0" : `var(--radius-${appearance.radius})`;
     if (appearance.shadow) style["box-shadow"] = appearance.shadow === APPEARANCE_NONE ? "none" : `var(--shadow-${appearance.shadow})`;
     if (appearance.textAlign) style["text-align"] = appearance.textAlign;

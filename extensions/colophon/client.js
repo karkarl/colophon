@@ -256,9 +256,9 @@ async function commitComponentMutation(mutator, { selectPath = null } = {}) {
     state.componentsDoc = before;
     state.design.componentsDoc = state.componentsDoc;
     restoreComponentSelection(beforeSelection);
-    $("#inspect-error").textContent = error.message || String(error);
     renderInspector();
     renderComponentLayers();
+    $("#inspect-error").textContent = error.message || String(error);
     return false;
   }
 }
@@ -324,7 +324,7 @@ function setInspectorTab(tab) {
 }
 
 const {
-  propertyField, propertySelect, typographyPicker, colorPicker, spacingCombo,
+  propertyField, propertySelect, typographyPicker, colorPicker, spacingCombo, pixelNumberbox,
   convertSpacingValue, convertBoxSpacing, updateBoxValue, boxEditor: boxControl,
   inheritedOptions, alignmentControl, closeFloatingPickers, closeSpacingMenus,
 } = window.PropertyControls.create({
@@ -352,7 +352,7 @@ async function toggleSpacingSnap() {
 function setAppearanceOverride(key, value) {
   const node = selectedComponentNode();
   node.appearance ||= {};
-  if (value) node.appearance[key] = value;
+  if (value !== "" && value != null) node.appearance[key] = value;
   else delete node.appearance[key];
   if (!Object.keys(node.appearance).length) delete node.appearance;
 }
@@ -584,6 +584,8 @@ function renderComponentProperties() {
       (value) => commitComponentMutation(() => setAppearanceOverride("background", value))),
     colorPicker("Border color", appearance.borderColor || "",
       (value) => commitComponentMutation(() => setAppearanceOverride("borderColor", value))),
+    pixelNumberbox("Border thickness (px)", appearance.borderWidth,
+      (value) => commitComponentMutation(() => setAppearanceOverride("borderWidth", value))),
     appearanceField("Text align", "textAlign", inheritedOptions(["start", "center", "end", "left", "right"], (value) => value[0].toUpperCase() + value.slice(1))),
     appearanceField("Radius", "radius", [...inheritedOptions(radii), [APPEARANCE_NONE, "None"]]),
     appearanceField("Shadow", "shadow", [...inheritedOptions(shadows), [APPEARANCE_NONE, "None"]]),

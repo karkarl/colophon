@@ -74,14 +74,17 @@
     for (const [optionValue, optionLabel] of options) {
       select.append(el("option", { value: optionValue, selected: optionValue === (value ?? "") ? "selected" : undefined }, optionLabel));
     }
-    return propertyField(label, select, { wide });
+    return propertyField(label, el("div", { class: "property-select" }, select, dropdownChevron()), { wide });
+  }
+  function dropdownChevron() {
+    return el("span", { class: "property-picker-chevron", "aria-hidden": "true" });
   }
   function choicePicker(label, value, choices, onchange, { wide = false, summaryStyle = "" } = {}) {
     const selected = choices.find((choice) => choice.value === value) || choices[0];
     const details = el("details", { class: "property-picker" });
     const summary = el("summary", {},
       el("span", { class: "property-picker-value", style: summaryStyle || selected?.style || "" }, selected?.label || "Select"),
-      el("span", { class: "property-picker-chevron", "aria-hidden": "true" }, "⌄"));
+      dropdownChevron());
     const menu = el("div", { class: "property-picker-menu" });
     for (const choice of choices) {
       menu.append(el("button", {
@@ -152,6 +155,15 @@
     }
     return propertyField(label, group, { wide: true });
   }
+  function numberBox(label, input, step, ...children) {
+    return el("div", { class: "spacing-combo" }, input,
+      el("div", { class: "spacing-stepper" },
+        ...[[1, "Increase", "▲"], [-1, "Decrease", "▼"]].map(([direction, action, icon]) => el("button", {
+          type: "button", title: `${action} ${label}`, "aria-label": `${action} ${label}`,
+          onmousedown: (event) => event.preventDefault(),
+          onclick: () => step(direction),
+        }, icon))), children);
+  }
   function create(options = {}) {
     const read = (key, fallback) => {
       const value = typeof options[key] === "function" ? options[key]() : options[key];
@@ -201,7 +213,7 @@
         el("span", { class: "color-picker-summary" },
           el("span", { class: `color-picker-chip${value === NONE ? " is-transparent" : ""}`, style: `background-color:${appearanceColorValue(value)}` }),
           el("span", {}, value ? selectedLabel : "Inherit / class")),
-        el("span", { class: "property-picker-chevron", "aria-hidden": "true" }, "⌄"));
+        dropdownChevron());
       const palette = el("div", { class: "color-palette" });
       palette.append(el("button", {
         type: "button", class: `color-palette-token color-palette-none${value === NONE ? " is-selected" : ""}`,
@@ -328,11 +340,53 @@
         type: "button", class: value === "auto" ? "is-selected" : "",
         onclick: () => { closeMenu(); onchange("auto"); },
       }, el("span", { class: "spacing-option-value" }, "auto")));
-      const control = el("div", { class: "spacing-combo" }, input,
-        el("div", { class: "spacing-stepper" },
-          el("button", { type: "button", title: "Increase spacing", "aria-label": `Increase ${label}`, onclick: () => onchange(stepSpacingValue(value, 1)) }, "▲"),
-          el("button", { type: "button", title: "Decrease spacing", "aria-label": `Decrease ${label}`, onclick: () => onchange(stepSpacingValue(value, -1)) }, "▼")), menu);
+      const control = numberBox(label, input, (direction) => onchange(stepSpacingValue(value, direction)), menu);
       return propertyField(label, control, { wide });
+    }
+    function pixelNumberbox(label, value, onchange, { gesture } = {}) {
+      const pixelsFromInput = (raw) => {
+        const match = raw.trim().match(/^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(?:px)?$/i);
+        return match ? Number(match[1]) : NaN;
+      };
+      const parse = (raw) => {
+        if (!raw.trim()) return "";
+        const pixels = pixelsFromInput(raw);
+        if (!Number.isFinite(pixels) || pixels < 0) {
+          throw new Error("Enter a non-negative finite pixel number.");
+        }
+        return pixels;
+      };
+      const input = el("input", {
+        type: "text", inputmode: "decimal", value: value ?? "", placeholder: "Inherit / class",
+        onkeydown: (event) => {
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          step(event.key === "ArrowUp" ? 1 : -1);
+        },
+      });
+      if (gesture) gesture(input, parse);
+      else input.addEventListener("change", () => {
+        try {
+          const next = parse(input.value);
+          input.setAttribute("aria-invalid", "false");
+          options.onError?.("");
+          onchange(next);
+        } catch (error) {
+          input.setAttribute("aria-invalid", "true");
+          if (!options.onError) throw error;
+          options.onError(error.message || String(error));
+        }
+      });
+      const step = (direction) => {
+        const raw = input.value.trim();
+        const current = raw ? pixelsFromInput(raw) : 0;
+        if (Number.isFinite(current) && current >= 0) {
+          input.value = String(Math.max(0, current + direction));
+        }
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      return propertyField(label, numberBox(label, input, step));
     }
     function convertSpacingValue(value, snap) {
       if (value == null || value === "auto") return value;
@@ -357,7 +411,7 @@
     }
     return {
       el, propertyField, propertySelect, choicePicker, typographyPicker, colorPicker, appearanceColorValue,
-      spacingCombo, spacingTokens, spacingPixels, spacingInputValue, parseSpacingInput, stepSpacingValue,
+      spacingCombo, pixelNumberbox, spacingTokens, spacingPixels, spacingInputValue, parseSpacingInput, stepSpacingValue,
       nearestSpacingToken, convertSpacingValue, convertBoxSpacing, cssPixels, boxEdgeValue, updateBoxValue, boxEditor,
       inheritedOptions, alignmentControl, closeFloatingPickers, closeSpacingMenus,
     };

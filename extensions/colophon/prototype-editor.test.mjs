@@ -110,6 +110,59 @@ async function editorBehavior() {
   document.querySelector('.theme-btn[data-theme="light"]').click();
   const propertyInput = (label) => [...document.querySelectorAll("#proto-properties .property-field")]
     .find((field) => field.querySelector("label")?.textContent === label)?.querySelector("input");
+  const borderInput = () => propertyInput("Border thickness (px)");
+  const editBorder = (value) => {
+    const input = borderInput();
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  check(borderInput()?.value === "", "border thickness initially inherits");
+  const margin = document.querySelector('#proto-properties input[aria-label="Margin All"]');
+  check(borderInput().closest(".spacing-combo") && margin, "prototype border uses the margin numberbox");
+  for (const property of ["height", "fontFamily", "fontSize", "paddingRight", "borderRadius", "backgroundColor"]) {
+    check(getComputedStyle(borderInput())[property] === getComputedStyle(margin)[property], `prototype border matches margin ${property}`);
+  }
+  const chevrons = [...document.querySelectorAll("#proto-properties .property-picker-chevron")];
+  const referenceChevron = getComputedStyle(chevrons[0], "::before");
+  for (const chevron of chevrons) {
+    const style = getComputedStyle(chevron, "::before");
+    for (const property of ["width", "height", "borderRightWidth", "borderBottomWidth", "transform"]) {
+      check(style[property] === referenceChevron[property], `property dropdowns share chevron ${property}`);
+    }
+    check(chevron.textContent === "" && chevron.getAttribute("aria-hidden") === "true", "chevron is a decorative icon, not a font glyph");
+  }
+  for (const dropdown of document.querySelectorAll("#proto-properties select")) {
+    check(getComputedStyle(dropdown).appearance === "none" && dropdown.parentElement.querySelector(".property-picker-chevron"), "native property dropdowns use the same chevron");
+  }
+  const borderHistory = state.past.length;
+  editBorder("3.5");
+  check(selected().appearance.borderWidth === 3.5, "fractional border thickness is a numeric override");
+  check(node("card").style.borderWidth === "3.5px" && getComputedStyle(node("card")).borderTopStyle === "solid", "border thickness renders on component instance");
+  check(state.past.length === borderHistory + 1, "border edit creates one undo entry");
+  undo();
+  check(selected().appearance?.borderWidth === undefined && borderInput().value === "", "border undo restores inheritance");
+  redo();
+  check(selected().appearance.borderWidth === 3.5, "border redo restores thickness");
+  document.querySelector('#proto-properties button[aria-label="Increase Border thickness (px)"]').click();
+  check(selected().appearance.borderWidth === 4.5, "border stepper preserves fractions and increments by one pixel");
+  borderInput().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+  check(selected().appearance.borderWidth === 3.5, "border keyboard decrements by one pixel");
+  editBorder("-1");
+  check(document.querySelector("#editor-error").textContent && selected().appearance.borderWidth === 3.5, "negative border thickness reports an error and rolls back");
+  editBorder("0");
+  check(selected().appearance.borderWidth === 0 && borderInput().value === "0", "zero thickness remains explicit");
+  check(getComputedStyle(node("card")).borderTopWidth === "0px", "zero thickness removes visible border");
+  document.querySelector('#proto-properties button[aria-label="Decrease Border thickness (px)"]').click();
+  check(selected().appearance.borderWidth === 0, "border decrement clamps at zero");
+  editBorder("invalid");
+  check(document.querySelector("#editor-error").textContent && selected().appearance.borderWidth === 0, "invalid pixel text reports an error without changing thickness");
+  editBorder("0x10");
+  check(document.querySelector("#editor-error").textContent && selected().appearance.borderWidth === 0, "hexadecimal input is not a pixel number");
+  editBorder(".5px");
+  check(selected().appearance.borderWidth === 0.5, "numberbox accepts fractional pixel text like margin controls");
+  editBorder("");
+  check(selected().appearance?.borderWidth === undefined && !node("card").style.borderWidth, "clearing restores component border styling");
   const width = propertyInput("Width");
   check(width, "Width property control");
   const history = state.past.length;
@@ -288,10 +341,12 @@ async function editorBehavior() {
   commitPropertyEdit((layer) => { layer.width = 280; });
   await savePrototype();
   check(state.dirty && document.querySelector("#screen-nav-error").textContent, "failed save keeps draft and reports failure");
+  editBorder("2.5");
   await savePrototype();
   await load();
   select("card");
   check(selected().width === 280, "saved edit survives reload");
+  check(selected().appearance.borderWidth === 2.5 && borderInput().value === "2.5", "border thickness survives save and reload");
   check(state.past.length === 0 && state.future.length === 0, "reload resets obsolete history");
 }
 
@@ -410,6 +465,7 @@ test("prototype Properties, transactions, zoomed drag and persistence", { timeou
     assert.equal(result, "PASS", result || stdout.slice(-4000));
     const persisted = await loadPrototypes(dir);
     assert.equal(persisted.doc.screens[0].root.children.find((child) => child.id === "card").width, 280);
+    assert.equal(persisted.doc.screens[0].root.children.find((child) => child.id === "card").appearance.borderWidth, 2.5);
     assert.equal(writes, 3);
   } finally {
     server.closeAllConnections();

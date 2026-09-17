@@ -14,7 +14,7 @@
   const appearanceGroups = {
     textStyle: "textStyle", fontFamily: "fontFamily", color: "colors",
     background: "colors", borderColor: "colors", radius: "radii", shadow: "shadows",
-    textAlign: null,
+    textAlign: null, borderWidth: null,
   };
   const noneKeys = new Set(["color", "background", "borderColor", "radius", "shadow"]);
   const colorKeys = new Set(["color", "background", "borderColor"]);
@@ -84,6 +84,10 @@
       else for (const [key, value] of Object.entries(node.appearance)) {
         if (!Object.hasOwn(appearanceGroups, key)) { errors.push(`appearance: unknown property "${key}".`); continue; }
         const where = `appearance.${key}`;
+        if (key === "borderWidth") {
+          if (!pixel(value)) errors.push(`${where}: must be a non-negative finite pixel number.`);
+          continue;
+        }
         if (noneKeys.has(key) && value === "$none") continue;
         if (colorKeys.has(key) && hex(value)) continue;
         if (!token(value)) { errors.push(`${where}: must be a token name${colorKeys.has(key) ? " or a six-digit hex color" : ""}.`); continue; }
@@ -130,6 +134,10 @@
     if (appearance.color) style.color = color(appearance.color);
     if (appearance.background) style["background-color"] = color(appearance.background);
     if (appearance.borderColor) style["border-color"] = color(appearance.borderColor);
+    if (appearance.borderWidth != null) {
+      style["border-width"] = `${appearance.borderWidth}px`;
+      style["border-style"] = "solid";
+    }
     if (appearance.radius) style["border-radius"] = appearance.radius === "$none" ? "0" : `var(--radius-${appearance.radius})`;
     if (appearance.shadow) style["box-shadow"] = appearance.shadow === "$none" ? "none" : `var(--shadow-${appearance.shadow})`;
     if (appearance.textAlign) style["text-align"] = appearance.textAlign;
