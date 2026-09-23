@@ -1,0 +1,13 @@
+{
+  "name": "colophon-development",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:yaml": "esbuild node_modules/yaml/browser/index.js --bundle --format=esm --platform=neutral --minify --outfile=extensions/colophon/vendor/yaml.mjs && node -e \"require('node:fs').copyFileSync('node_modules/yaml/LICENSE', 'extensions/colophon/vendor/yaml.LICENSE')\"",
+    "test": "node --test extensions/colophon/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "yaml": "2.9.1"
+  }
+}

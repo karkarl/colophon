@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
-import { validatePageComponents, validateTokens } from "./validate.mjs";
+import { validateDesignDir, validatePageComponents, validateTokens } from "./validate.mjs";
 
 const base = {
   brand: { name: "Test system" },
@@ -36,9 +39,21 @@ test("pages reject duplicate IDs and invalid editor fields", () => {
       { id: "notes", name: "", content: 1 },
     ],
   });
+
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /Duplicate page id/);
   assert.match(result.errors.join("\n"), /non-empty name/);
   assert.match(result.errors.join("\n"), /content must be a string/);
   assert.match(result.errors.join("\n"), /duplicate names/);
+});
+
+test("standalone legacy directories remain supported by validation", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "colophon-validation-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(path.join(dir, "design.json"), JSON.stringify(base));
+  assert.equal((await validateDesignDir(dir)).ok, true);
+  await writeFile(path.join(dir, "design.json"), "{");
+  const invalid = await validateDesignDir(dir);
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.parseError, /not valid JSON/);
 });

@@ -10,10 +10,13 @@ and turn approved designs into production code.
 
 
 Colophon ships two halves in one plugin:
-- a **skill** (`skills/colophon/`) that tells Copilot to treat `.agents/design/` as the design source and build UI from its defined tokens, components, and principles; and
+- a **skill** (`skills/colophon/`) that discovers DESIGN.md or the legacy design
+  system, guides seeding, and builds UI from its tokens, components, and rationale; and
 - a **canvas extension** (`extensions/colophon/`) with two canvases:
     - **Colophon canvas**: that renders and edits the defined design system live, and
-    - **Prototype canvas**: that renders device-framed, click-through mockups, including `colophon`/`prototype` tools and hooks so the agent has an initialized design system in context.
+    - **Prototype canvas**: that renders device-framed,
+ click-through mockups, including `colophon`/`prototype` tools and hooks so the
+ agent has an initialized design system in context.
 
 
 ## Quick start
@@ -28,10 +31,15 @@ copilot plugin install karkarl/colophon
 ```
 
 2. Reload or restart Copilot so it discovers the plugin.
-3. Open the **Colophon** canvas. If the repository has no design system yet, choose **Start fresh**, **Import tokens**, or **Scan codebase**.
-4. Save the proposal to create `.agents/design/`. From then on, Colophon supplies that shared design context when you ask Copilot to build or change UI.
+3. Open the **Colophon** canvas. If the repository has no design system yet, choose
+ **Start fresh**, **Import tokens**, or **Scan codebase**.
+4. Save the proposal to create `DESIGN.md`, companion patterns in `.agents/design/`,
+   and an `AGENTS.md` pointer. Colophon supplies that shared design context when
+   you ask Copilot to build or change UI.
 
-Open the **Prototype** canvas when you are ready to create or preview a click-through flow. Commit `.agents/design/` so the rest of the team works from the same system.
+Open the **Prototype** canvas when you are ready to create or preview a click-through
+flow. Commit `DESIGN.md`, `AGENTS.md`, and `.agents/design/` so the rest of the team
+works from the same system.
 
 ## Slash commands
 
@@ -48,12 +56,51 @@ The five workflow commands are declarative plugin commands in `commands/`, so ho
 
 ## How it works
 
-### 1. The design system lives in the repo: `.agents/design/`
+### 1. The design system lives in the repo
+
+**New seeds use root `DESIGN.md`**, companion patterns in `.agents/design/`, and an
+`AGENTS.md` pointer. Commit all three. Both Markdown documents explain how to use
+the optional Colophon extension; reading or editing the design does not require
+the plugin.
+
+DESIGN.md combines YAML front matter (`colors`, named `typography`, `spacing`,
+and `rounded`) with authored Markdown rationale. Colophon seeds the standard
+Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, and
+Do's and Don'ts sections. Token saves preserve the Markdown body, unknown
+front-matter fields, and YAML comments; no-op saves preserve the file exactly.
+Edit prose directly in DESIGN.md; the canvas displays it alongside the tokens.
+
+Colophon-specific metadata lives under `x-colophon: { version: 1, tokens: ... }`:
+brand voice, theme/resource mappings, authority/port targets, shadows, principles,
+font-role metadata, and custom canvas pages. Portable token values remain in the
+standard groups. This metadata is not part of the upstream standard. Detailed
+component trees and prototype flows remain companion JSONC files.
+
+Existing `.agents/design/design.json` systems keep loading and saving in that
+format. Initialization never overwrites or migrates an existing system. If both
+DESIGN.md and legacy design.json exist, Colophon reports a conflict and blocks
+token saves until the user chooses one authority. Invalid documents are reported
+without substituting starter values. A prose-only DESIGN.md is readable guidance,
+not permission to invent preview tokens. Canvas saves reject stale document
+revisions rather than overwriting external edits.
+
+The YAML parser is bundled with the extension, so installed plugins work offline
+without `npm install`. For development, run `npm ci`, `npm run build:yaml`, and
+`npm test`. The pinned parser and its license ship in `extensions/colophon/vendor/`.
+Compatibility targets the upstream alpha format; this is not an implementation
+of the upstream CLI's complete lint, import/export, or migration workflow.
+
+The existing internal token contract and legacy files are described below.
+DESIGN.md-backed systems project to the same canvas model in memory, without
+writing a second design.json. Inspector JSON paths address this normalized model,
+not literal YAML source paths.
+
 | File | What it is |
 | --- | --- |
-| `design.json` | Tokens: authority, brand, colors, typography, spacing, radii, shadows, principles |
+| `DESIGN.md` (repo root) | New-system authority: portable tokens, design rationale, and Colophon metadata |
+| `design.json` (legacy) | Tokens: authority, brand, colors, typography, spacing, radii, shadows, principles |
 | `components.jsonc` | A structured element-tree with token-bound Auto Layout — the component patterns your team has agreed on |
-| `principles.md` | Prose voice / information hierarchy / do & don't |
+| `principles.md` (legacy) | Prose voice / information hierarchy / do & don't |
 
 These are plain files. Commit them, review them in PRs, edit them by hand or in the canvas.
 
@@ -103,7 +150,7 @@ With no `port` or overrides, `design.json` and `components.jsonc` remain the fra
 Open the **Design System** canvas to see the system rendered live:
 - **Design system** - Brand board, color palette, type scale, spacing/radii/shadows, principles.
 - **Live component previews** — `components.jsonc` is rendered by a small pure JSON→DOM interpreter (no framework runtime, works offline) using the system's own tokens, so you see real UI, not just code. Format v3 keeps every object layer relational with a stable `id`, supports semantic Auto Layout, and adds explicit parent-relative freeform positioning.
-- **Inline editing** — change a color/font/brand text and **Save to repo** writes`design.json` back. File edits stream back into the canvas via SSE.
+- **Inline editing** — change a color/font/brand text and **Save to repo** writes the active DESIGN.md or legacy design.json. File edits stream back into the canvas via SSE.
 - **Exact inspection** — toggle **Inspect** to select brand, color, typography, spacing,
   radius, shadow, principle, component, or individual rendered component layer by its
   exact JSON Pointer path. Edit the object inline, save it to `design.json` /
@@ -282,15 +329,15 @@ When there's no `.agents/design/`, choose how to start; refine everything in the
 | **Import tokens** | Point at a repo-relative `.json` path or paste token JSON. Adapts our schema, flat `{name:hex}`, nested Tailwind / Style-Dictionary (`colors`/`fontFamily`/`spacing`/`borderRadius`), and W3C `{$value}` tokens. Loads as a **proposal** to refine, then Save. |
 | **Scan codebase** | Walks the repo's CSS/JSX/styles and extracts colors (prefers named CSS vars), fonts, spacing, radii, shadows — classifying unnamed colors into ink/paper/accent. Loads as a **proposal** to refine, then Save. |
 
-Starter/scratch write straight to `.agents/design/`; import/scan load an **unsaved proposal** with a review bar (**Save to repo** / **Discard**). Any first save also scaffolds `components.jsonc` + `principles.md`, and drops an idempotent **`AGENTS.md` pointer** at the repo root (see below).
+Starter/scratch seed root `DESIGN.md`; JSON import/scan load an **unsaved proposal** with a review bar (**Save to repo** / **Discard**). Any first save also scaffolds `.agents/design/components.jsonc` and adds an idempotent **`AGENTS.md` pointer** at the repo root. Existing DESIGN.md files load directly; Markdown import/export and automatic legacy migration are not included.
 
 ### 2c. Seeding also writes an `AGENTS.md` pointer
-When it seeds a repository, Colophon idempotently adds a managed `AGENTS.md` block—creating the file if needed—so agents load `.agents/design/` before UI work.
+When it seeds a repository, Colophon idempotently adds a managed `AGENTS.md` block—creating the file if needed—so agents read DESIGN.md (or the existing legacy system) before UI work. The block explains the optional Colophon workflow and direct-file fallback.
 
 ### 3. Copilot references it automatically (the skill + tool + hooks)
-- **`colophon` skill** — instructs the agent, on any UI work, to read `.agents/design/`and generate UI from its tokens, components, and principles (not ad-hoc styles).
+- **`colophon` skill** — discovers the design authority before UI work, guides safe seeding, and generates UI from its tokens, component patterns, and rationale rather than ad-hoc styles.
 - **`colophon` tool** — the agent calls it to get the system as text before UI work.`init=true` scaffolds `.agents/design/` from the starter; `scan=true` proposes one from the repo's existing UI when none exists yet.
-- **Hooks** — when a repository contains `.agents/design/design.json`, `onSessionStart`announces the system exists and `onUserPromptSubmitted` detects UI-related prompts ("build a settings page", "fix the button styling") to inject it. Repositories without an initialized design system receive no Colophon prompt context; use the canvas or`colophon` tool explicitly to seed one.
+- **Hooks** — when a repository contains DESIGN.md or legacy `.agents/design/design.json`, `onSessionStart` announces it and `onUserPromptSubmitted` injects its guidance for UI-related prompts. Parse errors and conflicting sources are surfaced explicitly. Repositories without a system receive no injected design context; use the canvas or `colophon` tool to seed one.
 
 ### 4. Prototype canvas: click-through mockups from the design system
 A second canvas turns the design system into **click-through prototypes** — so a team can shape a flow by talking to Copilot instead of redlining in Figma, review it visually, then convert a screen to code.
@@ -384,10 +431,12 @@ group. Existing files without sections keep their flat list. Agent patches can u
 ````javascript
 plugin.json                       plugin manifest (skills + extensions)
 .github/plugin/marketplace.json   makes this repo its own plugin marketplace
-skills/colophon/SKILL.md          the "build UI from .agents/design/" skill
+skills/colophon/SKILL.md          design discovery, seeding, and on-system UI guidance
 extensions/colophon/              the canvas extension:
   extension.mjs   wiring: canvases + tools + hooks + loopback server + file IO
-  designio.mjs    locate / load / scaffold / save .agents/design/ ; AGENTS.md pointer ; token → CSS vars
+  designio.mjs    discover / seed / save DESIGN.md or legacy JSON; AGENTS.md pointer; token → CSS vars
+  designmd.mjs    portable front matter adapter; preserve rationale and custom YAML
+  vendor/        bundled YAML parser and license (no runtime install)
   context.mjs     UI-intent detection + the summary/context text Copilot receives
   sources.mjs     seed generators: scratch skeleton, token importer, codebase scanner
   renderer.mjs    tiny iframe shell (design canvas)

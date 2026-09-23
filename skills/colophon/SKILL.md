@@ -1,126 +1,149 @@
 ---
 name: colophon
 description: >-
-  Use whenever you create, edit, review, or fix UI in a repository — pages,
-  screens, components, layouts, CSS/styling, themes, or any visual change.
-  Colophon makes the repo's own design system at `.agents/design/` the shared
-  reference: read it first and generate UI from its color, typography, spacing,
-  radius tokens, component patterns, voice, and anti-references instead of
-  inventing new styles. The design files are the source of truth for *design*;
-  read `authority` to see what each surface ships as and which reference/skill to
-  port the design with. If no design system exists yet, offer to seed one.
+  Use whenever you seed a design system or create, edit, review, or fix UI.
+  Follow AGENTS.md to the repository's DESIGN.md or legacy .agents/design/
+  contract before generating UI. Reuse its tokens, component patterns, rationale,
+  voice, and anti-references. Colophon is an optional visual editor, not a
+  requirement for reading the design. If no system exists, offer to seed
+  DESIGN.md, companion component patterns, and an AGENTS.md pointer.
 ---
 
-# Colophon — build UI from the repo's design system
+# Colophon - seed and follow the repository's design system
 
-Colophon treats a repository's **`.agents/design/`** folder as the shared, agreed
-reference for how UI in that repo should look and feel. Your job when doing any UI
-work is to read it first and produce UI that conforms to it — reusing the team's
-tokens and component patterns rather than improvising one-off values.
+The design belongs to the repository, not to the extension. Agents must be able
+to discover and apply it without installing Colophon:
 
-## Design leads, the implementation ships — read `authority` first
+```text
+AGENTS.md -> DESIGN.md -> optional Colophon editor
+                      -> .agents/design/components.jsonc
+                      -> optional .agents/design/prototypes.jsonc
+```
 
-The design files are **always the source of truth for design** — tokens, component
-intent, and principles — and are framework-agnostic. `components.jsx` is design
-intent for preview, **not** shipping code. What varies is how a design becomes
-shipping code, recorded in `design.json`'s `authority` block:
+Use this skill before working on pages, components, layouts, CSS, themes, or
+visual behavior. Purely non-visual work does not require it.
 
-- **`authority.designSource`** — who owns the *design* (default `"self"` = these files).
-- **`authority.port`** — the app-wide default **port target**:
-  - `authoritySource` — what the surface actually ships as (e.g. `Native WinUI 3 / C#`, `SwiftUI (iOS)`, `React web`).
-  - `syncSource` — the reference/skill you use to port design → that implementation (e.g. `https://github.com/microsoft/win-dev-skills`).
-  - `helperAgent` — an optional skill/agent that performs the port (may be empty — e.g. Reactor has none yet).
-- **`authority.portOverrides[]`** — per-area / per-component overrides (each with
-  `area`, `components[]`, and the same three port fields). Example: a React-style
-  **chat** surface targeting [Reactor](https://github.com/microsoft/microsoft-ui-reactor).
+## 1. Discover the design authority before seeding
 
-**When there's a port target:** follow the design tokens/patterns, then port the
-design into the app's implementation using the matching `syncSource` (and
-`helperAgent` if present). Don't ship `components.jsx` verbatim, and don't treat the
-JSX as a parallel product authority — it's design intent.
+Read the applicable AGENTS.md guidance and check for both root `DESIGN.md` and
+`.agents/design/design.json`. Do not interpret a missing `.agents/design/` folder
+as permission to seed over an existing DESIGN.md.
 
-**When there's no port target** (no `port`/overrides — the web/JSX case): the files
-are both the design and the implementation source of truth. Generate UI directly
-from them, and if you need a value they don't cover, add it here.
+| Existing files | What to do |
+| --- | --- |
+| DESIGN.md only | Read its front matter and full prose. Read companion component patterns if present. |
+| Legacy design.json only | Read it, components.jsonc, and principles.md. Preserve this format. |
+| Both | Explain the conflict and ask which document should own the design. Do not overwrite, merge, delete, or migrate either automatically. |
+| Neither | Offer to seed a design system before generating UI. |
+| Invalid or unreadable document | Report the error and resolve it before proceeding. Do not replace it with starter values. |
 
-Everything below applies either way; the only difference is whether there's a port
-step to the app's implementation, and which reference/skill performs it.
+When available, call the `colophon` tool to load the system and its diagnostics.
+The canvas can inspect, edit, and preview it. Without the extension, read and
+edit the files directly. Do not install the plugin unless the user requests it.
 
-## When this applies
+Prose-only DESIGN.md files are valid guidance. Read them as such; do not invent a
+palette or silently fill missing tokens with Northlight. Propose concrete tokens
+only when the requested work needs them.
 
-Consult Colophon **before** you write or change any of:
-- new pages, screens, views, or routes with a visual surface
-- components, layouts, or design primitives (buttons, inputs, cards, nav, etc.)
-- CSS, styling, themes, tokens, or visual polish
-- bug fixes that touch spacing, color, type, states, or responsiveness
+## 2. Seed only when no design system exists
 
-If a task is purely non-visual (pure logic, data, build config), you can skip it.
+Choose an appropriate starting point with the user. Preserve the repository's
+identity instead of applying the bundled Northlight example to an unrelated app.
 
-## Step 1 — Load the design system
+- **Existing UI:** use the `colophon` tool with `scan: true` to propose tokens
+  from the codebase without writing files. Review and refine in the canvas before
+  Save to repo.
+- **New identity:** use the Colophon canvas `init` action with `mode: "scratch"`
+  and the project's name, tagline, and description, then refine the neutral
+  skeleton with the user.
+- **Bundled example:** use the `colophon` tool with `init: true`, or the canvas
+  `init` action with `mode: "starter"`, only when the user wants that starting
+  point.
 
-Resolve the repo's design system, in this order:
+New seeds and first saves create:
 
-1. **Preferred:** if the **`colophon` tool** is available (the Colophon canvas
-   extension is installed), call it. It returns a text summary of the system —
-   brand, colors, typography, spacing, radii, component patterns, principles, and
-   anti-references — already condensed for you.
-2. **Otherwise, read the files directly** from `.agents/design/`:
-   - `design.json` — tokens: `authority` (design source + port targets), `brand`
-     (name, tagline, description), `colors`, `typography` (families + scale),
-     `spacing`, `radii`, `shadows`, `principles`.
-   - `components.jsx` — "pseudocode React": the component patterns the team has
-     agreed on. Treat these as the structure/props/variants to reuse.
-   - `principles.md` — voice, information hierarchy, and do/don't guidance.
+- Root `DESIGN.md`: portable tokens and design rationale.
+- `.agents/design/components.jsonc`: editable, framework-agnostic component
+  patterns for preview and implementation guidance.
+- An idempotent managed block in root `AGENTS.md`: directs agents to DESIGN.md
+  and the companion patterns, and explains the optional Colophon workflow.
 
-Read `authority` (see the top of this doc) to know what each surface ships as and
-which reference/skill to port the design with. Read `brand.description` for
-app/project context — it tells you what you're building and for whom, which should
-inform layout and copy, not just styling.
+The extension preserves existing systems when `init` is called. It does not
+create a competing `design.json`, seed legacy principles.md for a new system, or
+automatically migrate old files. Check the result's written/skipped files and
+AGENTS.md status; report pointer failures instead of claiming complete setup.
 
-## Step 2 — Generate UI that conforms
+### Seeding without the extension
 
-- **Use token names, not raw values.** Reference the semantic tokens
-  (e.g. `accent`, `ink`, `paper`, spacing step `4`, radius `md`) via whatever the
-  repo's mechanism is (CSS variables, a theme object, Tailwind config, etc.).
-  Do not paste literal hex codes, arbitrary px, or ad-hoc font stacks when a
-  token already covers it.
-- **Reuse component patterns.** If `components.jsx` defines a Button, Field, Card,
-  etc., mirror its structure, variants, and states instead of authoring a new one.
-  Extend the existing pattern rather than forking a parallel one.
-- **Respect hierarchy and principles.** Follow the system's stated principles
-  (e.g. "hierarchy over decoration", "one accent used sparingly", motion timing).
-  Let size, weight, and spacing carry hierarchy before reaching for color.
-- **Honor the voice.** Match the brand's tone in any user-facing copy, labels,
-  empty states, and errors.
-- **Avoid the anti-references.** The system lists patterns to avoid — do not
-  produce them, even if they'd otherwise be a common default.
+Create the same document contract directly after approval. DESIGN.md uses
+optional YAML front matter followed by Markdown rationale. Follow the
+[upstream specification](https://github.com/google-labs-code/design.md/blob/main/docs/spec.md);
+the supported format is currently alpha.
 
-## Step 3 — Keep the system coherent
+- Define `name` and, when known, `description`, `colors`, `typography`, `spacing`,
+  and `rounded`. Keep existing semantic token names; do not rename `ink` or
+  `accent` merely to satisfy a naming convention.
+- Use typography objects with `fontFamily`, `fontSize`, `fontWeight`,
+  `lineHeight`, and `letterSpacing` where specified. Quote hex values and
+  numeric-looking spacing keys. References use `{colors.accent}` and similar
+  paths; every reference must resolve.
+- Write specific rationale, not only token lists. Use the relevant sections in
+  order: Overview, Colors, Typography, Layout, Elevation & Depth, Shapes,
+  Components, and Do's and Don'ts. Preserve custom sections; avoid duplicates.
+- Explain the intended audience, visual reference, usage rules, and deliberate
+  exclusions. Do not fabricate brand decisions to fill every section.
+- Link actual companion files from Components. Create component patterns only
+  when their structure is known; never invent references to nonexistent patterns.
+- Keep richer Colophon metadata in `x-colophon` only when needed. The extension's
+  versioned shape is `x-colophon: { version: 1, tokens: ... }`; it is not an
+  upstream standard. Do not duplicate portable token values there.
 
-- If you genuinely need a value the system doesn't cover, **add it to the design
-  system** (a new token or a new/updated pattern in `.agents/design/`) rather than
-  scattering a one-off magic value in feature code — then use it. Call this out so
-  a human can review it in the PR. (When there's a port target, add the value to
-  the design here, then port it into the app's implementation via the `syncSource`.)
-- Prefer one confident, on-system element over several tentative custom ones.
+In Overview, add a short note that the optional **Colophon** canvas can edit and
+preview the system. Include `copilot plugin install karkarl/colophon` and
+https://github.com/karkarl/colophon, and explicitly say direct file editing works.
 
-## If there is no `.agents/design/` yet
+Add or update only the `<!-- colophon:start -->` / `<!-- colophon:end -->` block
+in AGENTS.md. Point to DESIGN.md, existing companion files, and the optional
+tool/canvas; keep the palette and rationale in DESIGN.md instead of repeating
+them. Preserve unrelated instructions and line endings. If markers are
+malformed or the target is a symlink, report it and ask before changing it.
 
-Don't silently invent an ad-hoc style. When the user is doing UI work in a repo
-with no design system, **offer to seed one** first, then build against it:
+## 3. Respect design and production authority
 
-- Call the **`colophon` tool** with `init` to scaffold a starter system, or with
-  `scan` to propose one from the repo's existing UI (colors/fonts/spacing found in
-  the codebase). Or tell the user to open the **Colophon canvas** to create/refine
-  it visually (start fresh, import `.json` tokens, or scan the codebase).
-- Once `.agents/design/` exists, proceed with Steps 1–3.
+Read `authority` in legacy design.json or `x-colophon.tokens.authority` in
+DESIGN.md when present:
 
-Seeding also adds an idempotent pointer block to the repo-root **`AGENTS.md`** (the
-cross-agent convention), so any agent — not just Copilot with this skill — is told to
-read `.agents/design/` before UI work. It's non-destructive: it never overwrites the
-user's other `AGENTS.md` content.
+- `designSource` identifies design ownership.
+- `port` identifies the default shipping technology (`authoritySource`), porting
+  reference (`syncSource`), optional specialist (`helperAgent`), and owner.
+- `portOverrides` identifies exceptions by area or component.
+- `owner` and `syncProcess` describe responsibility and synchronization.
 
-The design system is a shared, human-readable artifact that designers and
-developers refine together in the repo and in the Colophon canvas. Your role is to
-keep every UI change faithful to it — and, when there's a port target, to port that
-design faithfully into the app's implementation via the configured reference/skill.
+With a port target, follow its reference and bind each color's mapped `resource`
+instead of hard-coding preview hex values. Preserve light, dark, and
+high-contrast mappings. The shipping implementation is canonical for production;
+component graphs describe design intent and must not be copied as shipping code.
+
+Without a port target, implement the design contract in the repository's chosen
+technology. `components.jsonc` is still a framework-agnostic pattern document,
+not an executable React implementation.
+
+## 4. Generate UI and keep the system coherent
+
+Use named tokens through the repository's styling mechanism. Reuse component
+patterns, honor the prose, and preserve the intended hierarchy, voice, and
+anti-references. If a needed value is missing, propose and add it to the active
+design authority rather than scattering one-off values in code.
+
+For DESIGN.md-backed systems, canvas token saves update its front matter and
+preserve authored prose and unknown content. Edit rationale in DESIGN.md
+directly. Inspector JSON paths refer to Colophon's normalized token model, not
+literal YAML paths. Preserve unknown fields and report unsupported constructs.
+
+Do not maintain a second editable token copy, silently convert legacy systems,
+or overwrite concurrent disk edits. Reload after a stale-save error and
+reconcile the user's changes before retrying.
+
+After seeding, read the created files and verify the authority, references,
+companion links, and AGENTS.md pointer. Use the canvas `validate` action or
+`/design-validate` when available; report all errors and relevant warnings.
