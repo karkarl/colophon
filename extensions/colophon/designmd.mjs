@@ -46,12 +46,12 @@ function resolve(value, root, visited = new Set()) {
   return resolve(target, root, visited);
 }
 
-function checkReferences(value, root, ancestors = new Set()) {
-  if (typeof value === "string") resolve(value, root);
+function checkValues(value, check = null, ancestors = new Set()) {
+  if (typeof value === "string") check?.(value);
   else if (object(value) || Array.isArray(value)) {
     if (ancestors.has(value)) throw new Error("Cyclic YAML aliases are not supported.");
     ancestors.add(value);
-    for (const child of Object.values(value)) checkReferences(child, root, ancestors);
+    for (const child of Object.values(value)) checkValues(child, check, ancestors);
     ancestors.delete(value);
   }
 }
@@ -116,7 +116,9 @@ export function parseDesignMarkdown(source) {
   if (yaml.errors.length || yaml.warnings.length) throw new Error([...yaml.errors, ...yaml.warnings].map((e) => e.message).join("\n"));
   const data = mapping(yaml.toJS({ maxAliasCount: 50 }), "DESIGN.md front matter");
   for (const group of ["colors", "typography", "spacing", "rounded", "components"]) mapping(data[group], group);
-  checkReferences(data, data);
+  checkValues(data);
+  // Projected token fields are resolved in toTokens; component tokens are preserved separately.
+  checkValues(data.components, (value) => resolve(value, data));
   const body = match ? source.slice(match[0].length) : source;
   checkSections(body);
   const tokens = toTokens(data, body);

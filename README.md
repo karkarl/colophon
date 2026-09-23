@@ -68,6 +68,9 @@ and `rounded`) with authored Markdown rationale. Colophon seeds the standard
 Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, and
 Do's and Don'ts sections. Token saves preserve the Markdown body, unknown
 front-matter fields, and YAML comments; no-op saves preserve the file exactly.
+Brace-form token references are resolved in supported token fields and component
+style tokens. Placeholders such as `{project-name}` in names, descriptions, and
+custom metadata remain literal text unless explicitly referenced by a token.
 Edit prose directly in DESIGN.md; the canvas displays it alongside the tokens.
 
 Colophon-specific metadata lives under `x-colophon: { version: 1, tokens: ... }`:
