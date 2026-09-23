@@ -1,19 +1,15 @@
 // designio.mjs — locate, load, scaffold, and save the in-repo design system.
 //
-// The design system lives at <workspace>/.agents/design/:
-//   design.json       tokens (brand, colors, typography, spacing, radii, shadows, principles,
-//                     and optional user-managed pages)
-//                     pages[] entries are { id, name, description?, content?, components? }.
-//   components.jsonc   component patterns as a framework-agnostic element tree
-//   principles.md      prose voice / do & don't
-//
-// When a workspace has no .agents/design/ yet, we fall back to the bundled
-// sample so the canvas always renders something and `init` can seed a repo.
+// New systems use root DESIGN.md with .agents/design/ companion graphs.
+// Legacy design.json + principles.md remain readable and editable in place.
+// The bundled sample is used only when neither design authority exists.
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash, randomUUID } from "node:crypto";
 import { COMPONENTS_FILENAME, parseComponents, emptyComponents, serializeComponents } from "./componentsio.mjs";
+import { DESIGN_MD, parseDesignMarkdown, seedDesignMarkdown, updateDesignMarkdown } from "./designmd.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLE_DIR = path.join(HERE, "sample");
@@ -32,6 +28,43 @@ export function designDirFor(workspacePath) {
   return path.join(workspacePath, DESIGN_SUBPATH);
 }
 
+const saves = new Map();
+async function withDesignLock(workspacePath, operation) {
+  const key = workspacePath ? path.resolve(workspacePath) : "";
+  const previous = saves.get(key) || Promise.resolve();
+  const pending = previous.then(operation, operation);
+  saves.set(key, pending);
+  try { return await pending; }
+  finally { if (saves.get(key) === pending) saves.delete(key); }
+}
+
+async function rejectSymlink(file) {
+  try {
+    if ((await fs.lstat(file)).isSymbolicLink()) throw new Error(`Refusing to write through symlink: ${file}`);
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+}
+
+async function ensureDesignDirectory(workspacePath) {
+  for (const dir of [path.join(workspacePath, ".agents"), designDirFor(workspacePath)]) {
+    await rejectSymlink(dir);
+    await fs.mkdir(dir, { recursive: true });
+  }
+}
+
+async function writeDesignFile(file, text, { create = false } = {}) {
+  await rejectSymlink(file);
+  const temp = `${file}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temp, text, { encoding: "utf8", flag: "wx" });
+    if (create) await fs.link(temp, file);
+    else await fs.rename(temp, file);
+  } finally {
+    await fs.rm(temp, { force: true });
+  }
+}
+
 async function exists(p) {
   try {
     await fs.access(p);
@@ -44,35 +77,62 @@ async function exists(p) {
 async function readIfPresent(p) {
   try {
     return await fs.readFile(p, "utf8");
-  } catch {
-    return null;
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
   }
+}
+
+function designRevision(markdown, json) {
+  return createHash("sha256").update(JSON.stringify([markdown, json])).digest("hex");
+}
+
+async function designSource(workspacePath) {
+  const dir = designDirFor(workspacePath);
+  const markdown = workspacePath ? await readIfPresent(path.join(workspacePath, DESIGN_MD)) : null;
+  const json = dir ? await readIfPresent(path.join(dir, "design.json")) : null;
+  const conflict = markdown != null && json != null;
+  const format = markdown != null ? "markdown" : json != null ? "json" : null;
+  const file = format === "markdown" ? DESIGN_MD : format === "json" ? `${DESIGN_SUBPATH}/design.json` : null;
+  const raw = markdown ?? json;
+  const revision = designRevision(markdown, json);
+  return { dir, format, file, raw, revision, conflict };
 }
 
 // Load the design system for a workspace. Returns a normalized object plus the
 // raw component/principles text and where it came from.
 export async function loadDesign(workspacePath) {
-  const dir = designDirFor(workspacePath);
-  const usingRepo = dir && (await exists(path.join(dir, "design.json")));
-  const baseDir = usingRepo ? dir : SAMPLE_DIR;
-
-  const rawJson = await readIfPresent(path.join(baseDir, "design.json"));
-  let tokens;
+  const source = await designSource(workspacePath);
+  const usingRepo = source.format != null;
+  const baseDir = usingRepo ? source.dir : SAMPLE_DIR;
+  let tokens = {};
   let parseError = null;
+  let warnings = [];
+  let principles = "";
   try {
-    tokens = rawJson ? JSON.parse(rawJson) : {};
+    if (source.conflict) throw new Error("Both DESIGN.md and .agents/design/design.json exist. Choose one design authority and move the other out of the active paths before saving. Colophon will not overwrite either.");
+    if (source.format === "markdown") {
+      const parsed = parseDesignMarkdown(source.raw);
+      tokens = parsed.tokens;
+      principles = parsed.body;
+      warnings = parsed.warnings;
+    } else {
+      tokens = JSON.parse(source.raw ?? await fs.readFile(path.join(SAMPLE_DIR, "design.json"), "utf8"));
+      principles = await readIfPresent(path.join(baseDir, "principles.md")) || "";
+    }
   } catch (err) {
     parseError = String(err && err.message ? err.message : err);
-    // Fall back to the sample tokens so the canvas still renders.
-    tokens = JSON.parse(await fs.readFile(path.join(SAMPLE_DIR, "design.json"), "utf8"));
   }
 
   const compInfo = await loadComponentsFrom(baseDir);
-  const principles = await readIfPresent(path.join(baseDir, "principles.md"));
 
   return {
     source: usingRepo ? "repo" : "sample",
-    dir: usingRepo ? dir : null,
+    dir: usingRepo ? source.dir : null,
+    format: source.format || "json",
+    file: source.file,
+    revision: source.revision,
+    warnings,
     workspacePath: workspacePath || null,
     parseError,
     tokens,
@@ -80,7 +140,7 @@ export async function loadDesign(workspacePath) {
     componentsDoc: compInfo.doc,
     componentsFormat: compInfo.format,
     componentsError: compInfo.error,
-    principlesMarkdown: principles || "",
+    principlesMarkdown: principles,
   };
 }
 
@@ -118,61 +178,68 @@ async function ensureSiblings(dir, { force = false, only } = {}) {
   return written;
 }
 
-// Scaffold <workspace>/.agents/design/ (non-destructive). By default copies the
-// bundled starter. Pass `tokens` to seed design.json from a specific token object
-// (used by "from scratch", import, and scan). components.jsonc + principles.md are
-// always scaffolded from the sample so teams have patterns/prose to edit.
-export async function initDesign(workspacePath, { force = false, tokens = null } = {}) {
-  const dir = designDirFor(workspacePath);
-  if (!dir) throw new Error("No workspace path available to scaffold .agents/design/");
-  await fs.mkdir(dir, { recursive: true });
-
-  const written = [];
-  const skipped = [];
-  const designDest = path.join(dir, "design.json");
-  if (!force && (await exists(designDest))) {
-    skipped.push("design.json");
-  } else if (tokens) {
-    const seeded = { ...tokens, meta: { ...(tokens.meta || {}), version: tokens?.meta?.version || 1, updatedAt: new Date().toISOString() } };
-    await fs.writeFile(designDest, JSON.stringify(seeded, null, 2) + "\n", "utf8");
-    written.push("design.json");
-  } else {
-    await fs.copyFile(path.join(SAMPLE_DIR, "design.json"), designDest);
-    written.push("design.json");
-  }
-
-  for (const name of [COMPONENTS_FILENAME, "principles.md"]) {
-    const dest = path.join(dir, name);
-    if (!force && (await exists(dest))) { skipped.push(name); continue; }
-    await fs.copyFile(path.join(SAMPLE_DIR, name), dest);
-    written.push(name);
-  }
-  const agents = await ensureAgentsPointer(workspacePath);
-  return { dir, written, skipped, agents };
+// New systems use DESIGN.md; existing Markdown and legacy JSON remain untouched.
+export async function initDesign(workspacePath, { tokens = null } = {}) {
+  return withDesignLock(workspacePath, async () => {
+    if (!workspacePath) throw new Error("No workspace path available to seed DESIGN.md.");
+    const source = await designSource(workspacePath);
+    const loaded = await loadDesign(workspacePath);
+    if (loaded.parseError) throw new Error(loaded.parseError);
+    if (source.format) {
+      const agents = await ensureAgentsPointer(workspacePath);
+      return { dir: source.dir, file: source.file, written: [], skipped: [source.file], agents };
+    }
+    const initial = tokens ?? loaded.tokens;
+    const text = seedDesignMarkdown(initial);
+    await ensureDesignDirectory(workspacePath);
+    const companions = await ensureSiblings(source.dir, { only: [COMPONENTS_FILENAME] });
+    if ((await designSource(workspacePath)).revision !== source.revision) throw new Error("The design system changed while preparing the seed. Reload before trying again.");
+    await writeDesignFile(path.join(workspacePath, DESIGN_MD), text, { create: true });
+    const written = [DESIGN_MD, ...companions];
+    const agents = await ensureAgentsPointer(workspacePath);
+    return { dir: source.dir, file: DESIGN_MD, written, skipped: [], agents };
+  });
 }
 
-// Persist edited tokens back to design.json (repo if present, else scaffold first).
-// Also ensures components.jsonc + principles.md exist so a first save is complete.
-export async function saveTokens(workspacePath, tokens) {
-  let dir = designDirFor(workspacePath);
-  if (!dir) throw new Error("No workspace path available to save design.json");
-  await fs.mkdir(dir, { recursive: true });
-  const next = {
-    ...tokens,
-    meta: { ...(tokens.meta || {}), version: (tokens?.meta?.version || 0) + 1, updatedAt: new Date().toISOString() },
-  };
-  await fs.writeFile(path.join(dir, "design.json"), JSON.stringify(next, null, 2) + "\n", "utf8");
-  const scaffolded = await ensureSiblings(dir);
-  const agents = await ensureAgentsPointer(workspacePath);
-  return { dir, tokens: next, scaffolded, agents };
+// Persist to the active format, preserving Markdown prose and unknown fields.
+export async function saveTokens(workspacePath, tokens, { revision } = {}) {
+  return withDesignLock(workspacePath, async () => {
+    if (!workspacePath) throw new Error("No workspace path available to save the design system.");
+    const source = await designSource(workspacePath);
+    if (revision !== undefined && revision !== source.revision) throw new Error("The design system changed on disk. Reload before saving your edits.");
+    const loaded = await loadDesign(workspacePath);
+    if (loaded.parseError) throw new Error(loaded.parseError);
+    const file = source.file || DESIGN_MD;
+    const next = source.format === "json" ? {
+      ...tokens,
+      meta: { ...(tokens.meta || {}), version: (tokens?.meta?.version || 0) + 1, updatedAt: new Date().toISOString() },
+    } : tokens;
+    const text = source.format === "json" ? JSON.stringify(next, null, 2) + "\n"
+      : source.format === "markdown" ? updateDesignMarkdown(source.raw, tokens) : seedDesignMarkdown(tokens);
+    if (source.format === "json") await ensureDesignDirectory(workspacePath);
+    let scaffolded = [];
+    if (!source.format) {
+      await ensureDesignDirectory(workspacePath);
+      scaffolded = await ensureSiblings(source.dir, { only: [COMPONENTS_FILENAME] });
+    }
+    if ((await designSource(workspacePath)).revision !== source.revision) throw new Error("The design system changed on disk. Reload before saving your edits.");
+    if (text !== source.raw) await writeDesignFile(path.join(workspacePath, file), text, { create: !source.format });
+    const agents = await ensureAgentsPointer(workspacePath);
+    const format = source.format || "markdown";
+    return {
+      dir: source.dir, file, format, scaffolded, agents,
+      revision: format === "markdown" ? designRevision(text, null) : designRevision(null, text),
+      tokens: format === "markdown" ? parseDesignMarkdown(text).tokens : next,
+    };
+  });
 }
 
 export async function saveComponents(workspacePath, doc) {
   const dir = designDirFor(workspacePath);
   if (!dir) throw new Error("No workspace path available to save components.jsonc");
-  await fs.mkdir(dir, { recursive: true });
+  await ensureDesignDirectory(workspacePath);
   const file = path.join(dir, COMPONENTS_FILENAME);
-  await fs.writeFile(file, serializeComponents(doc), "utf8");
+  await writeDesignFile(file, serializeComponents(doc));
   const agents = await ensureAgentsPointer(workspacePath);
   return { dir, file, doc: parseComponents(serializeComponents(doc)), agents };
 }
@@ -184,11 +251,14 @@ export async function saveComponents(workspacePath, doc) {
 // only thing that varies is the `authority` framing (canonical vs derived), because
 // that changes what agents are being *told to do* with the files. The `eol` is
 // applied so the block matches the host file's line-ending style.
-function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portOverrides: [] }) {
+function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portOverrides: [] }, format = "json") {
+  const markdown = format === "markdown";
+  const location = markdown ? "[`DESIGN.md`](DESIGN.md)" : "[`.agents/design/`](.agents/design/)";
+  const tokenFile = markdown ? "DESIGN.md" : ".agents/design/design.json";
   const hasPort = !!authority?.hasPort;
   const lead = hasPort
     ? [
-        "This repository has a living design system at [`.agents/design/`](.agents/design/). " +
+        `This repository has a living design system at ${location}. ` +
           "These files are the **source of truth for design** — tokens, component intent, and " +
           "principles — and are framework-agnostic. `components.jsonc` shows design intent for preview; " +
           "it is **not** shipping code.",
@@ -196,7 +266,7 @@ function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portO
           "implementation using the port target(s) below — don't copy `components.jsonc` verbatim.",
       ]
     : [
-        "This repository has a living design system at [`.agents/design/`](.agents/design/).",
+        `This repository has a living design system at ${location}.`,
         "**Read it before creating or changing any UI** — pages, components, layouts, CSS, or themes:",
       ];
   const lines = [
@@ -205,14 +275,18 @@ function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portO
     "",
     ...lead,
     "",
-    "- `.agents/design/design.json` — design tokens: brand, colors, typography, spacing, radii, shadows, principles.",
+    `- \`${tokenFile}\` — design tokens and rationale: brand, colors, typography, spacing, radii, shadows, principles.`,
     "- `.agents/design/components.jsonc` — the component patterns to reuse (structure, variants, states).",
-    "- `.agents/design/principles.md` — voice, information hierarchy, and do/don't guidance.",
+    ...(markdown ? [] : ["- `.agents/design/principles.md` — voice, information hierarchy, and do/don't guidance."]),
     "",
     "Generate UI from these tokens and patterns: use token names (e.g. `accent`, `ink`, spacing step " +
       "`4`, radius `md`), not raw hex or ad-hoc px; reuse the documented components instead of inventing " +
       "new ones; honor the brand voice; and avoid the system's listed anti-references. If you need a value " +
-      "the system doesn't cover, add it to `.agents/design/` rather than hard-coding a one-off.",
+      `the system doesn't cover, add it to \`${tokenFile}\` rather than hard-coding a one-off.`,
+    "",
+    "Use the **Colophon** tool/canvas to inspect, edit, and preview this system when available. " +
+      "Install the optional plugin with `copilot plugin install karkarl/colophon`. " +
+      "Without the extension, read and edit the files directly; Colophon is not required.",
   ];
   if (hasPort) {
     lines.push(
@@ -223,7 +297,7 @@ function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portO
     );
     lines.push(
       "",
-      "Colors in `design.json` are **preview-only** swatches. When a color has a `resource` (e.g. a WinUI " +
+      `Colors in \`${tokenFile}\` are **preview-only** swatches. When a color has a \`resource\` (e.g. a WinUI ` +
         "`ThemeResource` key), bind that resource in code — never hard-code the preview hex — so light, dark, " +
         "and high-contrast themes stay correct. The shipping implementation is canonical; treat `components.jsonc` " +
         "and the token values as derived visual examples, not a parallel upstream source.",
@@ -231,7 +305,7 @@ function agentsBlock(eol = "\n", authority = { hasPort: false, port: null, portO
   }
   lines.push(
     "",
-    "<sub>Managed by [Colophon](https://github.com/karkarl/colophon) — edit `.agents/design/` to change the " +
+    `<sub>Managed by [Colophon](https://github.com/karkarl/colophon) — edit \`${tokenFile}\` to change the ` +
       "system; this block only points to it.</sub>",
     BLOCK_END,
   );
@@ -262,14 +336,9 @@ async function writeFileSafely(file, content) {
 // design.json, so the AGENTS.md pointer frames the files correctly (design source
 // of truth + any port targets). Falls back to design-only if missing/unparseable.
 async function authorityFor(workspacePath) {
-  const dir = designDirFor(workspacePath);
-  if (!dir) return readAuthority(null);
-  const raw = await readIfPresent(path.join(dir, "design.json"));
-  try {
-    return readAuthority(raw ? JSON.parse(raw) : null);
-  } catch {
-    return readAuthority(null);
-  }
+  const design = await loadDesign(workspacePath);
+  if (design.parseError) throw new Error(design.parseError);
+  return { authority: readAuthority(design.source === "repo" ? design.tokens : null), format: design.format };
 }
 
 // Ensure the repo-root AGENTS.md contains Colophon's pointer block. Idempotent,
@@ -285,17 +354,17 @@ async function authorityFor(workspacePath) {
 export async function ensureAgentsPointer(workspacePath) {
   if (!workspacePath) return { file: null, action: "skipped" };
   const file = path.join(workspacePath, AGENTS_FILE);
-  const authority = await authorityFor(workspacePath);
   try {
+    const { authority, format } = await authorityFor(workspacePath);
     const existing = await readIfPresent(file);
 
     if (existing == null) {
-      const ok = await writeFileSafely(file, agentsBlock("\n", authority) + "\n");
+      const ok = await writeFileSafely(file, agentsBlock("\n", authority, format) + "\n");
       return { file, action: ok ? "created" : "skipped-symlink" };
     }
 
     const eol = existing.includes("\r\n") ? "\r\n" : "\n";
-    const block = agentsBlock(eol, authority);
+    const block = agentsBlock(eol, authority, format);
     const matches = [...existing.matchAll(BLOCK_RE)];
 
     let next;
@@ -485,7 +554,7 @@ export function tokensToCssVars(tokens, theme = "light") {
   for (const style of ty.scale || []) {
     if (!style?.name) continue;
     const role = style.role || "body";
-    lines.push(`--text-${style.name}-family: var(--font-${role});`);
+    lines.push(`--text-${style.name}-family: ${style.family || `var(--font-${role})`};`);
     if (style.size) lines.push(`--text-${style.name}-size: ${style.size};`);
     if (style.lineHeight) lines.push(`--text-${style.name}-line-height: ${style.lineHeight};`);
     if (style.weight != null) lines.push(`--text-${style.name}-weight: ${style.weight};`);

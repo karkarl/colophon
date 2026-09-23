@@ -107,7 +107,7 @@ function cssVarsFromTokens(tokens, theme = "light") {
   for (const style of ty.scale || []) {
     if (!style?.name) continue;
     const role = style.role || "body";
-    lines.push(`--text-${style.name}-family: var(--font-${role});`);
+    lines.push(`--text-${style.name}-family: ${style.family || `var(--font-${role})`};`);
     if (style.size) lines.push(`--text-${style.name}-size: ${style.size};`);
     if (style.lineHeight) lines.push(`--text-${style.name}-line-height: ${style.lineHeight};`);
     if (style.weight != null) lines.push(`--text-${style.name}-weight: ${style.weight};`);
@@ -129,7 +129,7 @@ function applyVars() {
 function updateSaveButton() {
   const save = $("#save-btn");
   if (save) {
-    save.disabled = !(state.dirty || state.componentsDirty);
+    save.disabled = !!state.design?.parseError || !(state.dirty || state.componentsDirty);
     save.textContent = state.dirty || state.componentsDirty ? "Save changes" : (state.design?.source === "repo" ? "Saved" : "Save to repo");
   }
 }
@@ -279,6 +279,7 @@ async function restoreComponentHistory(direction) {
 
 function inspectable(node, file, path, label) {
   if (!node?.dataset) return node;
+  if (file === "design.json" && state.design?.format === "markdown") file = "DESIGN.md";
   node.dataset.designInspect = "true";
   node.dataset.designFile = file;
   node.dataset.designPath = JSON.stringify(path);
@@ -525,7 +526,7 @@ function renderComponentProperties() {
   layoutGrid.append(boxEditor("Padding", layout, "padding"));
   layoutSection.append(el("div", { class: "property-help" },
     state.spacingSnap
-      ? "Spacing follows design.json increments. Dimensions accept hug, fill, or fixed pixels."
+      ? "Spacing follows design token increments. Dimensions accept hug, fill, or fixed pixels."
       : "Spacing is unsnapped. Dimensions accept hug, fill, or fixed pixels."));
 
   const parentPath = state.selection?.path?.slice(0, -2);
@@ -596,7 +597,7 @@ function renderComponentProperties() {
   const spacing = el("section", { class: "property-section" },
     el("h3", { class: "property-section-title" }, "Outer spacing"),
     el("div", { class: "property-grid" }, boxEditor("Margin", node, "margin", { allowAuto: true })),
-    el("div", { class: "property-help" }, "Values reference spacing tokens from design.json. Changes update every preview of this component definition."));
+    el("div", { class: "property-help" }, "Values reference design-system spacing tokens. Changes update every preview of this component definition."));
   slot.append(identity, layoutSection, ...(positionSection ? [positionSection] : []), appearanceSection, spacing);
 }
 
@@ -697,8 +698,9 @@ function renderInspector() {
   const selection = state.selection;
   const valid = !!selection;
   $("#inspect-title").textContent = valid ? selection.label : "No selection";
-  $("#inspect-path").textContent = valid ? `${selection.file}${pointerFor(selection.path)}` : "";
-  $("#inspect-path").title = valid ? `${selection.file}${pointerFor(selection.path)}` : "";
+  const selectionPath = valid ? `${selection.file}${selection.file === "DESIGN.md" ? " (normalized tokens)" : ""}${pointerFor(selection.path)}` : "";
+  $("#inspect-path").textContent = selectionPath;
+  $("#inspect-path").title = selectionPath;
   $("#inspect-json").disabled = !valid;
   $("#inspect-json").value = valid ? JSON.stringify(valueAtPath(selectionRoot(selection.file), selection.path), null, 2) : "";
   $("#inspect-apply-btn").disabled = !valid;
@@ -1115,7 +1117,7 @@ function renderTypography(t) {
   }
   const scaleWrap = el("div", {});
   for (const [index, s] of (ty.scale || []).entries()) {
-    const fam = s.role === "display" ? "var(--font-display)" : s.role === "mono" ? "var(--font-mono)" : "var(--font-body)";
+    const fam = s.family || (s.role === "display" ? "var(--font-display)" : s.role === "mono" ? "var(--font-mono)" : "var(--font-body)");
     scaleWrap.append(inspectable(el("div", { class: "type-row" },
       el("div", { class: "tag mono" }, `${s.name} · ${s.size}/${s.lineHeight} · ${s.weight}`),
       el("div", { style: `font-family:${fam};font-size:${s.size};line-height:${s.lineHeight};font-weight:${s.weight};letter-spacing:${s.tracking || "normal"}` }, "Design is how it works"),
@@ -1224,11 +1226,18 @@ function checkComponentPreviews(doc) {
 function renderBrandPage(t) {
   const page = document.createDocumentFragment();
   if (state.design.parseError) {
-    page.append(el("div", { class: "banner warn" }, "design.json has a JSON error and could not be parsed — showing the starter tokens. Fix: " + state.design.parseError));
+    page.append(el("div", { class: "banner warn" }, "The design system could not be loaded. Saving is blocked until this is resolved: " + state.design.parseError));
+    return page;
   }
+  for (const warning of state.design.warnings || []) page.append(el("div", { class: "banner warn" }, warning));
   if (state.mode === "proposal") page.append(proposalBar());
   else if (state.design.source === "sample") page.append(onboarding());
   page.append(renderBrand(t), renderColors(t), renderTypography(t), renderScales(t), renderPrinciples(t));
+  if (state.design.format === "markdown" && state.design.principlesMarkdown) {
+    page.append(el("details", { class: "src" },
+      el("summary", {}, "DESIGN.md rationale (edit in the file; preserved when saving tokens)"),
+      el("pre", {}, state.design.principlesMarkdown)));
+  }
   return page;
 }
 
@@ -1444,7 +1453,7 @@ function onboarding() {
     el("span", { class: "chev", "aria-hidden": "true" }, "▸"),
     el("div", { class: "onboard-head" },
       el("h2", {}, "Set up a design system"),
-      el("div", { class: "muted" }, "This repo has no ", el("span", { class: "mono" }, ".agents/design/"), " yet — the starter below is a preview. Choose how to start; refine everything in the canvas afterward."))));
+      el("div", { class: "muted" }, "This repo has no design system yet — the starter below is a preview. Choose how to seed ", el("span", { class: "mono" }, "DESIGN.md"), "; refine everything in the canvas afterward."))));
 
   const body = el("div", { class: "onboard-body" });
   body.append(el("div", { class: "muted" }, "Seeding also adds an ", el("span", { class: "mono" }, "AGENTS.md"), " pointer so every agent reads the system before UI work."));
@@ -1541,7 +1550,8 @@ async function doScan(btn) {
 
 async function doSaveProposal() {
   try {
-    const out = await api("/api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokens: state.tokens }) });
+    const out = await api("/api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokens: state.tokens, revision: state.design.revision }) });
+    reportPointer(out);
     state.design.source = "repo"; state.design.dir = out.dir;
     state.mode = "normal"; state.proposal = null;
     await load();
@@ -1560,7 +1570,7 @@ function checksDescription() {
   const nodes = [
     el("p", { class: "vdesc-line" },
       el("strong", {}, "What this checks: "),
-      "that ", el("code", {}, "design.json"), " parses and defines the core token groups (colors, type, spacing, radii), and that ",
+      "that ", el("code", {}, state.design?.file || "the design document"), " parses and defines valid design tokens, and that ",
       el("code", {}, "components.jsonc"), " is valid JSON where every component has a root and all component references resolve — the same definitions rendered live here in the canvas."),
   ];
   if (ported) {
@@ -1673,8 +1683,14 @@ async function render() {
 }
 
 async function doInit(mode) {
-  try { await api("/api/init", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: mode || "starter" }) }); await load(); }
+  try { const result = await api("/api/init", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: mode || "starter" }) }); reportPointer(result); await load(); }
   catch (e) { alert("Init failed: " + e.message); }
+}
+
+function reportPointer(result) {
+  if (result.agents && !["created", "updated", "unchanged"].includes(result.agents.action)) {
+    alert(`The design was saved, but AGENTS.md was not updated (${result.agents.action}). ${result.agents.error || "Review the existing file and add the design pointer manually."}`);
+  }
 }
 
 async function doSave() {
@@ -1683,7 +1699,12 @@ async function doSave() {
   try {
     let out = null;
     if (state.dirty || state.design.source !== "repo") {
-      out = await api("/api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokens: state.tokens }) });
+      out = await api("/api/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokens: state.tokens, revision: state.design.revision }) });
+      Object.assign(state.design, { source: "repo", dir: out.dir, file: out.file, format: out.format, revision: out.revision });
+      state.tokens = out.tokens;
+      state.dirty = false;
+      await render();
+      reportPointer(out);
     }
     if (state.componentsDirty) {
       await api("/api/components/save", {
@@ -1729,7 +1750,7 @@ function updateSourcePill() {
   const pill = $("#source-pill");
   if (!pill) return;
   pill.className = "source-pill " + state.design.source;
-  pill.textContent = state.design.source === "repo" ? ".agents/design/" : "starter (not saved)";
+  pill.textContent = state.design.source === "repo" ? (state.design.file || ".agents/design/") : "starter (not saved)";
 }
 
 async function load() {

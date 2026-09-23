@@ -48,6 +48,7 @@ function firstLine(s, max = 400) {
 
 // Compact, model-friendly rendering of the design system.
 export function buildSummary(design) {
+  if (design.parseError) return `Design system could not be loaded: ${design.parseError}\nResolve this before creating or changing UI. No starter values have been substituted.`;
   const t = design.tokens || {};
   const brand = t.brand || {};
   const colors = colorList(t);
@@ -58,12 +59,12 @@ export function buildSummary(design) {
   if (brand.tagline) lines.push(brand.tagline);
   if (brand.description) lines.push(`About: ${brand.description}`);
   const sourceLine = design.source === "repo"
-    ? `Source: ${DESIGN_SUBPATH}/ (in this repo)`
+    ? `Source: ${design.file || DESIGN_SUBPATH + "/"} (in this repo)`
     : design.source === "scan"
-      ? `Source: proposed from scanning this repo's existing UI — not saved yet. Review in the Design System canvas, then save to ${DESIGN_SUBPATH}/.`
+      ? "Source: proposed from scanning this repo's existing UI — not saved yet. Review in the Colophon canvas, then save to DESIGN.md."
       : design.source === "import"
-        ? `Source: proposed from imported tokens — not saved yet. Review in the Design System canvas, then save to ${DESIGN_SUBPATH}/.`
-        : `Source: bundled starter (no ${DESIGN_SUBPATH}/ in this repo yet — call the "init" action to seed it)`;
+        ? "Source: proposed from imported tokens — not saved yet. Review in the Colophon canvas, then save to DESIGN.md."
+        : "Source: bundled starter (no design system in this repo yet — call init to seed DESIGN.md and an AGENTS.md pointer)";
   lines.push(sourceLine);
 
   const authority = readAuthority(t);
@@ -120,38 +121,48 @@ export function buildSummary(design) {
     lines.push(`Component patterns are documented in ${DESIGN_SUBPATH}/components.jsonc — match those patterns and class/token names.`);
   }
   if (design.principlesMarkdown) {
-    lines.push(`Prose guidance: ${DESIGN_SUBPATH}/principles.md — ${firstLine(design.principlesMarkdown.replace(/^#.*$/m, ""))}`);
+    if (design.format === "markdown") {
+      lines.push(`Design rationale (${design.file || "DESIGN.md"}):`, design.principlesMarkdown.trim());
+    } else {
+      lines.push(`Prose guidance: ${DESIGN_SUBPATH}/principles.md — ${firstLine(design.principlesMarkdown.replace(/^#.*$/m, ""))}`);
+    }
   }
+  for (const warning of design.warnings || []) lines.push(`Compatibility note: ${warning}`);
 
   return lines.join("\n").trim();
 }
 
 export function sessionStartContext(design) {
   if (design.source !== "repo") return "";
+  if (design.parseError) return buildSummary(design);
+  const files = design.format === "markdown"
+    ? "DESIGN.md and any .agents/design/components.jsonc companion patterns"
+    : `${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md`;
   const brand = design.tokens?.brand || {};
   const authority = readAuthority(design.tokens);
   if (authority.hasPort) {
     const targets = portLines(authority, { bullet: "" }).join("; ");
     return [
-      `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
-      `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
+      `This repository has a design system at ${design.file || DESIGN_SUBPATH + "/"} (brand: ${brand.name || "unnamed"}).`,
+      `Before creating or changing any UI, read ${files} and follow their tokens and patterns. The shipping implementation is canonical: to ship, port the design using the port target(s): ${targets}. Bind each color's mapped resource key rather than hard-coding the preview hex.`,
       `You can open the "Colophon" canvas to view/edit it (with Light/Dark/High-contrast preview), or call the colophon tool for a text summary.`,
     ].join(" ");
   }
   return [
-    `This repository has a design system at ${DESIGN_SUBPATH}/ (brand: ${brand.name || "unnamed"}).`,
-    `Before creating or changing any UI, read ${DESIGN_SUBPATH}/design.json, components.jsonc, and principles.md and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
+    `This repository has a design system at ${design.file || DESIGN_SUBPATH + "/"} (brand: ${brand.name || "unnamed"}).`,
+    `Before creating or changing any UI, read ${files} and follow them — reuse the defined color/type/spacing tokens and component patterns instead of inventing new ones.`,
     `You can open the "Colophon" canvas to view/edit it, or call the colophon tool for a text summary.`,
   ].join(" ");
 }
 
 export function promptContext(design) {
   if (design.source !== "repo") return "";
+  if (design.parseError) return buildSummary(design);
   const brand = design.tokens?.brand || {};
   const authority = readAuthority(design.tokens);
   const head = authority.hasPort
-    ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's canonical implementation via the configured port target(s); the color hex is preview-only, so bind each color's mapped resource key instead.`
-    : `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${DESIGN_SUBPATH}/.`;
+    ? `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${design.file || DESIGN_SUBPATH + "/"} — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's canonical implementation via the configured port target(s); the color hex is preview-only, so bind each color's mapped resource key instead.`
+    : `The user's request looks UI-related and this repo has a design system (${brand.name || "unnamed"}) at ${design.file || DESIGN_SUBPATH + "/"}.`;
   return [
     head,
     "Consult it before writing UI: use the colophon tool (or read the files) and honor its color, typography, spacing, radius tokens, component patterns, principles, and anti-references.",

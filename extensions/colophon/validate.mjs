@@ -17,22 +17,22 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { colorList, readAuthority, baseColorValue, THEMES } from "./designio.mjs";
-import { validateComponentsDoc, COMPONENTS_FILENAME } from "./componentsio.mjs";
+import { colorList, readAuthority, baseColorValue, THEMES, loadDesign } from "./designio.mjs";
+import { validateComponentsDoc } from "./componentsio.mjs";
 
 // ---- design.json -----------------------------------------------------------
-export function validateTokens(tokens) {
+export function validateTokens(tokens, { allowMissingColors = false } = {}) {
   const errors = [];
   const warnings = [];
   if (!tokens || typeof tokens !== "object" || Array.isArray(tokens)) {
-    return { ok: false, errors: ["design.json is not a JSON object."], warnings };
+    return { ok: false, errors: ["Design tokens must be an object."], warnings };
   }
 
   const brand = tokens.brand || {};
   if (!brand.name) warnings.push("brand.name is empty — the system has no name.");
 
   const colors = colorList(tokens);
-  if (!colors.length) errors.push("No colors defined (colors[] is empty).");
+  if (!colors.length && !allowMissingColors) errors.push("No colors defined (colors[] is empty).");
   const seen = new Set();
   for (const c of colors) {
     if (!c.name) { errors.push("A color entry is missing a name."); continue; }
@@ -143,30 +143,41 @@ export function validateComponents(src, tokens = null) {
 
 // ---- aggregate over a directory -------------------------------------------
 export async function validateDesignDir(dir) {
-  const out = { dir, ok: false, parseError: null, design: null, components: null };
-  let raw;
-  try {
-    raw = await fs.readFile(path.join(dir, "design.json"), "utf8");
-  } catch (err) {
-    out.parseError = `Could not read design.json: ${String(err && err.message ? err.message : err)}`;
-    return out;
+  const absolute = path.resolve(dir);
+  const workspace = path.basename(absolute).toLowerCase() === "design.md" ? path.dirname(absolute)
+    : path.basename(absolute) === "design" && path.basename(path.dirname(absolute)) === ".agents"
+      ? path.dirname(path.dirname(absolute)) : absolute;
+  let loaded = await loadDesign(workspace);
+  // Preserve the CLI's original ability to validate a standalone legacy folder.
+  if (loaded.source === "sample" && workspace === absolute) {
+    let raw = null;
+    try { raw = await fs.readFile(path.join(absolute, "design.json"), "utf8"); }
+    catch (err) { if (err.code !== "ENOENT") throw err; }
+    if (raw != null) {
+      loaded = { source: "repo", format: "json", tokens: {}, warnings: [], componentsSource: "", parseError: null };
+      try { loaded.tokens = JSON.parse(raw); }
+      catch (err) { loaded.parseError = `design.json is not valid JSON: ${err.message}`; }
+      try { loaded.componentsSource = await fs.readFile(path.join(absolute, "components.jsonc"), "utf8"); }
+      catch (err) { if (err.code !== "ENOENT") throw err; }
+    }
   }
-  let tokens;
-  try {
-    tokens = JSON.parse(raw);
-  } catch (err) {
-    out.parseError = `design.json is not valid JSON: ${String(err && err.message ? err.message : err)}`;
-    return out;
-  }
-  out.design = validateTokens(tokens);
-
-  let csrc = "";
-  try { csrc = await fs.readFile(path.join(dir, COMPONENTS_FILENAME), "utf8"); } catch { /* optional */ }
-  out.components = validateComponents(csrc, tokens);
-  out.design.warnings.push(...validatePageComponents(tokens, out.components.exports));
-
+  const out = {
+    dir, ok: false, parseError: loaded.parseError, design: null, components: null,
+  };
+  if (loaded.source !== "repo") out.parseError = "No DESIGN.md or .agents/design/design.json found.";
+  out.design = validateTokens(loaded.tokens, { allowMissingColors: loaded.format === "markdown" });
+  out.design.warnings.push(...loaded.warnings);
+  out.components = validateComponents(loaded.componentsSource, loaded.tokens);
+  out.design.warnings.push(...validatePageComponents(loaded.tokens, out.components.exports));
   out.ok = !out.parseError && out.design.ok && out.components.ok;
   return out;
+}
+
+export function validateLoaded(design) {
+  const components = validateComponents(design.componentsSource || "", design.tokens);
+  const result = validateTokens(design.tokens, { allowMissingColors: design.format === "markdown" });
+  result.warnings.push(...(design.warnings || []), ...validatePageComponents(design.tokens, components.exports));
+  return flattenResult({ parseError: design.parseError, design: result, components });
 }
 
 // Flatten an aggregate result into { ok, errors, warnings } for API/UI consumers.

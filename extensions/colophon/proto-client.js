@@ -114,7 +114,7 @@ function cssVarsFromTokens(tokens, theme) {
   for (const style of ty.scale || []) {
     if (!style?.name) continue;
     const role = style.role || "body";
-    lines.push(`--text-${style.name}-family: var(--font-${role});`);
+    lines.push(`--text-${style.name}-family: ${style.family || `var(--font-${role})`};`);
     if (style.size) lines.push(`--text-${style.name}-size: ${style.size};`);
     if (style.lineHeight) lines.push(`--text-${style.name}-line-height: ${style.lineHeight};`);
     if (style.weight != null) lines.push(`--text-${style.name}-weight: ${style.weight};`);

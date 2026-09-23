@@ -60,7 +60,7 @@
 
   function textStyle(styleName, { scale, fonts }, colorToken) {
     const s = scale[styleName] || scale.body || { size: "16px", lineHeight: "24px", weight: 400, role: "body" };
-    const fam = fonts[s.role] || fonts.body;
+    const fam = s.family || fonts[s.role] || fonts.body;
     const parts = [
       `font-family:${fam}`,
       `font-size:${s.size || "16px"}`,

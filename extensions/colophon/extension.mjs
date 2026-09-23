@@ -19,7 +19,7 @@ import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/exte
 import { loadDesign, initDesign, saveTokens, saveComponents, tokensToCssVars, designDirFor, readAuthority, colorList, DESIGN_SUBPATH } from "./designio.mjs";
 import { buildSummary, looksLikeUiWork, sessionStartContext, promptContext } from "./context.mjs";
 import { scratchTokens, normalizeTokens, scanCodebase } from "./sources.mjs";
-import { validateTokens, validateComponents, validatePageComponents, flattenResult } from "./validate.mjs";
+import { validateTokens, validateLoaded } from "./validate.mjs";
 import { renderShell } from "./renderer.mjs";
 import { renderProtoShell } from "./proto-renderer.mjs";
 import { loadPrototypes, savePrototypes, applyOps, validatePrototypes, findScreen, nodeKind, resolvePrototypeSelection, prototypePointerForPath, PROTO_SUBPATH } from "./prototypeio.mjs";
@@ -56,20 +56,6 @@ async function pkgNameFor(workdir) {
   } catch { return null; }
 }
 
-// Validate a loaded design object (falls back to the sample when there's no repo
-// system). Merges the JSON parse error, design.json schema checks, and the
-// components.jsonc structural check into one { ok, errors, warnings } result.
-function validateLoaded(design) {
-  const components = validateComponents(design.componentsSource || "");
-  const designResult = validateTokens(design.tokens);
-  designResult.warnings.push(...validatePageComponents(design.tokens, components.exports));
-  return flattenResult({
-    parseError: design.parseError || null,
-    design: designResult,
-    components,
-  });
-}
-
 // The component names defined by components.jsonc, so prototype validation can flag
 // references to components that don't exist. Falls back to a source scan only for a
 // legacy components.jsx doc (format "jsx", no parsed doc).
@@ -104,6 +90,10 @@ async function loadProtoBundle(workdir) {
     componentNames: componentNamesFrom(design),
     tokenNames: tokenNamesFrom(design.tokens),
   });
+  if (design.parseError) {
+    validation.ok = false;
+    validation.errors.push(design.parseError);
+  }
   return { design, proto, validation };
 }
 
@@ -153,7 +143,7 @@ async function attachPrototypeElement(entry, selection) {
 }
 
 function designSelectionPayload(selection) {
-  if (!selection || !["design.json", "components.jsonc"].includes(selection.file)) throw new Error("No design-system element is selected");
+  if (!selection || !["DESIGN.md", "design.json", "components.jsonc"].includes(selection.file)) throw new Error("No design-system element is selected");
   if (!Array.isArray(selection.path) || !selection.path.length) throw new Error("Design selection requires a non-empty JSON path");
   if (selection.value === undefined) throw new Error("Design selection is missing its JSON value");
   return {
@@ -162,6 +152,7 @@ function designSelectionPayload(selection) {
     label: typeof selection.label === "string" && selection.label ? selection.label : String(selection.path.at(-1)),
     value: selection.value,
     draft: selection.draft === true,
+    ...(selection.file === "DESIGN.md" ? { representation: "normalized Colophon token model; jsonPath is not a YAML source path" } : {}),
   };
 }
 
@@ -218,12 +209,36 @@ function broadcast(entry, event) {
 function watchDesign(entry) {
   const dir = designDirFor(entry.workdir);
   if (!dir) return;
-  try {
-    entry.watcher = fsWatch(dir, { persistent: false }, () => {
+  entry.watcher?.close();
+  const watchers = [];
+  const changed = () => {
       clearTimeout(entry._debounce);
-      entry._debounce = setTimeout(() => broadcast(entry, "changed"), 150);
-    });
-  } catch { /* dir may not exist yet; re-armed after init/save */ }
+      entry._debounce = setTimeout(() => {
+        watchDesign(entry);
+        broadcast(entry, "changed");
+      }, 150);
+  };
+  for (const [directory, names] of [
+    [entry.workdir, new Set(["DESIGN.md", ".agents"])],
+    [path.join(entry.workdir, ".agents"), new Set(["design"])],
+    [dir, null],
+  ]) {
+    try {
+      const watcher = fsWatch(directory, { persistent: false }, (_event, filename) => {
+        if (!names || !filename || names.has(String(filename))) changed();
+      });
+      watcher.on("error", (err) => log(`Design watcher failed for ${directory}: ${err.message}`, "error"));
+      watchers.push(watcher);
+    } catch (err) {
+      if (err.code !== "ENOENT") log(`Cannot watch ${directory}: ${err.message}`, "warning");
+    }
+  }
+  entry.watcher = {
+    close() {
+      clearTimeout(entry._debounce);
+      for (const watcher of watchers) watcher.close();
+    },
+  };
 }
 
 async function handle(entry, req, res) {
@@ -257,13 +272,15 @@ async function handle(entry, req, res) {
 
   if (pathname === "/api/save" && req.method === "POST") {
     try {
-      const { tokens } = await readBody(req);
+      const { tokens, revision } = await readBody(req);
+      if (typeof revision !== "string") throw new Error("Reload the design system before saving; its revision is missing.");
       const validation = validateTokens(tokens);
       if (!validation.ok) return sendJson(res, 400, { error: `Design tokens are invalid: ${validation.errors.join(" ")}`, validation });
-      const out = await saveTokens(entry.workdir, tokens);
+      const out = await saveTokens(entry.workdir, tokens, { revision });
       if (!entry.watcher) watchDesign(entry); // arm now that the dir exists
       log(`Saved design tokens to ${out.dir}${out.agents?.file ? `; AGENTS.md pointer ${out.agents.action}` : ""}`);
-      return sendJson(res, 200, { ok: true, dir: out.dir, agents: out.agents });
+      broadcast(entry, "changed");
+      return sendJson(res, 200, { ok: true, dir: out.dir, file: out.file, format: out.format, revision: out.revision, tokens: out.tokens, agents: out.agents });
     } catch (err) { return sendJson(res, 400, { error: String(err.message || err) }); }
   }
 
@@ -369,6 +386,7 @@ async function handle(entry, req, res) {
     try {
       const { doc } = await readBody(req);
       const design = await loadDesign(entry.workdir);
+      if (design.parseError) throw new Error(design.parseError);
       const validation = validatePrototypes(doc, {
         componentNames: componentNamesFrom(design),
         tokenNames: tokenNamesFrom(design.tokens),
@@ -428,6 +446,7 @@ async function handle(entry, req, res) {
     try {
       const { screenId } = await readBody(req);
       const design = await loadDesign(entry.workdir);
+      if (design.parseError) throw new Error(design.parseError);
       const proto = await loadPrototypes(entry.workdir);
       const out = codegenScreen(proto.doc, screenId, design.tokens);
       return sendJson(res, 200, { ok: true, ...out });
@@ -503,11 +522,12 @@ const canvas = createCanvas({
       servers.set(ctx.instanceId, entry);
     } else if (workdir && entry.workdir !== workdir) {
       entry.workdir = workdir; // rehydrate against a new repo
+      watchDesign(entry);
     }
     const design = await loadDesign(entry.workdir);
     return {
       title: `Colophon — ${design.tokens?.brand?.name || "starter"}`,
-      status: design.source === "repo" ? ".agents/design/" : "starter (unsaved)",
+      status: design.source === "repo" ? design.file : "starter (unsaved)",
       url: entry.url,
     };
   },
@@ -515,7 +535,7 @@ const canvas = createCanvas({
   actions: [
     {
       name: "inspect_selection",
-      description: "Return the exact design.json or components.jsonc object currently selected in the Colophon canvas, including its JSON Pointer path.",
+      description: "Return the selected component object or normalized design token object. DESIGN.md selections identify the source but use normalized model paths, not YAML paths.",
       handler: async (ctx) => {
         const entry = servers.get(ctx.instanceId);
         try { return designSelectionPayload(entry?.selection); }
@@ -538,12 +558,12 @@ const canvas = createCanvas({
         const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
         setWorkdir(workdir);
         const design = await loadDesign(workdir);
-        return { source: design.source, summary: buildSummary(design) };
+        return { source: design.source, file: design.file, ok: !design.parseError, summary: buildSummary(design) };
       },
     },
     {
       name: "init",
-      description: "Scaffold .agents/design/ in the repo (non-destructive). mode 'starter' (default) copies the bundled starter; 'scratch' writes a neutral skeleton to refine.",
+      description: "Seed root DESIGN.md, companion components.jsonc, and an AGENTS.md pointer (non-destructive). Existing DESIGN.md or legacy JSON systems are preserved. mode 'starter' uses Northlight; 'scratch' uses a neutral skeleton.",
       inputSchema: { type: "object", properties: { mode: { type: "string", enum: ["starter", "scratch"] }, name: { type: "string" }, tagline: { type: "string" }, description: { type: "string", description: "One-paragraph description of the app/project for codegen context." }, workingDirectory: { type: "string" } }, additionalProperties: false },
       handler: async (ctx) => {
         const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
@@ -553,7 +573,7 @@ const canvas = createCanvas({
           const opts = mode === "scratch" ? { tokens: scratchTokens({ name: ctx.input?.name, tagline: ctx.input?.tagline, description: ctx.input?.description }) } : {};
           const out = await initDesign(workdir, opts);
           const entry = servers.get(ctx.instanceId);
-          if (entry) { entry.workdir = workdir; if (!entry.watcher) watchDesign(entry); broadcast(entry, "changed"); }
+          if (entry) { entry.workdir = workdir; watchDesign(entry); broadcast(entry, "changed"); }
           return { ok: true, mode, ...out };
         } catch (err) { throw new CanvasError("init_failed", String(err.message || err)); }
       },
@@ -582,7 +602,7 @@ const canvas = createCanvas({
     },
     {
       name: "validate",
-      description: "Validate this repo's .agents/design/: schema/parse checks on design.json plus a structural check on components.jsonc. Returns errors and warnings so drift is caught (e.g. a port target set without resource mappings or an owner). Writes nothing.",
+      description: "Validate DESIGN.md or the legacy JSON design system, plus companion components.jsonc. Report parsing, reference, authority, and source-conflict errors without modifying files.",
       handler: async (ctx) => {
         const workdir = ctx.input?.workingDirectory || ctx.session?.workingDirectory || sessionWorkdir;
         setWorkdir(workdir);
@@ -630,6 +650,7 @@ const protoCanvas = createCanvas({
       servers.set(ctx.instanceId, entry);
     } else if (workdir && entry.workdir !== workdir) {
       entry.workdir = workdir;
+      watchDesign(entry);
     }
     const proto = await loadPrototypes(entry.workdir);
     const count = proto.doc.screens?.length || 0;
@@ -682,7 +703,7 @@ const protoCanvas = createCanvas({
           if (errors.length) throw new CanvasError("patch_failed", errors.map((item) => `${item.op}: ${item.error}`).join("; "));
           const out = await savePrototypes(workdir, doc);
           const entry = servers.get(ctx.instanceId);
-          if (entry) { entry.workdir = workdir; if (!entry.watcher) watchDesign(entry); broadcast(entry, "changed"); }
+          if (entry) { entry.workdir = workdir; watchDesign(entry); broadcast(entry, "changed"); }
           return { ok: true, applied, path: out.path };
         } catch (err) { if (err instanceof CanvasError) throw err; throw new CanvasError("patch_failed", String(err.message || err)); }
       },
@@ -706,6 +727,7 @@ const protoCanvas = createCanvas({
         setWorkdir(workdir);
         try {
           const design = await loadDesign(workdir);
+          if (design.parseError) throw new Error(design.parseError);
           const proto = await loadPrototypes(workdir);
           return codegenScreen(proto.doc, ctx.input?.screenId, design.tokens);
         } catch (err) { throw new CanvasError("codegen_failed", String(err.message || err)); }
@@ -772,12 +794,12 @@ const protoCanvas = createCanvas({
 const designTool = {
   name: "colophon",
   description:
-    "Read this repo's design system (brand, color, typography, spacing, radii, component patterns, principles, anti-references) so new or changed UI matches the house style. Call this BEFORE writing any UI, CSS, or components. Set init=true to scaffold .agents/design/ from the starter (and add an AGENTS.md pointer so every agent loads it) if the repo has none.",
-  inputSchema: {
+    "Read DESIGN.md or this repo's legacy .agents/design/ system before writing UI. Returns tokens, rationale, component patterns, and port guidance. Set init=true to seed DESIGN.md, companion components.jsonc, and an AGENTS.md pointer if no system exists. Never silently migrates or replaces an existing system.",
+  parameters: {
     type: "object",
     properties: {
-      init: { type: "boolean", description: "Scaffold .agents/design/ from the starter (non-destructive) before returning." },
-      scan: { type: "boolean", description: "If the repo has no .agents/design/, scan its existing UI and return a proposed design system (writes nothing)." },
+      init: { type: "boolean", description: "Seed DESIGN.md and an AGENTS.md pointer from the starter, preserving existing systems." },
+      scan: { type: "boolean", description: "If neither DESIGN.md nor a legacy system exists, scan existing UI and return an unsaved proposal." },
       workingDirectory: { type: "string", description: "Repo/working directory to read. Defaults to this session's repo (set from hook context); pass it explicitly to target a different repo." },
     },
     additionalProperties: false,
@@ -791,9 +813,11 @@ const designTool = {
     const workdir = input?.workingDirectory || sessionWorkdir;
     let seeded = null;
     if (input?.init) {
-      try { seeded = await initDesign(workdir); } catch (err) { seeded = { error: String(err.message || err) }; }
+      try { seeded = await initDesign(workdir); }
+      catch (err) { return { ok: false, error: String(err.message || err) }; }
     }
     const design = await loadDesign(workdir);
+    if (design.parseError) return { ok: false, source: design.source, file: design.file, error: design.parseError };
     // No repo system yet + scan requested: propose one from existing UI instead of the starter.
     if (design.source !== "repo" && input?.scan && !input?.init) {
       try {
@@ -802,7 +826,7 @@ const designTool = {
         return {
           source: "scan",
           dir: design.dir,
-          instructions: `No ${DESIGN_SUBPATH}/ yet. Proposed the following from existing UI (${evidence.fileCount} files scanned). Open the Colophon canvas to review, refine, and save it.`,
+          instructions: `No design system yet. Proposed the following from existing UI (${evidence.fileCount} files scanned). Open the Colophon canvas to review, refine, and seed DESIGN.md.`,
           evidence,
           designSystem: buildSummary({ source: "scan", tokens }),
         };
@@ -815,14 +839,15 @@ const designTool = {
       ? " Ensured an AGENTS.md pointer so any agent loads this system before UI work."
       : "";
     const repoHeader = authority.hasPort
-      ? `Design system loaded from ${DESIGN_SUBPATH}/ — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's implementation via the configured port target(s); don't ship components.jsonc verbatim.${seededNote}`
-      : `Design system loaded from ${DESIGN_SUBPATH}/ — follow it exactly.${seededNote}`;
+      ? `Design system loaded from ${design.file} — the source of truth for design (framework-agnostic). Follow its tokens/patterns, then port the design into this app's implementation via the configured port target(s); don't ship components.jsonc verbatim.${seededNote}`
+      : `Design system loaded from ${design.file} — follow it exactly.${seededNote}`;
     const header = design.source === "repo"
       ? repoHeader
-      : `No ${DESIGN_SUBPATH}/ in this repo yet; this is the bundled starter. ${input?.init ? "" : "Pass init=true to seed it, or scan=true to propose one from existing UI."}`;
+      : `No design system in this repo yet; this is the bundled starter. ${input?.init ? "" : "Pass init=true to seed DESIGN.md, or scan=true to propose one from existing UI."}`;
     return {
       source: design.source,
       dir: design.dir,
+      file: design.file,
       seeded,
       componentsPath: design.source === "repo" ? path.join(design.dir, COMPONENTS_FILENAME) : null,
       instructions: header,
@@ -860,6 +885,7 @@ const protoTool = {
     }
     if (action === "codegen") {
       const design = await loadDesign(workdir);
+      if (design.parseError) return { ok: false, error: design.parseError };
       const proto = await loadPrototypes(workdir);
       try { return codegenScreen(proto.doc, input?.screenId, design.tokens); }
       catch (err) { return { ok: false, error: String(err.message || err) }; }
@@ -901,7 +927,10 @@ const hooks = {
       const design = await loadDesign(input?.workingDirectory || sessionWorkdir);
       if (design.source !== "repo") return {};
       return { additionalContext: sessionStartContext(design) };
-    } catch { return {}; }
+    } catch (err) {
+      log(`Cannot load design system: ${err.message}`, "error");
+      return { additionalContext: `Cannot read the repository design system: ${err.message}. Resolve this before UI work.` };
+    }
   },
   onUserPromptSubmitted: async (input) => {
     setWorkdir(input?.workingDirectory);
@@ -910,7 +939,10 @@ const hooks = {
       const design = await loadDesign(input?.workingDirectory || sessionWorkdir);
       if (design.source !== "repo") return {};
       return { additionalContext: promptContext(design) };
-    } catch { return {}; }
+    } catch (err) {
+      log(`Cannot load design system: ${err.message}`, "error");
+      return { additionalContext: `Cannot read the repository design system: ${err.message}. Resolve this before UI work.` };
+    }
   },
 };
 
