@@ -174,6 +174,27 @@ Open the **Design System** canvas to see the system rendered live:
   duplicate/delete layers; and undo/redo before saving. In Inspect mode, drag an
   absolutely positioned child directly on a freeform preview to update its
   parent-relative X/Y coordinates live; one undo step is recorded when it is dropped.
+- **Direct manipulation in Inspect** — use **Insert layer** to add a frame,
+  rectangle, text, or an existing component reference. Click to insert into the
+  selected container (or after a selected leaf/instance), or drag an item onto a
+  rendered preview. Drag existing layers from the tree onto the canvas: blue
+  destination bounds mean **inside**, while a line means **before/after**.
+  Invalid containers, recursive references, cycles, and cross-component moves
+  are rejected before a valid destination is shown. Moving into a flow layout
+  removes obsolete absolute positioning.
+  Selection handles resize width, height, or both; hold **Shift** on the corner
+  to preserve aspect ratio. W/H fields remain the keyboard alternative.
+  **Scale geometry** accepts 0.1-10x and changes fixed dimensions and descendant
+  positions, **not** shared typography, spacing, radius, or effect tokens.
+  **Zoom** (50-200%) only changes the preview. **Properties on left** swaps the
+  sidebars; narrow views stack them in one rail. **Parent** (or Shift+Enter)
+  navigates up the layer tree. Escape cancels a drag or resize, and completed
+  gestures remain draft edits until **Save to repo**.
+
+The [Inspect interaction proposal](docs/inspect-interactions-proposal.md)
+documents the Figma research, the implemented scope, and deliberate differences
+from a full illustration editor. Editor geometry cues use a `selection` color
+token when supplied by the design system, falling back to its existing `accent`.
 
 `components.jsonc` v3 uses stable IDs and token names for semantic layout, with
 fixed pixel dimensions reserved for intentional freeform composition:

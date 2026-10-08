@@ -13,6 +13,7 @@ colors:
   positive: "#3f6b4c"
   warning: "#a8791f"
   critical: "#8f2f2a"
+  selection: "#0969da"
 typography:
   display:
     fontFamily: '"Fraunces", "Iowan Old Style", Georgia, serif'
@@ -151,6 +152,11 @@ x-colophon:
         themes:
           dark: "#d1554e"
           highContrast: "#ff5449"
+      selection:
+        usage: Editor-only geometry selection, hover bounds, resize handles, and valid drop targets
+        themes:
+          dark: "#79c0ff"
+          highContrast: "#58e1ff"
     typography:
       display:
         weights:
@@ -213,6 +219,9 @@ Personality: editorial, precise, warm, unhurried.
 - **positive** {colors.positive}: Success states
 - **warning** {colors.warning}: Warnings
 - **critical** {colors.critical}: Errors, destructive
+- **selection** {colors.selection}: Editor geometry feedback only. Never a
+  component fill or secondary action accent. Pair blue outlines with handles,
+  insertion lines, and destination text; invalid targets get no valid-drop cue.
 
 ## Typography
 
@@ -226,6 +235,16 @@ Personality: editorial, precise, warm, unhurried.
 ## Layout
 
 Use the named spacing tokens rather than ad-hoc values.
+
+The Inspect workspace uses a Layers rail of four spacing-8 units and a Properties
+rail of five spacing-8 units. Below their combined width plus five spacing-8
+units of canvas, stack the rails into one column. Editor controls reuse the
+small/caption type styles, spacing 1-4, and radius sm/md. Pointer hit areas use
+spacing 4; resize-handle glyphs use spacing 2.
+
+New freeform frames default to 160 by 96 document pixels; rectangles to 96 by 64.
+These are editable object geometry, not UI spacing tokens. Geometry scaling
+preserves typography, spacing, radius, and shadow token references.
 
 ## Elevation & Depth
 

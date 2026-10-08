@@ -12,6 +12,8 @@ import { renderShell } from "./renderer.mjs";
 import { renderProtoShell } from "./proto-renderer.mjs";
 import { buildPrototypeExportHtml } from "./prototypeexport.mjs";
 import { loadPrototypes, savePrototypes, validatePrototypes } from "./prototypeio.mjs";
+import { saveComponents } from "./designio.mjs";
+import { inspectWorkspaceBehavior } from "./inspect-browser-scenario.mjs";
 
 // No browser package dependency: run the same contract against both renderers in
 // installed Chromium. CI can set COLOPHON_BROWSER to its Chrome/Edge executable.
@@ -620,7 +622,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   const inject = (html, kind) => html.replace("</body>", `<script>(async () => {
     const result = document.createElement("pre"); result.id = "browser-result";
     document.body.append(result);
-    try { await (${shellBehavior.toString()})(${JSON.stringify(kind)}); result.textContent = "PASS"; }
+    try { await (${kind === "inspect" ? inspectWorkspaceBehavior.toString() : shellBehavior.toString()})(${JSON.stringify(kind)}); result.textContent = "PASS"; }
     catch (error) { result.textContent = "FAIL " + error.stack; }
     document.body.append(result);
     })();</script></body>`);
@@ -636,6 +638,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   });
   const resources = new Map([
     ["/", ["text/html", inject(renderShell(), "gallery")]],
+    ["/inspect", ["text/html", inject(renderShell(), "inspect")]],
     ["/prototype", ["text/html", inject(renderProtoShell(), "prototype")]],
     ["/compact", ["text/html", inject(renderProtoShell(), "compact")]],
     ["/api/prototypes", ["application/json", JSON.stringify(bundle)]],
@@ -644,14 +647,29 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ["/api/design/select", ["application/json", "{}"]],
     ["/events", ["text/event-stream", ": connected\n\n"]],
   ]);
-  for (const name of ["client.js", "styles.css", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
+  for (const name of ["client.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
     resources.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   let prototypeWorkspace;
   let savedPrototype = false;
+  let savedComponents = false;
   let failSave = false;
   const server = createServer(async (request, response) => {
     try {
+      if (request.url === "/api/components/save") {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const { doc } = JSON.parse(Buffer.concat(chunks).toString());
+        await saveComponents(prototypeWorkspace, doc);
+        savedComponents = true;
+        response.writeHead(200, { "content-type": "application/json" }).end("{}");
+        return;
+      }
+      if (request.url === "/api/design" && savedComponents) {
+        const componentsDoc = parseComponents(await readFile(path.join(prototypeWorkspace, ".agents", "design", "components.jsonc"), "utf8"));
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ design: { ...bundle.design, componentsDoc } }));
+        return;
+      }
       if (request.url === "/test/fail-save") {
         failSave = true;
         response.writeHead(200).end();
@@ -698,6 +716,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     await writeFile(path.join(dir, "compact-export.html"), inject(await buildPrototypeExportHtml(compactBundle(true)), "compact"));
     for (const [name, url] of [
       ["gallery", `http://127.0.0.1:${server.address().port}`],
+      ["inspect", `http://127.0.0.1:${server.address().port}/inspect`],
+      ["inspect-narrow", `http://127.0.0.1:${server.address().port}/inspect`],
       ["prototype", `http://127.0.0.1:${server.address().port}/prototype`],
       ["prototype-narrow", `http://127.0.0.1:${server.address().port}/prototype`],
       ["export", pathToFileURL(path.join(dir, "export.html")).href],
@@ -708,10 +728,19 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
       savedPrototype = false;
+      savedComponents = false;
       failSave = false;
+      const design = structuredClone(bundle.design);
+      if (name.startsWith("inspect")) design.componentsDoc.components.push({ name: "InspectFixture", root: {
+        id: "inspect-board", el: "div", layout: { mode: "freeform", width: 560, height: 400 }, children: [
+          { id: "inspect-flow", el: "div", layout: { mode: "vertical", width: 200, height: 160 },
+            position: { mode: "absolute", x: 300, y: 200 }, children: [] },
+        ],
+      } });
+      resources.set("/api/design", ["application/json", JSON.stringify({ design })]);
       const { stdout } = await promisify(execFile)(browser, [
         "--headless=new", "--disable-gpu", "--disable-extensions", "--disable-background-networking", "--no-first-run", "--no-default-browser-check",
-        `--window-size=${name === "prototype-narrow" ? "700,900" : "1400,1000"}`,
+        `--window-size=${name.endsWith("-narrow") ? "700,900" : "1400,1000"}`,
         `--user-data-dir=${path.join(dir, name)}`, "--dump-dom", "--virtual-time-budget=8000", url,
       ], { timeout: 25000, maxBuffer: 4 * 1024 * 1024 });
       const result = stdout.match(/<pre id="browser-result">([\s\S]*?)<\/pre>/)?.[1];
