@@ -79,6 +79,13 @@ The click-through prototype documents the flow, not executable editor behavior.
 Use the repository's vanilla DOM implementation rather than copying generated
 React scaffolding into the extension.
 
+The Prototype port reuses `editor-workspace.js`, `editor-geometry.js`, the
+workspace shell fragments, and `inspect-workspace.css`. Small document adapters
+map component `layout.width/height` to prototype `width/height` and route edits
+through each editor's existing transactions. Prototype instance props,
+navigation, device frames, Fit zoom, and standalone exports remain intact.
+Screens navigation moves into a collapsible Layers section while inspecting.
+
 ## Acceptance criteria
 
 - Insert each supported kind, reject recursive references and invalid parents,

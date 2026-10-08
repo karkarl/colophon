@@ -234,7 +234,8 @@ test("real Chromium behavior: classic and ESM component previews", { timeout: 45
       asset("components-interactions.js"), asset("components-runtime.js"), asset("styles.css"),
       asset("components-interactions.css"), asset("sample/components.jsonc"), asset("componentsio.mjs"), asset("components-render.mjs"),
     ]);
-    await Promise.all([writeFile(path.join(dir, "componentsio.mjs"), io), writeFile(path.join(dir, "components-render.mjs"), esm)]);
+    await Promise.all([writeFile(path.join(dir, "componentsio.mjs"), io), writeFile(path.join(dir, "components-render.mjs"), esm),
+      writeFile(path.join(dir, "editor-geometry.js"), await asset("editor-geometry.js"))]);
     const html = `<!doctype html><meta charset="utf-8"><style>${styles}\n${css}
     :root { --color-ink:#1c1a17;--color-muted:#6b6459;--color-accent:#b5502a;--color-paper:#f7f4ee;--color-surface:#fff;--color-line:#e4ddd0;--space-2:8px;--space-3:12px;--space-4:16px;--radius-md:8px;--font-body:sans-serif; }
     </style><body><script>${interactions}</script><script>${classic}</script><script type="module">
@@ -647,7 +648,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ["/api/design/select", ["application/json", "{}"]],
     ["/events", ["text/event-stream", ": connected\n\n"]],
   ]);
-  for (const name of ["client.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
+  for (const name of ["client.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "proto-editor-model.js", "proto-workspace.js", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
     resources.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   let prototypeWorkspace;

@@ -1,6 +1,8 @@
 // proto-renderer.mjs — the iframe shell for the Prototype canvas. Real UI lives in
 // proto-client.js / proto.css (served statically) and proto-render.js (the interpreter).
 
+import { renderInsertPalette, renderWorkspaceControls, renderWorkspaceOverlays } from "./editor-workspace-renderer.mjs";
+
 export function renderScreenNav({ editable = false } = {}) {
   return `<nav class="screen-nav" aria-labelledby="screen-nav-title">
       <div class="screen-nav-heading">
@@ -34,8 +36,9 @@ export function renderProtoShell() {
     <title>Prototype</title>
     <link rel="stylesheet" href="/proto.css" />
     <link rel="stylesheet" href="/property-controls.css" />
+    <link rel="stylesheet" href="/inspect-workspace.css" />
   </head>
-  <body>
+  <body class="prototype-editor">
     <div class="topbar">
       <h1>Prototype</h1>
       <button type="button" id="source-pill" class="source-pill">loading…</button>
@@ -73,6 +76,8 @@ export function renderProtoShell() {
           <option value="1">100%</option>
           <option value="0.75">75%</option>
           <option value="0.5">50%</option>
+          <option value="1.5">150%</option>
+          <option value="2">200%</option>
         </select>
       </label>
       <span class="grow"></span>
@@ -90,6 +95,9 @@ export function renderProtoShell() {
             <button type="button" id="layers-redo-btn" class="btn icon-btn" title="Redo" aria-label="Redo" disabled>↷</button>
           </div>
         </div>
+        <details id="inspect-screens" class="insert-palette"><summary>Screens</summary></details>
+        ${renderInsertPalette()}
+        ${renderWorkspaceControls({ zoom: false })}
         <div id="layers" class="layers" aria-label="Prototype layers"></div>
         <div class="layers-actions">
           <button type="button" id="layers-duplicate-btn" class="btn" disabled>Duplicate</button>
@@ -122,6 +130,7 @@ export function renderProtoShell() {
             <button type="button" id="properties-tab" class="is-active" role="tab" aria-selected="true" aria-controls="proto-properties">Properties</button>
             <button type="button" id="json-tab" role="tab" aria-selected="false" aria-controls="proto-json-panel">JSON</button>
           </div>
+          <button type="button" id="inspector-dock-btn" class="btn" aria-pressed="false">Properties on left</button>
           <div id="proto-properties" role="tabpanel" aria-labelledby="properties-tab"></div>
           <div id="proto-json-panel" role="tabpanel" aria-labelledby="json-tab" hidden>
             <textarea id="json-editor" aria-label="Selected element JSON" spellcheck="false" disabled></textarea>
@@ -153,6 +162,7 @@ export function renderProtoShell() {
       </form>
     </dialog>
 
+    ${renderWorkspaceOverlays()}
     <link rel="stylesheet" href="/components-interactions.css" />
     <script src="/components-interactions.js"></script>
     <script src="/components-runtime.js"></script>
@@ -160,7 +170,11 @@ export function renderProtoShell() {
     <script src="/proto-render.js"></script>
     <script src="/property-controls.js"></script>
     <script src="/proto-properties.js"></script>
+    <script src="/proto-editor-model.js"></script>
     <script src="/proto-client.js"></script>
+    <script src="/editor-geometry.js"></script>
+    <script src="/editor-workspace.js"></script>
+    <script src="/proto-workspace.js"></script>
   </body>
 </html>`;
 }

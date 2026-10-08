@@ -236,11 +236,16 @@ Personality: editorial, precise, warm, unhurried.
 
 Use the named spacing tokens rather than ad-hoc values.
 
-The Inspect workspace uses a Layers rail of four spacing-8 units and a Properties
+Both Colophon and Prototype Inspect use a Layers rail of four spacing-8 units and a Properties
 rail of five spacing-8 units. Below their combined width plus five spacing-8
 units of canvas, stack the rails into one column. Editor controls reuse the
 small/caption type styles, spacing 1-4, and radius sm/md. Pointer hit areas use
 spacing 4; resize-handle glyphs use spacing 2.
+
+Prototype keeps device framing and Fit zoom. In Inspect, its existing Screens
+navigation lives in a collapsible section of the Layers rail; leaving Inspect
+restores the full screen menu. Reuse the same selection overlays, insertion
+palette, geometry controls, and panel docking across both editors.
 
 New freeform frames default to 160 by 96 document pixels; rectangles to 96 by 64.
 These are editable object geometry, not UI spacing tokens. Geometry scaling

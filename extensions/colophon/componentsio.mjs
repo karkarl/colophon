@@ -12,13 +12,14 @@
 // explicit unsnapped pixel values. In v3, a freeform parent establishes a coordinate
 // system for children with absolute, parent-relative positions.
 
+import "./editor-geometry.js";
+
 export const COMPONENTS_FILENAME = "components.jsonc";
 
 // ---- JSONC + (de)serialization -------------------------------------------
 
 // Strip // line and /* */ block comments without touching those sequences inside
-// strings. Shared shape with prototypeio.stripJsonc; kept local so this module has
-// no cross-imports and stays isomorphic.
+// strings. Kept local to avoid pulling Node-only prototype IO into the browser.
 export function stripJsonc(text) {
   let out = "";
   let inStr = false, quote = "", inLine = false, inBlock = false;
@@ -200,30 +201,7 @@ export function insertComponentNode(doc, targetPath, template, placement = "insi
 }
 
 export function scaleComponentGeometry(node, factor, bounds) {
-  if (!Number.isFinite(factor) || factor < 0.1 || factor > 10) throw new Error("Scale geometry requires a multiplier from 0.1 to 10.");
-  if (!node || typeof node !== "object" || !Number.isFinite(bounds?.width) || !Number.isFinite(bounds?.height) || bounds.width <= 0 || bounds.height <= 0) {
-    throw new Error("Select a visible layer with measurable dimensions.");
-  }
-  const scaled = JSON.parse(JSON.stringify(node));
-  const multiply = (value) => {
-    const result = Math.round(value * factor * 100) / 100;
-    if (!Number.isFinite(result) || Math.abs(result) > 1000000) throw new Error("Scaled geometry exceeds the supported range.");
-    return result;
-  };
-  const visit = (value, root = false) => {
-    if (!value || typeof value !== "object") return;
-    if (root) value.layout = { ...value.layout, width: bounds.width, height: bounds.height };
-    for (const key of ["width", "height"]) {
-      if (typeof value.layout?.[key] === "number") value.layout[key] = multiply(value.layout[key]);
-    }
-    if (!root && value.position) {
-      value.position.x = multiply(value.position.x);
-      value.position.y = multiply(value.position.y);
-    }
-    for (const child of value.children || []) visit(child);
-  };
-  visit(scaled, true);
-  Object.assign(node, scaled);
+  globalThis.EditorGeometry.scale(node, factor, bounds, "component");
 }
 
 function collectNodeIds(node, ids) {

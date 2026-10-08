@@ -22,10 +22,10 @@ body.inspect-open .wrap { padding-left: calc(var(--inspect-left) + var(--space-5
 .inspect-mode [data-design-inspect]:hover,
 .inspect-mode [data-ds-node-path].is-inspected { outline: none; }
 .inspect-mode [data-design-inspect].is-inspected { outline-color: var(--inspect-color); }
-.component-layer-row.is-selected { background: color-mix(in srgb, var(--inspect-color) 12%, transparent); color: var(--color-ink); }
-.component-layer-row.is-drop-before { box-shadow: inset 0 2px var(--inspect-color); }
-.component-layer-row.is-drop-after { box-shadow: inset 0 -2px var(--inspect-color); }
-.component-layer-row.is-drop-inside { outline-color: var(--inspect-color); }
+.component-layer-row.is-selected, .layer-row.is-selected { background: color-mix(in srgb, var(--inspect-color) 12%, transparent); color: var(--color-ink); }
+.component-layer-row.is-drop-before, .layer-row.is-drop-before { box-shadow: inset 0 2px var(--inspect-color); }
+.component-layer-row.is-drop-after, .layer-row.is-drop-after { box-shadow: inset 0 -2px var(--inspect-color); }
+.component-layer-row.is-drop-inside, .layer-row.is-drop-inside { outline-color: var(--inspect-color); }
 .insert-palette, .inspect-view-controls {
   padding: var(--space-3); border-bottom: 1px solid var(--color-line);
   font: var(--text-small-size)/var(--text-small-line-height) var(--font-body);
@@ -75,9 +75,32 @@ body.inspect-open .wrap { padding-left: calc(var(--inspect-left) + var(--space-5
 .resize-handle[data-resize="se"] { left: 100%; top: 100%; cursor: nwse-resize; }
 .inspect-resizing, .inspect-resizing * { user-select: none !important; }
 .inspect-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.prototype-editor.inspect-open .prototype-layout {
+  display: grid; grid-template-columns: var(--inspect-left) minmax(0, 1fr) var(--inspect-right);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+.prototype-editor.inspect-open .workspace { display: contents; }
+.prototype-editor.inspect-open .workspace > .stage { grid-column: 2; grid-row: 1 / 3; justify-content: flex-start; }
+.prototype-editor.inspect-open .frame-wrap { transform-origin: top left; }
+.prototype-editor.inspect-open .layers-panel { grid-column: 1; grid-row: 1 / 3; }
+.prototype-editor.inspect-open .inspector {
+  grid-column: 3; grid-row: 1 / 3; width: auto; min-width: 0; max-width: none; max-height: none;
+  border-top: 0; border-left: 1px solid var(--color-line);
+}
+.prototype-editor.inspect-open.properties-left .layers-panel { grid-column: 3; border-right: 0; border-left: 1px solid var(--color-line); }
+.prototype-editor.inspect-open.properties-left .inspector { grid-column: 1; border-left: 0; border-right: 1px solid var(--color-line); }
+.prototype-editor #inspect-screens .screen-nav { border: 0; padding: var(--space-2) 0; }
+.prototype-editor #inspect-screens { max-height: 35%; overflow: auto; }
+.prototype-editor .frame-wrap.inspect-mode .proto-node:hover,
+.prototype-editor .frame-wrap.inspect-mode .proto-selected { outline: none; }
 @media (max-width: 896px) {
   body.inspect-open { --inspect-left: var(--inspect-properties-width); --inspect-right: 0px; }
   .inspect-open .component-layers, .inspect-open .design-inspector { left: 0; right: auto; width: var(--inspect-left); border-right: 1px solid var(--color-line); border-left: 0; }
   .inspect-open .component-layers { height: 35vh; bottom: auto; }
   .inspect-open .design-inspector { top: calc(var(--canvas-topbar-offset) + 35vh); }
+  .prototype-editor.inspect-open .prototype-layout { grid-template-rows: 35% minmax(0, 1fr); }
+  .prototype-editor.inspect-open .layers-panel,
+  .prototype-editor.inspect-open.properties-left .layers-panel { grid-column: 1; grid-row: 1; border-left: 0; border-right: 1px solid var(--color-line); overflow: auto; }
+  .prototype-editor.inspect-open .inspector,
+  .prototype-editor.inspect-open.properties-left .inspector { grid-column: 1; grid-row: 2; border-left: 0; border-right: 1px solid var(--color-line); }
 }

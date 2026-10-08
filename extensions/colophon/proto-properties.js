@@ -21,7 +21,7 @@
     return value;
   };
 
-  function render(slot, { node, parent, tokens, theme, componentNames = [], onPreview, onCommit, onCancel }) {
+  function render(slot, { node, parent, tokens, theme, componentNames = [], onPreview, onCommit, onCancel, workspace }) {
     if (!slot) return;
     slot.replaceChildren();
     const prefs = preferences.get(slot) || { snapped: true };
@@ -224,6 +224,7 @@
     // The image element and spacer have no content box to pad.
     if (!own(node, "image") && !own(node, "spacer")) layout.grid.append(box("Padding", "padding"));
     layout.root.append(el("div", { class: "property-help" }, "Spacing uses design tokens or custom pixels. Dimensions accept hug, fill, pixels, or existing CSS lengths."));
+    workspace?.appendScaleControl(layout.root, propertyField);
 
     if (parent?.layout === "freeform") {
       const position = node.position;

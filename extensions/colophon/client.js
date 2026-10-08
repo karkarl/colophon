@@ -538,11 +538,7 @@ function renderComponentProperties() {
     state.spacingSnap
       ? "Spacing follows design token increments. Dimensions accept hug, fill, or fixed pixels."
       : "Spacing is unsnapped. Dimensions accept hug, fill, or fixed pixels."));
-  const multiplier = el("input", { type: "number", min: "0.1", max: "10", step: "0.1", value: "1", "aria-label": "Geometry scale multiplier" });
-  layoutSection.append(el("div", { class: "geometry-scale" },
-    propertyField("Geometry multiplier", multiplier),
-    el("button", { type: "button", class: "btn", onclick: () => window.InspectWorkspace.scale(multiplier.valueAsNumber) }, "Scale geometry")),
-    el("p", { class: "property-help" }, "Scales fixed dimensions and child positions only. Type, spacing, radii, and effects keep their tokens."));
+  window.InspectWorkspace?.appendScaleControl(layoutSection, propertyField);
 
   const parentPath = state.selection?.path?.slice(0, -2);
   const parentNode = parentPath ? valueAtPath(state.componentsDoc, parentPath) : null;

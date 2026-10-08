@@ -199,6 +199,7 @@ function buildDevice(preset, w, h) {
 let currentSurface = null;
 let renderedScreenId = null;
 function renderFrame() {
+  window.PrototypeWorkspace?.cancel();
   cancelFreeformDrag();
   const wrap = $("#frame-wrap");
   window.DSInteractions?.disposeTree(wrap);
@@ -212,6 +213,7 @@ function renderFrame() {
 }
 function renderSurface() {
   if (!currentSurface || !state.runtime) return;
+  window.PrototypeWorkspace?.cancel();
   const sameScreen = renderedScreenId === state.runtime.currentId;
   const scroll = new Map((sameScreen ? [...currentSurface.querySelectorAll("[data-proto-path]")] : []).map((node) =>
     [node.dataset.protoPath, { top: node.scrollTop, left: node.scrollLeft }]));
@@ -300,7 +302,7 @@ function prototypeTokenNames() {
     fontFamilies: ["body", "display", "mono"],
   };
 }
-function validateDraft() {
+function validateDraft(doc = state.proto.doc) {
   const errors = [];
   const tokens = prototypeTokenNames();
   const visit = (node, parent) => {
@@ -313,7 +315,7 @@ function validateDraft() {
     if (node.children != null && !Array.isArray(node.children)) errors.push("Layer children must be an array.");
     else for (const child of node.children || []) visit(child, node);
   };
-  for (const screen of state.proto.doc.screens || []) {
+  for (const screen of doc.screens || []) {
     if (screen.root) visit(screen.root, null);
     for (const modal of screen.modals || []) if (modal.root) visit(modal.root, null);
   }
@@ -340,6 +342,7 @@ function recordMutation(before) {
   renderValidation();
 }
 function commitPrototypeMutation(mutator) {
+  window.PrototypeWorkspace?.cancel();
   if (state.freeformDrag) cancelFreeformDrag();
   if (state.propertyEdit && !commitPropertyEdit()) return false;
   const before = editorSnapshot();
@@ -412,6 +415,7 @@ function cancelPropertyEdit() {
   rebuildRuntime();
 }
 function restoreHistory(direction) {
+  window.PrototypeWorkspace?.cancel();
   cancelFreeformDrag();
   if (!commitPropertyEdit()) return;
   const from = direction === "undo" ? state.past : state.future;
@@ -434,6 +438,7 @@ function applySelectionHighlight() {
     const parent = valueAtPath(state.proto.doc, path.slice(0, -2));
     node.classList.toggle("is-freeform-movable", value?.position?.mode === "absolute" && parent?.layout === "freeform");
   }
+  window.PrototypeWorkspace?.refresh();
 }
 function postSelection() {
   if (!state.selectedPath || window.__COLOPHON_PROTOTYPE_EXPORT__) return;
@@ -455,6 +460,7 @@ function selectPath(path, { notify = true } = {}) {
   if (notify) postSelection();
 }
 function clearLayerDrop() {
+  window.PrototypeWorkspace?.clearDrop();
   for (const row of document.querySelectorAll(".layer-row")) {
     row.classList.remove("is-drop-before", "is-drop-after", "is-drop-inside");
     delete row.dataset.dropPlacement;
@@ -471,6 +477,8 @@ function renderLayerNode(node, path, depth, root = false) {
   row.append(el("button", { type: "button", title: detail },
     el("span", { class: "layer-kind" }, `${kind} `), detail));
   row.querySelector("button").addEventListener("click", () => selectPath(path));
+  row.addEventListener("pointerenter", () => window.PrototypeWorkspace?.hoverPath(path));
+  row.addEventListener("pointerleave", () => window.PrototypeWorkspace?.hoverPath(null));
   if (!root) {
     row.addEventListener("dragstart", (event) => {
       state.dragPath = path.slice();
@@ -480,6 +488,7 @@ function renderLayerNode(node, path, depth, root = false) {
     row.addEventListener("dragend", () => { state.dragPath = null; clearLayerDrop(); });
   }
   row.addEventListener("dragover", (event) => {
+    clearLayerDrop();
     if (!state.dragPath || isPathPrefix(state.dragPath, path)) return;
     const bounds = row.getBoundingClientRect();
     const ratio = (event.clientY - bounds.top) / bounds.height;
@@ -487,12 +496,21 @@ function renderLayerNode(node, path, depth, root = false) {
     const placement = root ? (inside ? "inside" : null)
       : ratio < .28 ? "before" : ratio > .72 ? "after" : inside ? "inside" : "before";
     if (!placement) return;
+    try {
+      const candidate = clone(state.proto.doc);
+      ProtoEditorModel.move(candidate, state.dragPath, path, placement);
+      validateDraft(candidate);
+    } catch (error) {
+      window.PrototypeWorkspace?.announce(error.message);
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     clearLayerDrop();
     row.dataset.dropPlacement = placement;
     row.classList.add(`is-drop-${placement}`);
     event.dataTransfer.dropEffect = "move";
+    window.PrototypeWorkspace?.showTreeDrop(path, placement);
   });
   row.addEventListener("dragleave", clearLayerDrop);
   row.addEventListener("drop", (event) => {
@@ -533,26 +551,7 @@ function renderLayers() {
 }
 function moveLayer(sourcePath, targetPath, placement = "before") {
   return commitPrototypeMutation(() => {
-    if (!sourcePath || !targetPath || isPathPrefix(sourcePath, targetPath)) throw new Error("A layer cannot be moved into itself.");
-    const doc = state.proto.doc;
-    const node = valueAtPath(doc, sourcePath);
-    const target = valueAtPath(doc, targetPath);
-    const sourceChildren = valueAtPath(doc, sourcePath.slice(0, -1));
-    const parent = placement === "inside" ? target : valueAtPath(doc, targetPath.slice(0, -2));
-    const oldParent = valueAtPath(doc, sourcePath.slice(0, -2));
-    if (!node || !target || sourcePath.at(-2) !== "children" || !Array.isArray(sourceChildren)) throw new Error("Root layers cannot be moved.");
-    if (!["before", "after", "inside"].includes(placement) || ProtoRender.nodeKind(parent) !== "layout") throw new Error("Drop layers inside a layout or beside one of its children.");
-    if (placement !== "inside" && targetPath.at(-2) !== "children") throw new Error("Cannot move a layer beside a root.");
-    const destination = parent.children ||= [];
-    if (!Array.isArray(destination)) throw new Error("The destination's children must be an array.");
-    sourceChildren.splice(sourceChildren.indexOf(node), 1);
-    const index = placement === "inside" ? destination.length : destination.indexOf(target) + (placement === "after" ? 1 : 0);
-    destination.splice(index, 0, node);
-    if (oldParent !== parent) {
-      if (parent.layout === "freeform") node.position = { mode: "absolute", x: 0, y: 0 };
-      else delete node.position;
-    }
-    state.selectedPath = findPathByReference(doc, node);
+    state.selectedPath = ProtoEditorModel.move(state.proto.doc, sourcePath, targetPath, placement);
   });
 }
 function duplicateLayer() {
@@ -617,9 +616,11 @@ function renderElementEditor({ preserveProperties = false } = {}) {
     tokens: state.design?.tokens || {}, theme: state.theme,
     componentNames: state.runtime?.componentNames || [],
     onPreview: previewPropertyEdit, onCommit: commitPropertyEdit, onCancel: cancelPropertyEdit,
+    workspace: window.PrototypeWorkspace,
   });
   setInspectorTab(state.inspectorTab);
   updateHistoryButtons();
+  window.PrototypeWorkspace?.refresh();
 }
 function rebuildRuntime(currentId = state.runtime?.currentId) {
   state.runtime.updateDocument(state.proto.doc);
@@ -655,7 +656,7 @@ function freeformTarget(start) {
   return null;
 }
 function beginFreeformDrag(event) {
-  if (!state.inspectMode || event.button !== 0 || state.freeformDrag) return;
+  if (!state.inspectMode || event.button !== 0 || state.freeformDrag || window.PrototypeWorkspace?.busy()) return;
   if (state.propertyEdit && !commitPropertyEdit()) return;
   const target = freeformTarget(event.target);
   if (!target) return;
@@ -682,6 +683,7 @@ function updateFreeformPosition(drag, x, y) {
     if (input) input.value = String(axis === "x" ? x : y);
   }
   $("#json-editor").value = JSON.stringify(drag.node, null, 2);
+  window.PrototypeWorkspace?.refreshBounds();
 }
 function moveFreeformDrag(event) {
   const drag = state.freeformDrag;
@@ -735,6 +737,7 @@ function cancelFreeformDrag() {
   finishFreeformDrag({ pointerId: drag.pointerId, preventDefault() {}, stopImmediatePropagation() {} }, true);
 }
 async function savePrototype() {
+  window.PrototypeWorkspace?.cancel();
   if (state.freeformDrag || !commitPropertyEdit()) return;
   if (!state.dirty || state.saving) return;
   state.saving = true;
@@ -791,6 +794,7 @@ async function attachSelection() {
 }
 
 function applyZoom() {
+  window.PrototypeWorkspace?.cancel();
   cancelFreeformDrag();
   const wrap = $("#frame-wrap");
   if (state.zoom === "fit") {
@@ -803,6 +807,7 @@ function applyZoom() {
   } else {
     wrap.style.transform = `scale(${state.zoom})`;
   }
+  window.PrototypeWorkspace?.refreshBounds();
 }
 
 // ---- toolbar wiring --------------------------------------------------------
@@ -1049,6 +1054,7 @@ async function copyExportPath() {
 
 // ---- load ------------------------------------------------------------------
 async function load() {
+  window.PrototypeWorkspace?.cancel();
   cancelFreeformDrag();
   const previousScreen = state.runtime?.currentId;
   const data = window.__COLOPHON_PROTOTYPE_EXPORT__ || await api("/api/prototypes");
@@ -1063,6 +1069,7 @@ async function load() {
   state.runtime = ProtoRender.createRuntime({ doc: data.proto.doc, componentsDoc: data.design.componentsDoc });
   state.runtime.onChange(() => { renderSurface(); });
   state.runtime.onNavigate(() => {
+    window.PrototypeWorkspace?.cancel();
     state.selectedPath = null;
     syncScreenNav();
     renderLayers();
@@ -1119,9 +1126,14 @@ function wire() {
   $("#rotate-btn").addEventListener("click", () => { const w = state.w; state.w = state.h; state.h = w; syncSizeInputs(); renderFrame(); });
   $("#zoom-select").addEventListener("change", (e) => { state.zoom = e.target.value === "fit" ? "fit" : parseFloat(e.target.value); applyZoom(); });
   $("#inspect-btn")?.addEventListener("click", () => {
+    window.PrototypeWorkspace?.cancel();
     cancelFreeformDrag();
     if (!commitPropertyEdit()) return;
     state.inspectMode = !state.inspectMode;
+    document.body.classList.toggle("inspect-open", state.inspectMode);
+    const screens = $(".screen-nav");
+    if (state.inspectMode) $("#inspect-screens").append(screens);
+    else $(".prototype-layout").insertBefore(screens, $(".workspace"));
     window.DSInteractions?.resetTree($("#frame-wrap"));
     $("#inspect-btn").classList.toggle("is-active", state.inspectMode);
     $("#inspect-btn").setAttribute("aria-pressed", String(state.inspectMode));
@@ -1130,6 +1142,7 @@ function wire() {
     $("#frame-wrap").classList.toggle("inspect-mode", state.inspectMode);
     if (state.inspectMode) { renderLayers(); renderElementEditor(); }
     applyZoom();
+    window.PrototypeWorkspace?.refresh();
   });
   $("#frame-wrap").addEventListener("click", (event) => {
     if (!state.inspectMode) return;
@@ -1142,6 +1155,7 @@ function wire() {
     if (!target) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    window.PrototypeWorkspace?.rememberSelection(target);
     try { selectPath(JSON.parse(target.dataset.protoPath)); } catch { /* invalid renderer metadata */ }
   }, true);
   $("#frame-wrap").addEventListener("pointerdown", beginFreeformDrag, true);
@@ -1178,6 +1192,7 @@ function wire() {
       return;
     }
     if (event.target.closest("input, textarea, select, [contenteditable=true]")) return;
+    if (window.PrototypeWorkspace?.busy()) return;
     if ((event.ctrlKey || event.metaKey) && ["z", "y"].includes(event.key.toLowerCase())) {
       event.preventDefault();
       restoreHistory(event.shiftKey || event.key.toLowerCase() === "y" ? "redo" : "undo");
@@ -1259,6 +1274,7 @@ function wire() {
   }
 
   window.addEventListener("resize", () => { if (state.zoom === "fit") applyZoom(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) cancelFreeformDrag(); });
 
   if (!window.__COLOPHON_PROTOTYPE_EXPORT__) {
     try {
