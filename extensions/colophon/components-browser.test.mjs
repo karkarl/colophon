@@ -12,6 +12,7 @@ import { renderShell } from "./renderer.mjs";
 import { renderProtoShell } from "./proto-renderer.mjs";
 import { buildPrototypeExportHtml } from "./prototypeexport.mjs";
 import { loadPrototypes, savePrototypes, validatePrototypes } from "./prototypeio.mjs";
+import { loadDesign, saveTokens } from "./designio.mjs";
 
 // No browser package dependency: run the same contract against both renderers in
 // installed Chromium. CI can set COLOPHON_BROWSER to its Chrome/Edge executable.
@@ -279,6 +280,114 @@ async function shellBehavior(kind) {
     }
     throw new Error(message);
   };
+  if (kind === "brand") {
+    await waitFor("#brand-name");
+    const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
+      .find((node) => node.querySelector(".page-nav-label")?.textContent === name);
+    const inputFor = (label) => document.querySelector(`.inline-text-input[aria-label="${label}"]`);
+    const editFor = (label) => document.querySelector(`button[aria-label="Edit ${label}"]`);
+    const finish = (input, key = "Enter", options = {}) => input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options }));
+    const editText = (label, value, key = "Enter", options = {}) => {
+      const input = inputFor(label);
+      check(input.hidden && input.readOnly, `${label} starts read-only`);
+      editFor(label).click();
+      check(!input.hidden && !input.readOnly && document.activeElement === input, `${label} edit icon opens and focuses its input`);
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      finish(input, key, options);
+      check(input.hidden && input.readOnly && document.activeElement === editFor(label), `${label} finishes and restores edit-button focus`);
+    };
+    check(document.querySelector(".page-nav-title").textContent === "Pages", "sidebar is labeled Pages");
+    check(document.querySelector("#save-btn").disabled, "viewing brand does not dirty the document");
+    for (const input of document.querySelectorAll(".brand input, .brand textarea, .authority input[type=text]")) {
+      check(input.hidden && input.readOnly && getComputedStyle(input).display === "none", "brand and authority inputs are hidden and read-only initially");
+    }
+    document.querySelector("#brand-name").click();
+    check(inputFor("Brand name").hidden, "clicking brand text does not start editing");
+    const edit = editFor("Brand name");
+    edit.style.transition = "none";
+    check(getComputedStyle(edit).opacity === (matchMedia("(hover: none)").matches ? "1" : "0"), "edit icon is hidden at rest except on touch devices");
+    edit.focus();
+    check(getComputedStyle(edit).opacity === "1", "keyboard focus reveals the edit icon");
+    edit.blur();
+
+    for (const theme of ["dark", "highContrast", "light"]) {
+      document.querySelector(`[data-theme="${theme}"]`).click();
+      await waitFor("#brand-name");
+      const nav = document.querySelector(".page-nav");
+      const sidebar = getComputedStyle(nav);
+      const inspector = getComputedStyle(document.querySelector("#design-inspector"));
+      check(sidebar.backgroundColor === inspector.backgroundColor && sidebar.borderRightColor === inspector.borderLeftColor, "Pages shares inspector surface and divider in every theme");
+      if (innerWidth > 720) {
+        const bounds = nav.getBoundingClientRect();
+        check(bounds.left === 0 && Math.abs(bounds.bottom - innerHeight) < 1, "Pages fills the left edge down to the viewport bottom");
+        check(Math.abs(bounds.top - document.querySelector(".topbar").getBoundingClientRect().bottom) < 1, "Pages starts directly below the toolbar");
+        check(bounds.right <= document.querySelector(".page-content").getBoundingClientRect().left, "Pages never overlaps content");
+      } else {
+        check(nav.getBoundingClientRect().bottom <= document.querySelector(".page-content").getBoundingClientRect().top, "narrow Pages index stays above content");
+        check(document.documentElement.scrollWidth <= innerWidth, "narrow brand page has no horizontal overflow");
+      }
+    }
+    state.tokens.pages = Array.from({ length: 40 }, (_, index) => ({ id: `page-${index}`, name: `Page ${index}` }));
+    await render();
+    const list = document.querySelector(".page-nav-list");
+    check(list.scrollHeight > list.clientHeight, "long page list scrolls independently");
+    const add = document.querySelector(".page-add").getBoundingClientRect();
+    check(add.bottom <= document.querySelector(".page-nav").getBoundingClientRect().bottom, "Add page remains reachable below a long list");
+    state.tokens.pages = [];
+    await render();
+    editText("Brand name", "Northlight notes");
+    editText("Tagline", "A quieter workspace", "Escape");
+    check(state.tokens.brand.tagline === "A quieter workspace", "Escape finishes without losing edits");
+    const descriptionLabel = "Description (app / project context for codegen)";
+    editFor(descriptionLabel).click();
+    const description = inputFor(descriptionLabel);
+    description.value = "First line\nSecond line";
+    description.dispatchEvent(new Event("input", { bubbles: true }));
+    finish(description);
+    check(!description.hidden, "Enter stays inside multiline editing");
+    description.blur();
+    check(description.hidden && description.readOnly && document.querySelector("#brand-desc").textContent === description.value, "blur returns multiline text to read-only");
+    editText("Personality (one per line)", "calm\nprecise", "Enter", { ctrlKey: true });
+    check(state.tokens.brand.personality.join("|") === "calm|precise" && document.querySelectorAll(".brand .chip").length === 2, "personality edits keep array values and chips");
+    editText("Voice", "Plain and exact", "Enter", { metaKey: true });
+    editText("Avoid (one per line)", "noise\nclutter", "Enter", { ctrlKey: true });
+    editText("Implementation owner (optional)", "@northlight");
+    editText("Sync process (optional)", "Review each release");
+    editFor("Tagline").click();
+    const tagline = inputFor("Tagline");
+    tagline.value = "";
+    tagline.dispatchEvent(new Event("input", { bubbles: true }));
+    tagline.blur();
+    check(document.querySelector("#brand-tag").textContent === "Not set" && editFor("Tagline"), "empty text stays editable");
+    editText("Tagline", "A quieter workspace");
+    pageButton("Components").click();
+    await waitFor(".preview");
+    pageButton("Brand").click();
+    await waitFor("#brand-name");
+    check(document.querySelector("#brand-name").textContent === "Northlight notes" && inputFor("Brand name").hidden, "navigation preserves draft text and restores read-only mode");
+    if (innerWidth > 720) {
+      document.querySelector("#inspect-btn").click();
+      await waitFor(".preview");
+      const layers = document.querySelector("#component-layers").getBoundingClientRect();
+      const pages = document.querySelector(".page-nav").getBoundingClientRect();
+      const content = document.querySelector(".page-content").getBoundingClientRect();
+      check(layers.right <= pages.left && pages.right <= content.left, "Inspect keeps Layers, Pages, and content separate");
+      check(content.right <= document.querySelector("#design-inspector").getBoundingClientRect().left, "Inspect properties do not cover content");
+      pageButton("Brand").click();
+      await waitFor("#brand-name");
+      document.querySelector("#brand-name").click();
+      check(state.selection.path.join("/") === "brand" && inputFor("Brand name").hidden, "Inspect still selects brand without editing text");
+      document.querySelector("#inspect-btn").click();
+    }
+    document.querySelector("#save-btn").click();
+    await waitUntil(() => !state.dirty && document.querySelector("#save-btn").disabled, "brand edits save");
+    document.querySelector("#reload-btn").click();
+    await waitUntil(() => state.tokens.brand.name === "Northlight notes" && document.querySelector("#save-btn").textContent === "Saved", "saved brand reloads");
+    check(state.tokens.brand.description === "First line\nSecond line" && state.tokens.brand.antiReferences.join("|") === "noise|clutter", "multiline and list edits persist");
+    check(state.tokens.authority.owner === "@northlight" && inputFor("Implementation owner (optional)").hidden, "authority edits persist in read-only mode");
+    return;
+  }
   if (kind === "compact") {
     await waitFor("#screen-list [data-screen-id]");
     const list = document.querySelector("#screen-list");
@@ -636,6 +745,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   });
   const resources = new Map([
     ["/", ["text/html", inject(renderShell(), "gallery")]],
+    ["/brand", ["text/html", inject(renderShell(), "brand")]],
     ["/prototype", ["text/html", inject(renderProtoShell(), "prototype")]],
     ["/compact", ["text/html", inject(renderProtoShell(), "compact")]],
     ["/api/prototypes", ["application/json", JSON.stringify(bundle)]],
@@ -648,6 +758,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     resources.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   let prototypeWorkspace;
+  let brandWorkspace;
   let savedPrototype = false;
   let failSave = false;
   const server = createServer(async (request, response) => {
@@ -655,6 +766,15 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       if (request.url === "/test/fail-save") {
         failSave = true;
         response.writeHead(200).end();
+        return;
+      }
+      if (request.url === "/api/save") {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const { tokens, revision } = JSON.parse(Buffer.concat(chunks).toString());
+        const saved = await saveTokens(brandWorkspace, tokens, { revision });
+        resources.set("/api/design", ["application/json", JSON.stringify({ design: await loadDesign(brandWorkspace) })]);
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(saved));
         return;
       }
       if (request.url === "/api/prototypes/save" || request.url === "/api/prototypes/validate") {
@@ -697,6 +817,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     await writeFile(path.join(dir, "export.html"), exported);
     await writeFile(path.join(dir, "compact-export.html"), inject(await buildPrototypeExportHtml(compactBundle(true)), "compact"));
     for (const [name, url] of [
+      ["brand", `http://127.0.0.1:${server.address().port}/brand`],
+      ["brand-narrow", `http://127.0.0.1:${server.address().port}/brand`],
       ["gallery", `http://127.0.0.1:${server.address().port}`],
       ["prototype", `http://127.0.0.1:${server.address().port}/prototype`],
       ["prototype-narrow", `http://127.0.0.1:${server.address().port}/prototype`],
@@ -707,15 +829,29 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ]) {
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
+      if (name.startsWith("brand")) {
+        brandWorkspace = prototypeWorkspace;
+        await saveTokens(brandWorkspace, tokens);
+        resources.set("/api/design", ["application/json", JSON.stringify({ design: await loadDesign(brandWorkspace) })]);
+      } else {
+        resources.set("/api/design", ["application/json", JSON.stringify({ design: bundle.design })]);
+      }
       savedPrototype = false;
       failSave = false;
       const { stdout } = await promisify(execFile)(browser, [
         "--headless=new", "--disable-gpu", "--disable-extensions", "--disable-background-networking", "--no-first-run", "--no-default-browser-check",
-        `--window-size=${name === "prototype-narrow" ? "700,900" : "1400,1000"}`,
+        `--window-size=${name.endsWith("-narrow") ? "700,900" : "1400,1000"}`,
         `--user-data-dir=${path.join(dir, name)}`, "--dump-dom", "--virtual-time-budget=8000", url,
       ], { timeout: 25000, maxBuffer: 4 * 1024 * 1024 });
       const result = stdout.match(/<pre id="browser-result">([\s\S]*?)<\/pre>/)?.[1];
       assert.equal(result, "PASS", `${name}: ${result}; ${stdout.match(/<body[^>]*>/)?.[0]}`);
+      if (name.startsWith("brand")) {
+        const persisted = await loadDesign(brandWorkspace);
+        assert.equal(persisted.format, "markdown");
+        assert.equal(persisted.tokens.brand.name, "Northlight notes");
+        assert.deepEqual(persisted.tokens.brand.personality, ["calm", "precise"]);
+        assert.equal(persisted.tokens.authority.owner, "@northlight");
+      }
       if (name.startsWith("prototype")) {
         const persisted = await loadPrototypes(prototypeWorkspace);
         assert.equal(persisted.source, "repo");

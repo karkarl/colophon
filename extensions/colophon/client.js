@@ -955,6 +955,56 @@ async function attachDesignSelection() {
 
 /* ---------- section renderers ---------- */
 
+function inlineTextField(label, input, { preview, showLabel = true } = {}) {
+  const value = preview || el("div", { class: "inline-text-value" });
+  const updatePreview = () => {
+    if (!preview) value.textContent = input.value || "Not set";
+  };
+  updatePreview();
+  input.classList.add("inline-text-input");
+  input.setAttribute("aria-label", label);
+  input.hidden = true;
+  input.readOnly = true;
+  const edit = el("button", {
+    type: "button", class: "panel-icon-btn inline-text-edit",
+    "aria-label": `Edit ${label}`, title: `Edit ${label}`,
+    onclick: () => {
+      value.hidden = true;
+      edit.hidden = true;
+      input.hidden = false;
+      input.readOnly = false;
+      input.focus();
+    },
+  });
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "m16 3 5 5-12 12-6 1 1-6ZM14 5l5 5");
+  icon.append(path);
+  edit.append(icon);
+  const finish = () => {
+    updatePreview();
+    input.readOnly = true;
+    input.hidden = true;
+    value.hidden = false;
+    edit.hidden = false;
+  };
+  input.addEventListener("input", updatePreview);
+  input.addEventListener("blur", finish);
+  input.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
+    if (event.key === "Escape" || (event.key === "Enter" && (input.tagName !== "TEXTAREA" || event.ctrlKey || event.metaKey))) {
+      event.preventDefault();
+      finish();
+      edit.focus();
+    }
+  });
+  return el("div", { class: "editable inline-text-field" },
+    showLabel ? el("label", {}, label) : "",
+    el("div", { class: "inline-text-row" }, value, input, edit));
+}
+
 function portFields(obj, { withScope = false } = {}) {
   const rows = [];
   if (withScope) {
@@ -963,8 +1013,8 @@ function portFields(obj, { withScope = false } = {}) {
     const compIn = el("input", { type: "text", value: (obj.components || []).join(", "), placeholder: "e.g. ChatBubble, ChatComposer",
       oninput: (e) => { obj.components = e.target.value.split(",").map((s) => s.trim()).filter(Boolean); markDirty(); } });
     rows.push(
-      el("div", { class: "editable" }, el("label", {}, "Area"), areaIn),
-      el("div", { class: "editable" }, el("label", {}, "Components (comma-separated)"), compIn),
+      inlineTextField("Area", areaIn),
+      inlineTextField("Components (comma-separated)", compIn),
     );
   }
   const shipsIn = el("input", { type: "text", value: obj.authoritySource || "", placeholder: "ships as — e.g. Native WinUI 3 / C#",
@@ -976,10 +1026,10 @@ function portFields(obj, { withScope = false } = {}) {
   const ownerIn = el("input", { type: "text", value: obj.owner || "", placeholder: "owner (optional) — who owns the canonical implementation",
     oninput: (e) => { obj.owner = e.target.value; markDirty(); } });
   rows.push(
-    el("div", { class: "editable" }, el("label", {}, "Authority source (ships as)"), shipsIn),
-    el("div", { class: "editable" }, el("label", {}, "Sync source (port reference/skill)"), syncIn),
-    el("div", { class: "editable" }, el("label", {}, "Helper agent (optional)"), helperIn),
-    el("div", { class: "editable" }, el("label", {}, "Owner (optional)"), ownerIn),
+    inlineTextField("Authority source (ships as)", shipsIn),
+    inlineTextField("Sync source (port reference/skill)", syncIn),
+    inlineTextField("Helper agent (optional)", helperIn),
+    inlineTextField("Owner (optional)", ownerIn),
   );
   return rows;
 }
@@ -1017,8 +1067,8 @@ function renderAuthority(t) {
   const syncProcIn = el("input", { type: "text", value: a.syncProcess || "", placeholder: "e.g. Regenerated from XAML each release; see docs/design-sync.md",
     oninput: (e) => { a.syncProcess = e.target.value; markDirty(); } });
   wrap.append(el("div", { class: "faces", style: "margin-top:10px;grid-template-columns:1fr 1fr;display:grid;gap:12px" },
-    el("div", { class: "editable" }, el("label", {}, "Implementation owner (optional)"), ownerIn),
-    el("div", { class: "editable" }, el("label", {}, "Sync process (optional)"), syncProcIn)));
+    inlineTextField("Implementation owner (optional)", ownerIn),
+    inlineTextField("Sync process (optional)", syncProcIn)));
 
   // Per-area overrides.
   wrap.append(el("div", { class: "muted", style: "margin-top:12px;font-weight:600" }, "Per-area overrides"));
@@ -1036,27 +1086,36 @@ function renderAuthority(t) {
 }
 
 function renderBrand(t) {
-  const b = t.brand || {};
-  const nameIn = el("input", { type: "text", value: b.name || "", oninput: (e) => { b.name = e.target.value; markDirty(); $("#brand-name").textContent = e.target.value; } });
-  const tagIn = el("input", { type: "text", value: b.tagline || "", oninput: (e) => { b.tagline = e.target.value; markDirty(); $("#brand-tag").textContent = e.target.value; } });
-  const descIn = el("textarea", { class: "otextarea", rows: "3", placeholder: "What is this app/project? Who is it for? What does it do? (codegen reads this for context)",
-    oninput: (e) => { b.description = e.target.value; markDirty(); const d = $("#brand-desc"); if (d) { d.textContent = e.target.value; d.style.display = e.target.value ? "" : "none"; } } });
-  descIn.value = b.description || "";
+  const b = t.brand || (t.brand = {});
+  const text = (key, label, className, { multiline = false, list = false, id } = {}) => {
+    const preview = el("div", { class: className, id });
+    const update = () => {
+      if (key === "personality") preview.replaceChildren(...(b[key] || []).map((item) => el("span", { class: "chip" }, item)));
+      else preview.textContent = list ? (b[key] || []).join("; ") : b[key] || "";
+      if (!preview.textContent) preview.textContent = key === "name" ? "Untitled" : "Not set";
+    };
+    const input = el(multiline ? "textarea" : "input", {
+      ...(multiline ? { rows: "3" } : { type: "text" }),
+      oninput: (event) => {
+        b[key] = list ? event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) : event.target.value;
+        update();
+        markDirty();
+      },
+    });
+    input.value = list ? (b[key] || []).join("\n") : b[key] || "";
+    update();
+    return inlineTextField(label, input, { preview, showLabel: !id });
+  };
   return inspectable(el("section", { class: "block" },
     el("h2", {}, "Brand"),
     el("div", { class: "brand" },
-      el("div", { class: "name", id: "brand-name" }, b.name || "Untitled"),
-      el("div", { class: "tagline", id: "brand-tag" }, b.tagline || ""),
-      el("div", { class: "brand-desc", id: "brand-desc", style: b.description ? "" : "display:none" }, b.description || ""),
-      el("div", { class: "chips" }, ...(b.personality || []).map((p) => el("span", { class: "chip" }, p))),
-      b.voice ? el("div", { class: "muted", style: "margin-top:6px" }, "Voice — " + b.voice) : "",
-      (b.antiReferences || []).length ? el("div", { class: "muted", style: "margin-top:2px" }, "Avoid — " + b.antiReferences.join("; ")) : "",
+      text("name", "Brand name", "name", { id: "brand-name" }),
+      text("tagline", "Tagline", "tagline", { id: "brand-tag" }),
+      text("description", "Description (app / project context for codegen)", "brand-desc", { id: "brand-desc", multiline: true }),
+      text("personality", "Personality (one per line)", "chips", { multiline: true, list: true }),
+      text("voice", "Voice", "muted", { multiline: true }),
+      text("antiReferences", "Avoid (one per line)", "muted", { multiline: true, list: true }),
     ),
-    el("div", { class: "faces", style: "margin-top:14px;grid-template-columns:1fr 1fr;display:grid;gap:12px" },
-      el("div", { class: "editable" }, el("label", {}, "Brand name"), nameIn),
-      el("div", { class: "editable" }, el("label", {}, "Tagline"), tagIn),
-    ),
-    el("div", { class: "editable", style: "margin-top:12px" }, el("label", {}, "Description (app / project context for codegen)"), descIn),
     renderAuthority(t),
   ), "design.json", ["brand"], "Brand");
 }
@@ -1338,7 +1397,7 @@ function updateCurrentPageNavigation(page) {
 
 function renderPageNavigation() {
   const nav = el("nav", { class: "page-nav", "aria-label": "Design system pages" },
-    el("div", { class: "page-nav-title" }, "Design system"),
+    el("div", { class: "page-nav-title" }, "Pages"),
     el("div", { class: "page-nav-list" }));
   const list = $(".page-nav-list", nav);
   for (const page of pageRegistry()) {
