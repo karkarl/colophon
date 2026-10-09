@@ -311,6 +311,34 @@ async function shellBehavior(kind) {
     check(getComputedStyle(edit).opacity === "1", "keyboard focus reveals the edit icon");
     edit.blur();
 
+    if (innerWidth > 720) {
+      const toolbar = document.querySelector(".topbar");
+      const saveButton = document.querySelector("#save-btn");
+      const initialHeight = toolbar.offsetHeight;
+      saveButton.style.flexBasis = "100%";
+      await waitUntil(() => parseFloat(document.documentElement.style.getPropertyValue("--canvas-topbar-offset")) === toolbar.offsetHeight && toolbar.offsetHeight > initialHeight,
+        "sidebar offset follows toolbar wrapping without a window resize or rerender");
+      check(document.querySelector(".page-nav").getBoundingClientRect().top >= toolbar.getBoundingClientRect().bottom, "wrapped toolbar remains above Pages");
+      const saveRect = saveButton.getBoundingClientRect();
+      check(saveButton.contains(document.elementFromPoint(saveRect.left + 5, saveRect.top + saveRect.height / 2)), "Pages cannot cover the wrapped Save button");
+      saveButton.style.flexBasis = "";
+      await waitUntil(() => parseFloat(document.documentElement.style.getPropertyValue("--canvas-topbar-offset")) === toolbar.offsetHeight && toolbar.offsetHeight === initialHeight,
+        "sidebar offset follows the toolbar shrinking again");
+    }
+    state.validation = { ok: false, errors: ["An actionable validation error"], warnings: [] };
+    renderValidation();
+    const banner = document.querySelector("#validation-slot .banner");
+    banner.style.animation = "none";
+    if (innerWidth > 720) {
+      // Exercise the overlapping region at desktop widths even in a wide test window.
+      document.querySelector("#validation-slot").style.left = "100px";
+      const error = banner.querySelector(".err li").getBoundingClientRect();
+      check(banner.contains(document.elementFromPoint(error.left + 1, error.top + error.height / 2)), "validation error text stays above Pages");
+      document.querySelector("#validation-slot").style.left = "";
+    }
+    state.validation = null;
+    renderValidation();
+
     for (const theme of ["dark", "highContrast", "light"]) {
       document.querySelector(`[data-theme="${theme}"]`).click();
       await waitFor("#brand-name");
@@ -334,8 +362,27 @@ async function shellBehavior(kind) {
     check(list.scrollHeight > list.clientHeight, "long page list scrolls independently");
     const add = document.querySelector(".page-add").getBoundingClientRect();
     check(add.bottom <= document.querySelector(".page-nav").getBoundingClientRect().bottom, "Add page remains reachable below a long list");
+    list.scrollTop = list.scrollHeight;
+    const scrollTop = list.scrollTop;
+    pageButton("Page 39").click();
+    await waitUntil(() => document.querySelector(".page-nav-list") && document.querySelector(".page-nav-list") !== list, "lower page navigation renders");
+    const checkActiveVisible = () => {
+      const viewport = document.querySelector(".page-nav-list").getBoundingClientRect();
+      const active = document.querySelector(".page-nav-link.is-active").getBoundingClientRect();
+      check(active.top >= viewport.top - 1 && active.bottom <= viewport.bottom + 1, "active page remains visible within the scrolling list");
+    };
+    check(Math.abs(document.querySelector(".page-nav-list").scrollTop - scrollTop) < 1, "page navigation preserves internal scroll position");
+    checkActiveVisible();
+    await render();
+    checkActiveVisible();
+    check(Math.abs(document.querySelector(".page-nav-list").scrollTop - scrollTop) < 1, "rerender preserves internal scroll position");
+    const beforeAdd = document.querySelector(".page-nav-list");
+    document.querySelector(".page-add").click();
+    await waitUntil(() => document.querySelector(".page-nav-list") && document.querySelector(".page-nav-list") !== beforeAdd, "new page navigation renders");
+    checkActiveVisible();
     state.tokens.pages = [];
     await render();
+    check(pageButton("Brand").getAttribute("aria-current") === "page", "removing the current custom page selects the fallback page");
     editText("Brand name", "Northlight notes");
     editText("Tagline", "A quieter workspace", "Escape");
     check(state.tokens.brand.tagline === "A quieter workspace", "Escape finishes without losing edits");
@@ -351,6 +398,17 @@ async function shellBehavior(kind) {
     editText("Personality (one per line)", "calm\nprecise", "Enter", { ctrlKey: true });
     check(state.tokens.brand.personality.join("|") === "calm|precise" && document.querySelectorAll(".brand .chip").length === 2, "personality edits keep array values and chips");
     editText("Voice", "Plain and exact", "Enter", { metaKey: true });
+    editFor("Voice").click();
+    const nextEdit = editFor("Avoid (one per line)");
+    const mouseDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+    nextEdit.dispatchEvent(mouseDown);
+    check(mouseDown.defaultPrevented && document.activeElement === inputFor("Voice"), "next pencil keeps the current editor focused until click completes");
+    const secondaryDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 2 });
+    nextEdit.dispatchEvent(secondaryDown);
+    check(!secondaryDown.defaultPrevented, "secondary mouse button retains its native behavior");
+    nextEdit.click();
+    check(document.activeElement === inputFor("Avoid (one per line)") && inputFor("Voice").hidden, "one pencil activation switches editors");
+    finish(inputFor("Avoid (one per line)"), "Escape");
     editText("Avoid (one per line)", "noise\nclutter", "Enter", { ctrlKey: true });
     editText("Implementation owner (optional)", "@northlight");
     editText("Sync process (optional)", "Review each release");
@@ -378,7 +436,13 @@ async function shellBehavior(kind) {
       await waitFor("#brand-name");
       document.querySelector("#brand-name").click();
       check(state.selection.path.join("/") === "brand" && inputFor("Brand name").hidden, "Inspect still selects brand without editing text");
+      for (const pencil of document.querySelectorAll(".inline-text-edit")) {
+        check(getComputedStyle(pencil).display === "none", "Inspect hides misleading inline-edit controls from pointer and keyboard navigation");
+      }
+      editFor("Brand name").click();
+      check(inputFor("Brand name").hidden, "Inspect cannot accidentally open a hidden inline editor");
       document.querySelector("#inspect-btn").click();
+      check(getComputedStyle(editFor("Brand name")).display !== "none", "leaving Inspect restores inline-edit controls");
     }
     document.querySelector("#save-btn").click();
     await waitUntil(() => !state.dirty && document.querySelector("#save-btn").disabled, "brand edits save");

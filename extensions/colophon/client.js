@@ -18,7 +18,7 @@ const el = (tag, attrs = {}, ...kids) => {
 let state = {
   design: null, tokens: null, componentsDoc: null,
   dirty: false, componentsDirty: false, mode: "normal", proposal: null,
-  theme: "light", validation: null, page: "brand",
+  theme: "light", validation: null, page: "brand", pageNavScrollTop: 0,
   inspectMode: false, selection: null,
   inspectorTab: "properties", componentPast: [], componentFuture: [], dragPath: null,
   freeformDrag: null, suppressInspectClickUntil: 0,
@@ -968,7 +968,12 @@ function inlineTextField(label, input, { preview, showLabel = true } = {}) {
   const edit = el("button", {
     type: "button", class: "panel-icon-btn inline-text-edit",
     "aria-label": `Edit ${label}`, title: `Edit ${label}`,
+    onmousedown: (event) => {
+      // Keep the previous editor from collapsing under this click before mouseup.
+      if (event.button === 0 && document.activeElement?.matches(".inline-text-input")) event.preventDefault();
+    },
     onclick: () => {
+      if (state.inspectMode) return;
       value.hidden = true;
       edit.hidden = true;
       input.hidden = false;
@@ -1726,11 +1731,14 @@ async function render() {
   const gen = ++renderSeq;
   const t = state.tokens;
   const root = $("#app");
+  const previousList = $(".page-nav-list", root);
+  if (previousList) state.pageNavScrollTop = previousList.scrollTop;
   window.DSInteractions?.disposeTree(root);
   root.textContent = "";
 
   renderValidation();
   const page = activePage();
+  state.page = page.id;
   const content = el("div", { class: "page-content", tabindex: "-1" });
   const pageContent = await page.render(t);
   if (gen !== renderSeq) { window.DSInteractions?.disposeTree(pageContent); return; }
@@ -1738,6 +1746,13 @@ async function render() {
   root.append(el("div", { class: "canvas-layout" }, renderPageNavigation(), content));
   applyInspectHighlight();
   positionValidationSlot();
+  const list = $(".page-nav-list", root);
+  list.scrollTop = state.pageNavScrollTop;
+  const selected = $(".page-nav-link.is-active", list).getBoundingClientRect();
+  const bounds = list.getBoundingClientRect();
+  if (selected.top < bounds.top) list.scrollTop += selected.top - bounds.top;
+  else if (selected.bottom > bounds.bottom) list.scrollTop += selected.bottom - bounds.bottom;
+  state.pageNavScrollTop = list.scrollTop;
   renderInspector();
 }
 
@@ -1844,6 +1859,7 @@ window.addEventListener("DOMContentLoaded", () => {
   $("#validate-btn")?.addEventListener("click", doValidate);
   $("#inspect-btn")?.addEventListener("click", async () => {
     state.inspectMode = !state.inspectMode;
+    if (state.inspectMode && document.activeElement?.matches(".inline-text-input")) document.activeElement.blur();
     window.DSInteractions?.resetTree($("#app"));
     for (const select of document.querySelectorAll(".preview-state select")) {
       select.value = "live";
@@ -1952,6 +1968,7 @@ window.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", () => setTheme(b.dataset.theme));
   }
   window.addEventListener("resize", positionValidationSlot);
+  new ResizeObserver(positionValidationSlot).observe($(".topbar"));
   load().catch((e) => { $("#app").textContent = "Failed to load design system: " + e.message; });
   connectEvents();
 });

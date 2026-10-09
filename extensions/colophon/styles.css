@@ -112,7 +112,7 @@ button.btn:disabled { opacity: .5; cursor: default; }
 
 /* Floating validation infobar: pinned below the sticky topbar, top-right, dismissible. */
 #validation-slot {
-  position: fixed; right: 24px; z-index: 20;
+  position: fixed; right: 24px; z-index: 30;
   width: min(620px, calc(100vw - 48px)); pointer-events: none;
 }
 #validation-slot:empty { display: none; }
@@ -371,6 +371,7 @@ body.inspect-open .page-nav { left: 260px; }
 }
 .inline-text-input:focus { outline: 2px solid var(--color-accent, #b5502a); outline-offset: 1px; }
 .inline-text-row > [hidden] { display: none; }
+.inspect-mode .inline-text-edit { display: none; }
 @media (hover: none) {
   .inline-text-edit { opacity: 1; pointer-events: auto; }
 }
