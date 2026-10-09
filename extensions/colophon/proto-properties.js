@@ -246,6 +246,7 @@
     }
 
     const appearance = node.appearance || {};
+    const linearShape = window.ShapeGeometry.linear(node);
     const appearanceSection = section("Appearance overrides");
     const appearanceValue = (key) => appearance[key] || "";
     const updateAppearance = (key) => (selected, value) => {
@@ -254,25 +255,31 @@
       if (!Object.keys(selected.appearance).length) delete selected.appearance;
     };
     const appearanceCommit = (key) => (value) => commit((selected) => updateAppearance(key)(selected, value));
-    appearanceSection.grid.append(
+    if (!linearShape) appearanceSection.grid.append(
       typographyPicker("Text style", appearanceValue("textStyle"), "textStyle", appearanceCommit("textStyle")),
       typographyPicker("Font family", appearanceValue("fontFamily"), "fontFamily", appearanceCommit("fontFamily")));
-    for (const [label, key] of [["Text color", "color"], ["Background", "background"], ["Border color", "borderColor"]]) {
+    for (const [label, key] of linearShape ? [["Stroke color", "borderColor"]] : [["Text color", "color"], ["Background", "background"], ["Border color", "borderColor"]]) {
       appearanceSection.grid.append(colorPicker(label, appearanceValue(key), appearanceCommit(key), { gesture: gesture(updateAppearance(key)) }));
     }
-    appearanceSection.grid.append(pixelNumberbox("Border thickness (px)", appearance.borderWidth,
+    appearanceSection.grid.append(pixelNumberbox(linearShape ? "Stroke thickness (px)" : "Border thickness (px)", appearance.borderWidth,
       appearanceCommit("borderWidth"), { gesture: gesture(updateAppearance("borderWidth")) }));
-    appearanceSection.grid.append(propertySelect("Text align", appearanceValue("textAlign"),
+    if (!linearShape) appearanceSection.grid.append(propertySelect("Text align", appearanceValue("textAlign"),
       inheritedOptions(["start", "center", "end", "left", "right", "justify"]), (event) => appearanceCommit("textAlign")(event.target.value)));
     for (const [label, key, group] of [["Radius", "radius", "radii"], ["Shadow", "shadow", "shadows"]]) {
+      if (linearShape) continue;
+      if (key === "radius" && node.shape === "ellipse") {
+        appearanceSection.grid.append(el("div", { class: "property-help" }, "Ellipse geometry sets the corner radius."));
+        continue;
+      }
       appearanceSection.grid.append(propertySelect(label, appearanceValue(key),
         [...inheritedOptions((tokens?.[group] || []).map((token) => token.name).filter(Boolean)), [window.PropertyControls.NONE, "None"]],
         (event) => appearanceCommit(key)(event.target.value)));
     }
     appearanceSection.root.append(el("div", { class: "property-help" },
-      "Inherit removes an override. None is explicit transparency, square corners, or no shadow. Legacy text style and colors remain the defaults."));
+      linearShape ? "Stroke color and thickness apply to the line and arrowhead. Width/height resize its bounds; normalized endpoints preserve direction." :
+        "Inherit removes an override. None is explicit transparency, square corners, or no shadow. Legacy text style and colors remain the defaults."));
     const legacy = [["style", "textStyle", "Text style"], ["color", "color", "Text color"], ["background", "background", "Background"], ["radius", "radius", "Radius"]]
-      .filter(([key]) => own(node, key));
+      .filter(([key]) => own(node, key) && !(node.shape === "ellipse" && key === "radius"));
     if (legacy.length) {
       const legacySection = section("Legacy defaults");
       for (const [key, kind, label] of legacy) {

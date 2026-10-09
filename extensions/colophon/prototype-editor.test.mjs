@@ -380,7 +380,7 @@ for (const viewportWidth of [1600, 700]) test(`prototype Properties and shared w
   let releaseSave = null;
   const assets = new Map();
   for (const name of ["proto.css", "property-controls.css", "property-controls.js", "proto-properties.js", "proto-layout.js",
-    "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "proto-editor-model.js", "proto-workspace.js",
+    "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js",
     "proto-render.js", "proto-client.js", "components-runtime.js", "components-interactions.js", "components-interactions.css"]) {
     assets.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }

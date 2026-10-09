@@ -2,7 +2,7 @@
 (function (root) {
   const value = (doc, path) => path?.reduce((node, key) => node?.[key], doc);
   const prefix = (parent, child) => parent.length <= child.length && parent.every((part, index) => part === child[index]);
-  const container = (node) => !!node && typeof node.layout === "string";
+  const container = (node) => !!node && !node.shape && typeof node.layout === "string";
   function find(doc, wanted) {
     const visit = (node, path) => {
       if (node === wanted) return path;

@@ -14,12 +14,13 @@
   "meta": {
     "version": 1,
     "updatedBy": "copilot",
-    "updatedAt": "2026-10-08T16:46:01.797Z",
-    "name": "Colophon Inspect interactions",
-    "note": "Click-through proposal for selection, drop feedback, resize, and save. Direct manipulation is implemented in the Colophon canvas."
+    "updatedAt": "2026-10-08T22:10:00.128Z",
+    "note": "Click-through proposal for selection, drop feedback, resize, and save. Direct manipulation is implemented in the Colophon canvas.",
+    "name": "Colophon Inspect interactions"
   },
   "state": {
-    "step": "select"
+    "step": "select",
+    "tool": "move"
   },
   "screens": [
     {
@@ -111,7 +112,7 @@
                 "children": [
                   {
                     "id": "layers-heading",
-                    "text": "Layers + Insert",
+                    "text": "Layers + Components",
                     "style": "heading"
                   },
                   {
@@ -132,7 +133,7 @@
                   },
                   {
                     "id": "insert-help",
-                    "text": "Insert frame, text, rectangle, or an existing component. Click or drag to place.",
+                    "text": "The bottom toolbar creates frames, shapes, and text. Existing component instances stay available in the Layers rail.",
                     "style": "small",
                     "color": "muted"
                   }
@@ -256,6 +257,242 @@
                     }
                   }
                 ]
+              }
+            ]
+          },
+          {
+            "id": "bottom-tools",
+            "layout": "stack",
+            "gap": "2",
+            "align": "center",
+            "children": [
+              {
+                "id": "tool-hint",
+                "text": "Move, Frame, Shapes, Text, and Add components. Choose a shape and draw; search the live component library to insert an instance. Editor selection uses neutral black, not the sample accent.",
+                "style": "small",
+                "color": "muted"
+              },
+              {
+                "id": "tool-strip",
+                "layout": "row",
+                "gap": "1",
+                "padding": "2",
+                "appearance": {
+                  "background": "surface",
+                  "radius": "lg",
+                  "shadow": "md"
+                },
+                "children": [
+                  {
+                    "id": "tool-move",
+                    "component": "Button",
+                    "props": {
+                      "children": "Move (V)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "move"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "tool-frame",
+                    "component": "Button",
+                    "props": {
+                      "children": "Frame (F)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "frame"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "tool-shape",
+                    "component": "Button",
+                    "props": {
+                      "children": "Shape tools",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "shape"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "tool-text",
+                    "component": "Button",
+                    "props": {
+                      "children": "Text (T)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "text"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "tool-components",
+                    "component": "Button",
+                    "props": {
+                      "children": "Add components",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "components"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "shape-options",
+                "layout": "row",
+                "gap": "2",
+                "visibleWhen": {
+                  "tool": "shape"
+                },
+                "children": [
+                  {
+                    "id": "rectangle-tool",
+                    "component": "Button",
+                    "props": {
+                      "children": "Rectangle (R)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "rectangle"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "ellipse-tool",
+                    "component": "Button",
+                    "props": {
+                      "children": "Ellipse (O)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "ellipse"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "line-tool",
+                    "component": "Button",
+                    "props": {
+                      "children": "Line (L)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "line"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "arrow-tool",
+                    "component": "Button",
+                    "props": {
+                      "children": "Arrow (Shift+L)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "arrow"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "move-help",
+                "text": "Move selects and repositions layers. A completed creation returns to Move.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "move"
+                }
+              },
+              {
+                "id": "frame-help",
+                "text": "Frame: click for a default freeform frame, or drag its bounds.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "frame"
+                }
+              },
+              {
+                "id": "rectangle-help",
+                "text": "Rectangle: drag its bounds. Hold Shift to draw a square.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "rectangle"
+                }
+              },
+              {
+                "id": "ellipse-help",
+                "text": "Ellipse: drag its bounds. Hold Shift to draw a circle.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "ellipse"
+                }
+              },
+              {
+                "id": "text-help",
+                "text": "Text: click for hug-width text, or drag a fixed text box.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "text"
+                }
+              },
+              {
+                "id": "line-help",
+                "text": "Line: draw in either direction. Shift snaps to 45-degree increments. Stroke color and thickness are editable.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "line"
+                }
+              },
+              {
+                "id": "arrow-help",
+                "text": "Arrow: draw toward the destination. The arrowhead follows release, including reverse drags.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "arrow"
+                }
+              },
+              {
+                "id": "components-help",
+                "text": "Search components by name. Choose a result to insert a reference into the selection, or beside a leaf. Escape closes the dropdown.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "components"
+                }
               }
             ]
           }

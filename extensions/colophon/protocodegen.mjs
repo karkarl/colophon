@@ -73,6 +73,13 @@ function condExpr(cond, negate) {
 
 function textTag(style) { return /^(display|title|heading)$/.test(style) ? "h2" : "p"; }
 
+function shapeJsx(spec) {
+  const camel = (key) => key.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  const attrs = Object.entries(spec.attrs || {}).map(([key, value]) => ` ${key.startsWith("aria-") ? key : camel(key)}={${JSON.stringify(value)}}`).join("");
+  const style = spec.style ? ` style={${JSON.stringify(Object.fromEntries(Object.entries(spec.style).map(([key, value]) => [camel(key), value])))}}` : "";
+  return `<${spec.tag}${attrs}${style}>${(spec.children || []).map(shapeJsx).join("")}</${spec.tag}>`;
+}
+
 function reactNode(node, state, indent) {
   const pad = "  ".repeat(indent);
   const kind = nodeKind(node);
@@ -81,7 +88,8 @@ function reactNode(node, state, indent) {
   const style = ` style={${styleObj(node)}}`;
   let jsx;
   if (kind === "layout") {
-    const kids = (node.children || []).map((c) => reactNode(c, state, indent + 1)).filter(Boolean).join("\n");
+    const shape = globalThis.ShapeGeometry.svgSpec(node);
+    const kids = [shape ? `${pad}  ${shapeJsx(shape)}` : "", ...(node.children || []).map((c) => reactNode(c, state, indent + 1))].filter(Boolean).join("\n");
     jsx = `${pad}<div${style}${interaction}>\n${kids}\n${pad}</div>`;
   } else if (kind === "text") {
     const textStyle = node.appearance?.textStyle || node.style;
@@ -153,6 +161,7 @@ const NATIVE_MAP = [
   ["grid", "Grid / UniformGrid", "LazyVGrid"],
   ["freeform + absolute x/y", "Canvas + Canvas.Left/Top", "ZStack + top-leading offset"],
   ["none (normal flow)", "native content container", "native content container"],
+  ["line / arrow", "Line / Path (arrowhead at end)", "Path (arrowhead at end)"],
   ["hug / fill / pixel size", "Auto / Stretch / explicit size", "ideal size / max frame / frame"],
   ["margin / padding edge boxes", "Margin / Padding", "padding / container spacing"],
   ["appearance overrides", "instance-local resources/properties", "instance-local view modifiers"],
@@ -167,12 +176,13 @@ function outlineNode(node, indent) {
   const pad = "  ".repeat(indent);
   const kind = nodeKind(node);
   let label;
-  if (kind === "layout") label = `${node.layout}${node.direction ? `:${node.direction}` : ""}`;
+  if (kind === "layout") label = node.shape ? `${node.shape}${node.endpoints ? ` endpoints=${JSON.stringify(node.endpoints)}` : ""}` : `${node.layout}${node.direction ? `:${node.direction}` : ""}`;
   else if (kind === "component") label = `${node.component}(${JSON.stringify(node.props || {})})`;
   else if (kind === "text") label = `text "${node.text}"${node.style ? ` [${node.style}]` : ""}`;
   else label = kind;
   const tap = node.on?.tap ? `  ⇒ ${JSON.stringify(node.on.tap)}` : "";
   const vis = node.visibleWhen ? `  (when ${JSON.stringify(node.visibleWhen)})` : "";
+  if (globalThis.ShapeGeometry.linear(node)) label += ` stroke=${JSON.stringify({ color: node.appearance?.borderColor || node.appearance?.color || "currentColor", width: node.appearance?.borderWidth ?? 2 })}`;
   const styling = nodeStyle(node);
   const lines = [`${pad}- ${label}${tap}${vis}${Object.keys(styling).length ? `  styles=${JSON.stringify(styling)}` : ""}`];
   for (const c of node.children || []) lines.push(outlineNode(c, indent + 1));

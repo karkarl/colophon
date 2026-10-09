@@ -144,6 +144,8 @@
 
   function renderLayout(node, ctx) {
     const box = el("div", { class: "proto-node proto-layout" });
+    const shape = globalThis.ShapeGeometry.createSvg(node);
+    if (shape) box.append(shape);
     const wantsScroll = node.layout === "scroll" || (node.scroll === true && ctx.fitScreen);
     if (wantsScroll) box.style.overflow = "auto";
     if (ctx.fitScreen && (wantsScroll || node.grow)) {

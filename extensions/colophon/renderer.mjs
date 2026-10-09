@@ -86,6 +86,7 @@ export function renderShell() {
     ${renderWorkspaceOverlays()}
     <link rel="stylesheet" href="/components-interactions.css" />
     <script src="/components-interactions.js"></script>
+    <script src="/shape-geometry.js"></script>
     <script type="module" src="/components-render.mjs"></script>
     <script src="/property-controls.js"></script>
     <script src="/client.js"></script>

@@ -31,10 +31,19 @@ export async function inspectWorkspaceBehavior() {
   else check(query("#component-layers").getBoundingClientRect().bottom <= query("#design-inspector").getBoundingClientRect().top + 1, "narrow panels stack without overlap");
   query("#inspector-dock-btn").click();
   check(JSON.stringify(state.componentsDoc) === original && !state.componentsDirty, "docking does not dirty the graph");
+  const { creationToolbarBehavior } = await import("/creation-toolbar-scenario.mjs");
+  await creationToolbarBehavior({ schema: "component", choose, node, doc: () => state.componentsDoc,
+    history: () => state.componentPast.length, byId: ds, boardId: "inspect-board", flowId: "inspect-flow",
+    zoomSelector: "#inspect-zoom", previewSelector: "#app", errorSelector: "#inspect-error" });
   query("#insert-palette").open = true;
   const add = async (kind) => {
     const count = state.componentPast.length;
-    query(`[data-insert-kind="${kind}"]`).click();
+    if (kind.startsWith("component:")) query(`[data-insert-kind="${kind}"]`).click();
+    else {
+      document.activeElement?.blur();
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: { frame: "f", rectangle: "r", text: "t" }[kind], bubbles: true }));
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    }
     await tick();
     check(state.componentPast.length === count + 1, `${kind} adds one undo step: ${query("#inspect-error").textContent}`);
   };
@@ -148,7 +157,7 @@ export async function inspectWorkspaceBehavior() {
   check(node().id === textId && !node().position, "freeform-to-flow reparent preserves ID and removes absolute position");
   check(state.selection.path.slice(0, -2).join() === pathFor("inspect-flow").join(), "layer moved into intended parent");
 
-  const palette = query('[data-insert-kind="rectangle"]');
+  const palette = query('[data-insert-kind="component:Card"]');
   palette.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
   const board = ds("inspect-board");
   const boardRect = board.getBoundingClientRect();

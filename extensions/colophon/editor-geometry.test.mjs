@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 import "./editor-geometry.js";
 import "./proto-editor-model.js";
-import { scaleComponentGeometry } from "./componentsio.mjs";
-import { validatePrototypes } from "./prototypeio.mjs";
+import { scaleComponentGeometry, canContainComponentChildren, expandInstance, validateComponentsDoc, parseComponents, serializeComponents } from "./componentsio.mjs";
+import { validatePrototypes, parsePrototypes, serializePrototypes } from "./prototypeio.mjs";
+import { codegenScreen } from "./protocodegen.mjs";
 
 const fixture = () => ({ screens: [{ id: "one", root: {
   id: "board", layout: "freeform", width: 500, height: 400, children: [
@@ -78,5 +81,106 @@ test("shared scaling freezes root geometry but preserves tokens, references, act
     for (const factor of [0, Infinity, 11, NaN]) assert.throws(() => EditorGeometry.scale(node, factor, { width: 1, height: 1 }, schema), /multiplier/);
     assert.throws(() => EditorGeometry.scale(node, 10, { width: 999999, height: 1 }, schema), /range/);
     assert.equal(JSON.stringify(node), before, "failed scaling is atomic");
+  }
+});
+
+test("creation bounds normalize reverse drags, square constraints, and invalid geometry", () => {
+  assert.deepEqual(EditorGeometry.creationBounds({ x: 120, y: 110 }, { x: 45, y: 60 }), { x: 45, y: 60, width: 75, height: 50 });
+  assert.deepEqual(EditorGeometry.creationBounds({ x: 120, y: 110 }, { x: 45, y: 60 }, true), { x: 45, y: 35, width: 75, height: 75 });
+  assert.deepEqual(EditorGeometry.creationBounds({ x: 0, y: 0 }, { x: 0, y: 0 }), { x: 0, y: 0, width: 1, height: 1 });
+  for (const x of [NaN, Infinity, 1000001]) assert.throws(() => EditorGeometry.creationBounds({ x: 0, y: 0 }, { x, y: 0 }), /range/);
+});
+
+test("ellipse primitives roundtrip and render consistently in components, exports, prototypes, and codegen", async () => {
+  const tokens = { colors: [{ name: "line" }] };
+  const root = EditorGeometry.template("ellipse", tokens, "component");
+  root.appearance.radius = "pill";
+  const components = { meta: { version: 3 }, components: [{ name: "Shape", root }] };
+  assert.equal(validateComponentsDoc(components).ok, true);
+  assert.equal(canContainComponentChildren(root), false);
+  assert.equal(parseComponents(serializeComponents(components)).components[0].root.shape, "ellipse");
+  assert.equal(expandInstance(components, "Shape").style["border-radius"], "50%");
+  const window = {};
+  vm.runInNewContext(await readFile(new URL("./components-runtime.js", import.meta.url), "utf8"), { window, ShapeGeometry });
+  assert.equal(window.DSComp.expandInstance(components, "Shape").style["border-radius"], "50%");
+  root.children = ["Not a container"];
+  assert.match(validateComponentsDoc(components).errors.join(), /cannot contain children/);
+  delete root.children;
+  root.shape = "capsule";
+  assert.match(validateComponentsDoc(components).errors.join(), /shape/);
+  const ellipse = EditorGeometry.template("ellipse", tokens);
+  const prototypes = { screens: [{ id: "one", root: ellipse }] };
+  assert.equal(validatePrototypes(prototypes).ok, true);
+  assert.equal(ProtoEditorModel.container(ellipse), false);
+  assert.equal(parsePrototypes(serializePrototypes(prototypes)).screens[0].root.shape, "ellipse");
+  assert.equal(ProtoLayout.style(ellipse)["border-radius"], "50%");
+  assert.match(codegenScreen(prototypes, "one", {}).code, /"borderRadius":"50%"/);
+  EditorGeometry.scale(ellipse, 2, { width: 96, height: 64 });
+  assert.equal(ellipse.shape, "ellipse");
+  assert.equal(ellipse.width, 192);
+  ellipse.children = [{ id: "nested", text: "Not a container" }];
+  assert.match(validatePrototypes(prototypes).errors.join(), /cannot contain children/);
+  ellipse.children = [];
+  ellipse.shape = "capsule";
+  assert.match(validatePrototypes(prototypes).errors.join(), /shape/);
+});
+
+test("linear geometry retains drag direction, horizontal/vertical endpoints, and Shift angle snapping", () => {
+  for (const [dx, dy] of [[75, 50], [-75, 50], [75, -50], [-75, -50], [0, 50], [0, -50], [75, 0], [-75, 0]]) {
+    const geometry = EditorGeometry.creationBounds({ x: 0, y: 0 }, { x: dx, y: dy }, false, true);
+    assert.equal(geometry.width, Math.max(1, Math.abs(dx)));
+    assert.equal(geometry.height, Math.max(1, Math.abs(dy)));
+    const { start, end } = geometry.endpoints;
+    assert.equal(Math.sign(end.x - start.x), Math.sign(dx));
+    assert.equal(Math.sign(end.y - start.y), Math.sign(dy));
+    assert.deepEqual(ShapeGeometry.validate({ shape: "arrow", ...geometry }), []);
+  }
+  const diagonal = EditorGeometry.creationBounds({ x: 0, y: 0 }, { x: -75, y: 50 }, true, true);
+  assert.equal(diagonal.width, diagonal.height);
+  assert.deepEqual(diagonal.endpoints, { start: { x: 1, y: 0 }, end: { x: 0, y: 1 } });
+  const horizontal = EditorGeometry.creationBounds({ x: 0, y: 0 }, { x: 75, y: 10 }, true, true);
+  assert.equal(horizontal.height, 1);
+  assert.equal(horizontal.endpoints.end.y, .5);
+});
+
+test("line and arrow share SVG paths, stroke controls, serialization, scale and generated code", async () => {
+  const window = {};
+  vm.runInNewContext(await readFile(new URL("./components-runtime.js", import.meta.url), "utf8"), { window, ShapeGeometry });
+  for (const kind of ["line", "arrow"]) {
+    const flat = EditorGeometry.template(kind, { colors: [{ name: "ink" }] });
+    flat.endpoints = { start: { x: 1, y: 0 }, end: { x: 0, y: 1 } };
+    const component = { ...structuredClone(flat), el: "div", layout: { width: flat.width, height: flat.height } };
+    delete component.width; delete component.height;
+    const components = { meta: { version: 3 }, components: [{ name: "Connector", root: component }] };
+    const prototypes = { screens: [{ id: "one", root: flat }] };
+    assert.equal(validateComponentsDoc(components).ok, true);
+    assert.equal(validatePrototypes(prototypes).ok, true);
+    const classic = window.DSComp.expandInstance(components, "Connector");
+    const esm = expandInstance(components, "Connector");
+    assert.deepEqual(JSON.parse(JSON.stringify(classic.children)), esm.children);
+    const path = ShapeGeometry.svgSpec(flat).children[0].attrs;
+    assert.equal(path.d.startsWith("M 96 0 L 0 16"), true);
+    assert.equal(path.stroke, "var(--color-ink)");
+    assert.equal(path["stroke-width"], 2);
+    assert.equal(path["vector-effect"], "non-scaling-stroke");
+    assert.equal(path.d.split("M").length - 1, kind === "arrow" ? 2 : 1);
+    assert.match(codegenScreen(prototypes, "one", {}).code, /<svg.*<path/);
+    assert.match(codegenScreen(prototypes, "one", {}).code, /vectorEffect=\{"non-scaling-stroke"\}/);
+    assert.match(codegenScreen(prototypes, "one", { authority: { port: { authoritySource: "WinUI" } } }).code, /stroke=\{"color":"ink","width":2\}/);
+    assert.deepEqual(parsePrototypes(serializePrototypes(prototypes)).screens[0].root, flat);
+    assert.deepEqual(parseComponents(serializeComponents(components)).components[0].root, component);
+    const before = structuredClone(flat.endpoints);
+    EditorGeometry.scale(flat, 2, { width: flat.width, height: flat.height });
+    assert.deepEqual(flat.endpoints, before);
+    assert.match(ShapeGeometry.svgSpec(flat).children[0].attrs.d, /^M 192 0 L 0 32/);
+    flat.appearance = { borderColor: "#123456", borderWidth: 4 };
+    assert.equal(ShapeGeometry.svgSpec(flat).children[0].attrs.stroke, "#123456");
+    assert.equal(ShapeGeometry.svgSpec(flat).children[0].attrs["stroke-width"], 4);
+    flat.appearance = { borderColor: "$none", borderWidth: 0 };
+    assert.equal(ShapeGeometry.svgSpec(flat).children[0].attrs.stroke, "transparent");
+    for (const endpoints of [{}, { start: { x: -1, y: 0 }, end: { x: 1, y: 0 } }, { start: { x: 1, y: 1 }, end: { x: 1, y: 1 } }]) {
+      assert.equal(validatePrototypes({ screens: [{ id: "one", root: { ...flat, endpoints } }] }).ok, false);
+    }
+    assert.equal(validatePrototypes({ screens: [{ id: "one", root: { ...flat, width: "fill" } }] }).ok, false);
   }
 });

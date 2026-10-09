@@ -166,6 +166,7 @@ export function renderProtoShell() {
     <link rel="stylesheet" href="/components-interactions.css" />
     <script src="/components-interactions.js"></script>
     <script src="/components-runtime.js"></script>
+    <script src="/shape-geometry.js"></script>
     <script src="/proto-layout.js"></script>
     <script src="/proto-render.js"></script>
     <script src="/property-controls.js"></script>

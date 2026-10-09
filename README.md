@@ -174,10 +174,19 @@ Open the **Design System** canvas to see the system rendered live:
   duplicate/delete layers; and undo/redo before saving. In Inspect mode, drag an
   absolutely positioned child directly on a freeform preview to update its
   parent-relative X/Y coordinates live; one undo step is recorded when it is dropped.
-- **Direct manipulation in Inspect** — use **Insert layer** to add a frame,
-  rectangle, text, or an existing component reference. Click to insert into the
-  selected container (or after a selected leaf/instance), or drag an item onto a
-  rendered preview. Drag existing layers from the tree onto the canvas: blue
+- **Direct manipulation in Inspect** — the floating bottom toolbar contains
+  **Move (V)**, **Frame (F)**, **Shape tools** (Rectangle **R**, Ellipse **O**,
+  Line **L**, Arrow **Shift+L**), **Text (T)**, and **Add components**.
+  The component dropdown searches the current design system and inserts a
+  reusable instance into the selection. Editor-selected buttons stay neutral
+  black; the sample design's accent applies only to the rendered sample.
+  Choose a creation tool, then click on a preview layer for
+  default sizing or drag to draw its bounds; **Shift** draws a square/circle or
+  snaps a line/arrow to 45-degree increments. Arrows point toward release.
+  **Enter** inserts into the selected container (or after a selected leaf).
+  Creation returns to Move; Text focuses its content field. **Escape** cancels.
+  Component references remain in the sidebar's **Components** picker: click to
+  insert or drag onto a preview. Drag existing layers from the tree: blue
   destination bounds mean **inside**, while a line means **before/after**.
   Invalid containers, recursive references, cycles, and cross-component moves
   are rejected before a valid destination is shown. Moving into a flow layout
@@ -254,6 +263,15 @@ coordinates:
 Omitting `position` keeps a child in normal flow. Auto Layout drag operations still
 reorder or reparent `children`; freeform movement updates only the child node's
 parent-relative `x` and `y`.
+
+Both component and prototype nodes support `shape: "rectangle" | "ellipse" | "line" | "arrow"` for
+primitive leaves. Ellipse uses a geometric 50% radius at any aspect ratio,
+overriding appearance radii; it is not a pill-radius token. Shape nodes cannot
+contain children. Use a frame for grouping.
+Lines/arrows store normalized `endpoints: { start: { x, y }, end: { x, y } }`
+in fixed positive-pixel width/height bounds. Stroke color/thickness use
+`appearance.borderColor` / `borderWidth`. Shared SVG rendering preserves their
+direction in both previews, standalone exports, and generated React.
 
 Visual values inherit through normal component classes and the element hierarchy.
 An omitted `appearance` key means **inherit**; selecting a different value in
@@ -402,10 +420,11 @@ group. Existing files without sections keep their flat list. Agent patches can u
   Editor buttons and field focus retain neutral chrome. Geometry cues use the
   same `selection` token as Colophon; preview components and palette swatches
   retain the design system's own colors.
-- **Shared direct manipulation** — Prototype uses the same Insert palette,
+- **Shared direct manipulation** — Prototype uses the same bottom tool modes,
+  click/drag creation, component picker,
   validated blue destination outlines/insertion lines, resize handles,
   geometry scaling, parent navigation, and properties docking as Colophon.
-  Insert frames, rectangles, text, and component instances; drag tree layers
+  Insert frames, rectangles, ellipses, lines, arrows, text, and component instances; drag tree layers
   into a preview or use the tree for reparenting. A component remains an
   instance, never a detached definition. W/H resize is distinct from
   **Scale geometry**, which changes fixed dimensions and descendant positions
@@ -479,7 +498,8 @@ extensions/colophon/              the canvas extension:
   renderer.mjs    tiny iframe shell (design canvas)
   client.js       the in-canvas inspector app (onboarding, render, edit, live previews)
   property-controls.js / property-controls.css  shared token-backed inspector controls
-  editor-workspace.js / editor-workspace-renderer.mjs  shared gestures, palette, overlays and controls
+  editor-workspace.js / editor-workspace-renderer.mjs  shared tools, gestures, component picker and overlays
+  shape-geometry.js shared shape validation and SVG geometry for rendering/export/codegen
   editor-geometry.js  shared creation templates and atomic, token-preserving geometry scaling
   inspect-workspace.js / proto-workspace.js  component and prototype document adapters
   inspect-workspace.css  shared editor cues, docking and narrow layouts
@@ -509,7 +529,7 @@ extensions/colophon/              the canvas extension:
   multi-selection are not yet part of the component schema.
 - Prototype layers support structured properties and JSON editing, local live
   drafts, undo/redo, duplicate/delete, tree reordering/reparenting, and direct
-  freeform movement, insertion, resize handles, and geometry scaling. The model
+  freeform movement, click/drag creation tools, resize handles, and geometry scaling. The model
   stays flat: `layout` is a discriminator such as
   `"stack"`, `"row"`, `"grid"`, `"scroll"`, `"freeform"`, or `"none"`; dimensions,
   spacing, margin, and `position` live on the node, not a nested layout object.

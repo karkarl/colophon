@@ -32,6 +32,11 @@ window.PrototypeWorkspace = window.EditorWorkspace.create({
   clearTreeDrop: clearLayerDrop,
   suppressClick: () => { state.suppressInspectClickUntil = Date.now() + 500; },
   report: editorError,
+  focusText: () => {
+    setInspectorTab("properties");
+    const input = $("#proto-properties textarea");
+    input?.focus(); input?.select();
+  },
   refresh: () => {},
   docked: applyZoom,
 });

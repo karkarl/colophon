@@ -573,6 +573,7 @@ function renderComponentProperties() {
   }
 
   const appearance = node.appearance || {};
+  const linearShape = window.ShapeGeometry.linear(node);
   const radii = (state.tokens?.radii || []).map((token) => token?.name).filter(Boolean);
   const shadows = (state.tokens?.shadows || []).map((token) => token?.name).filter(Boolean);
   const appearanceSection = el("section", { class: "property-section" },
@@ -585,7 +586,7 @@ function renderComponentProperties() {
     options,
     (event) => commitComponentMutation(() => setAppearanceOverride(key, event.target.value)),
   );
-  appearanceGrid.append(
+  if (!linearShape) appearanceGrid.append(
     typographyPicker("Text style", appearance.textStyle || "", "textStyle",
       (value) => commitComponentMutation(() => setAppearanceOverride("textStyle", value))),
     typographyPicker("Font family", appearance.fontFamily || "", "fontFamily",
@@ -593,17 +594,21 @@ function renderComponentProperties() {
     colorPicker("Text color", appearance.color || "",
       (value) => commitComponentMutation(() => setAppearanceOverride("color", value))),
     colorPicker("Background", appearance.background || "",
-      (value) => commitComponentMutation(() => setAppearanceOverride("background", value))),
-    colorPicker("Border color", appearance.borderColor || "",
+      (value) => commitComponentMutation(() => setAppearanceOverride("background", value))));
+  appearanceGrid.append(
+    colorPicker(linearShape ? "Stroke color" : "Border color", appearance.borderColor || "",
       (value) => commitComponentMutation(() => setAppearanceOverride("borderColor", value))),
-    pixelNumberbox("Border thickness (px)", appearance.borderWidth,
-      (value) => commitComponentMutation(() => setAppearanceOverride("borderWidth", value))),
+    pixelNumberbox(linearShape ? "Stroke thickness (px)" : "Border thickness (px)", appearance.borderWidth,
+      (value) => commitComponentMutation(() => setAppearanceOverride("borderWidth", value))));
+  if (!linearShape) appearanceGrid.append(
     appearanceField("Text align", "textAlign", inheritedOptions(["start", "center", "end", "left", "right"], (value) => value[0].toUpperCase() + value.slice(1))),
-    appearanceField("Radius", "radius", [...inheritedOptions(radii), [APPEARANCE_NONE, "None"]]),
+    ...(node.shape === "ellipse" ? [el("div", { class: "property-help" }, "Ellipse geometry sets the corner radius.")] :
+      [appearanceField("Radius", "radius", [...inheritedOptions(radii), [APPEARANCE_NONE, "None"]])]),
     appearanceField("Shadow", "shadow", [...inheritedOptions(shadows), [APPEARANCE_NONE, "None"]]),
   );
   appearanceSection.append(el("div", { class: "property-help" },
-    "Inherit removes the override from components.jsonc. None writes an explicit transparent, square, or shadowless value. Token choices take precedence over parent or class styling."));
+    linearShape ? "Stroke color and thickness apply to the line and arrowhead. Width/height resize its bounds; normalized endpoints preserve direction." :
+      "Inherit removes the override from components.jsonc. None writes an explicit transparent, square, or shadowless value. Token choices take precedence over parent or class styling."));
 
   const spacing = el("section", { class: "property-section" },
     el("h3", { class: "property-section-title" }, "Outer spacing"),
@@ -792,7 +797,7 @@ function updateFreeformPosition(path, x, y) {
 }
 
 function beginFreeformDrag(event) {
-  if (!state.inspectMode || event.button !== 0 || state.freeformDrag || window.InspectWorkspace?.busy()) return;
+  if (!state.inspectMode || event.button !== 0 || state.freeformDrag || window.InspectWorkspace?.busy() || window.InspectWorkspace?.wantsCreate()) return;
   const target = freeformDragTarget(event.target);
   if (!target) return;
   const parentRect = target.parentElement?.getBoundingClientRect();
@@ -1852,7 +1857,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   app.addEventListener("click", (event) => {
     if (!state.inspectMode) return;
-    if (Date.now() < state.suppressInspectClickUntil) {
+    if (Date.now() < state.suppressInspectClickUntil || window.InspectWorkspace?.wantsCreate()) {
       event.preventDefault();
       event.stopImmediatePropagation();
       return;

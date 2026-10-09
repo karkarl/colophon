@@ -177,6 +177,7 @@ const STATIC = {
   "/inspect-workspace.css": { file: "inspect-workspace.css", type: "text/css; charset=utf-8" },
   "/editor-workspace.js": { file: "editor-workspace.js", type: "text/javascript; charset=utf-8" },
   "/editor-geometry.js": { file: "editor-geometry.js", type: "text/javascript; charset=utf-8" },
+  "/shape-geometry.js": { file: "shape-geometry.js", type: "text/javascript; charset=utf-8" },
   "/proto-workspace.js": { file: "proto-workspace.js", type: "text/javascript; charset=utf-8" },
   "/proto-editor-model.js": { file: "proto-editor-model.js", type: "text/javascript; charset=utf-8" },
   "/property-controls.js": { file: "property-controls.js", type: "text/javascript; charset=utf-8" },

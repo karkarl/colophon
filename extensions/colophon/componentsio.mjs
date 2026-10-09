@@ -13,6 +13,7 @@
 // system for children with absolute, parent-relative positions.
 
 import "./editor-geometry.js";
+import "./shape-geometry.js";
 
 export const COMPONENTS_FILENAME = "components.jsonc";
 
@@ -123,7 +124,7 @@ function editableChild(doc, path) {
 const CONTAINER_TAGS = new Set(["div", "section", "article", "main", "aside", "header", "footer", "nav", "form", "fieldset", "label", "button", "a", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol"]);
 
 export function canContainComponentChildren(node) {
-  return !!node && !node.component && typeof node.el === "string" && CONTAINER_TAGS.has(node.el.toLowerCase());
+  return !!node && !node.component && !node.shape && typeof node.el === "string" && CONTAINER_TAGS.has(node.el.toLowerCase());
 }
 
 export function componentDropDestination(doc, targetPath, placement = "inside", sourcePath = null) {
@@ -487,6 +488,7 @@ export function validateComponentsDoc(doc, { text = null, tokens = null } = {}) 
         return;
       }
       const where = `${c.name}${path}`;
+      errors.push(...globalThis.ShapeGeometry.validate(node).map((error) => `${where}.${error}`));
       if (requiresIds && (typeof node.id !== "string" || !node.id)) errors.push(`${where}: missing a stable string "id" (required in components.jsonc v2+).`);
       if (typeof node.id === "string" && node.id) {
         if (ids.has(node.id)) errors.push(`${c.name}: duplicate node id "${node.id}".`);
@@ -659,7 +661,7 @@ export function appearanceStyle(node) {
 }
 
 function nodeStyle(node) {
-  return { ...autoLayoutStyle(node), ...appearanceStyle(node) };
+  return { ...autoLayoutStyle(node), ...appearanceStyle(node), ...globalThis.ShapeGeometry.style(node) };
 }
 
 function mergeNodeStyle(spec, node, source) {
@@ -722,6 +724,8 @@ export function expandNode(doc, node, props, seen = [], source = null) {
     children: [],
   };
   if (node.class != null) spec.class = interpolate(node.class, props);
+  const shape = globalThis.ShapeGeometry.svgSpec(node);
+  if (shape) spec.children.push(shape);
   for (const [k, v] of Object.entries(node.attrs || {})) {
     spec.attrs[k] = typeof v === "string" ? interpolate(v, props) : v;
   }

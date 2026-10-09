@@ -16,7 +16,7 @@ Northlight owns the typography, spacing, surfaces, voice, and action colors.
 | Area | Figma behavior and source | Current Colophon | Proposed port |
 | --- | --- | --- | --- |
 | Workspace | Layers on the left; contextual properties on the right. Frame presets are in the right sidebar. [1], [2], [3] | Layers left, Properties/JSON right, plus a page index that consumes canvas space. | Retain familiar defaults; allow properties on the left. Remove the extra page index from the component editing workspace, not from browsing. |
-| Creation | Toolbar tools create frames, text, shapes, images, and vectors. Text supports click for auto-sized text or drag for fixed bounds; frames support click, draw, presets, and duplication. [1], [2] | Existing layers can be edited/duplicated, but there is no structured insert flow. | Add an Insert palette for frame, rectangle, text, and existing component instances. Click adds to the selected container; drag places into a valid canvas target. Preserve stable IDs, token references, and reusable components. |
+| Creation | Toolbar tools create frames, text, shapes, images, and vectors. Text supports click for auto-sized text or drag for fixed bounds; frames support click, draw, presets, and duplication. [1], [2] | Existing layers can be edited/duplicated, but there is no structured insert flow. | Add a shared bottom toolbar for Move, Frame, Shapes, and Text, with click/default sizing and drag-to-create. Keep existing component instances in a sidebar picker. Preserve stable IDs, token references, and reusable components. |
 | Selection | Canvas and Layers selections are synchronized. Figma selects a containing group first, supports double-click/Enter to descend, modifier deep-select, and Shift+Enter to ascend. Layer hover highlights its canvas bounds. [3] | Click selects an exact rendered source path. Native CSS hover can outline multiple ancestors. | Preserve Colophon's exact-source selection rather than silently changing its meaning. Highlight only the closest hovered source, synchronize layer hover, add parent navigation and a persistent selection frame. |
 | Resizing | Edge/corner handles and W/H fields resize a frame; constraints and Auto Layout affect its children. Aspect-ratio locking is distinct from scaling. [2], [4] | W/H fields accept fixed, hug, and fill; no direct resize handles. | Add east, south, and southeast handles. Dragging changes only the requested axes to fixed pixels; Shift on the corner preserves aspect ratio. Do not rewrite text, spacing, or child dimensions. |
 | Scaling | K activates Scale. Figma proportionally scales geometry, nested layers, strokes, and effects, bypassing constraints. Multiplier, dimensions, and anchor control are available. [5] | No scale operation. The schema intentionally references shared type/radius/shadow tokens. | Provide explicitly named **Scale geometry**: multiply fixed dimensions and descendant absolute positions; freeze the selected root's measured dimensions. Preserve typography, effects, token-bound spacing, and the root's position. Never present this as full Figma Scale. |
@@ -32,9 +32,16 @@ Northlight owns the typography, spacing, surfaces, voice, and action colors.
 
 The first delivery is a complete component-editing slice, not Figma parity:
 
-1. Select a component container, then insert a frame, rectangle, text, or a
-   component reference. Palette items also drag onto a preview. A selected
-   instance or leaf inserts next to itself through the click alternative.
+1. Use the shared bottom toolbar's Move (V), Frame (F), Shape tools
+   (Rectangle R / Ellipse O / Line L / Arrow Shift+L), Text (T), and Add components.
+   The latter searches the current design system and inserts reusable instances.
+   Select a creation mode, then click a
+   preview layer for default geometry or drag in either direction to set bounds.
+   Shift constrains frames/area shapes to a square/circle and lines/arrows to
+   45-degree directions. Arrowheads follow the release endpoint. Enter inserts into the
+   current selection; Escape cancels. Completion returns to Move and Text focuses
+   its property input. Component instances remain in a separate sidebar picker
+   with click insertion and drag/drop. A selected leaf inserts a sibling.
 2. Drag an existing layer from the Layers panel to a rendered target. The
    preview identifies the target and exact operation before release. Central
    container drops mean inside; edge drops mean before/after along the parent's
@@ -56,7 +63,8 @@ The first delivery is a complete component-editing slice, not Figma parity:
 
 Reuse Field, SubtlePicker, and Button interaction patterns: quiet labeled
 controls, restrained hover surfaces, clear focus outlines, and one prominent
-save action. No nested-card chrome. All new control spacing, typography, radii,
+save action. Selected editor buttons use neutral black app chrome, never the
+sample design's orange accent. No nested-card chrome. New control spacing, typography, radii,
 and surfaces reference Northlight tokens.
 
 Add one semantic `selection` color to DESIGN.md with light, dark, and
@@ -73,7 +81,7 @@ classic browser script alongside `client.js`, using the existing commit,
 selection, rendering, and history functions. Overlays live outside preview DOM
 so they neither resize component layouts nor enter saved component JSON.
 
-No new runtime dependency or document format is needed. New object layers get
+No new runtime dependency or document version is needed. New object layers get
 unique IDs; geometry edits use the existing v3 fixed-pixel representation.
 The click-through prototype documents the flow, not executable editor behavior.
 Use the repository's vanilla DOM implementation rather than copying generated
@@ -85,6 +93,14 @@ map component `layout.width/height` to prototype `width/height` and route edits
 through each editor's existing transactions. Prototype instance props,
 navigation, device frames, Fit zoom, and standalone exports remain intact.
 Screens navigation moves into a collapsible Layers section while inspecting.
+The toolbar and draw gesture also live in this shared controller. Their temporary
+bounds never enter the document until release. `shape: "rectangle" | "ellipse" | "line" | "arrow"`
+marks primitive leaves; ellipse geometry renders at a true 50% radius in the
+component interpreter, standalone runtime, Prototype layout helper, and codegen.
+It is not a rounded-pill token approximation. `shape-geometry.js` shares line
+and arrow SVG paths, normalized endpoints, validation, and styles across all
+renderers and codegen. Flow containers retain flow
+semantics when drawing; freeform parents receive parent-relative coordinates.
 
 ## Acceptance criteria
 
@@ -99,7 +115,10 @@ Screens navigation moves into a collapsible Layers section while inspecting.
 - Geometry scaling is bounded, finite, atomic, and preserves design tokens.
 - Escape/cancel/blur leave no stale overlays or partial edits. Undo/redo and
   save/reload retain completed edits.
-- Hover, zoom, panel docking, and focus do not create document edits.
+- Tool changes, menus, hover, zoom, panel docking, and focus do not create edits.
+- Draw each primitive at 50%, 100%, and 200%, including reverse drags, Shift
+  constraints, default-size clicks, keyboard insertion, and all cancellation
+  paths. A successful gesture is exactly one undo step.
 - Existing live preview interactions still work outside Inspect; all three
   design preview themes remain readable.
 
@@ -107,7 +126,7 @@ Screens navigation moves into a collapsible Layers section while inspecting.
 
 True token-aware whole-subtree scaling requires an explicit decision about
 local versus shared token overrides. Multi-select, marquee selection, snapping
-guides, draw-to-create, infinite canvas pan, rotation, locks/visibility, layer
+guides, infinite canvas pan, rotation, locks/visibility, layer
 search/collapse, image import, and vector authoring also need separate graph and
 interaction contracts. These should not be simulated with CSS-only transforms
 that disagree with saved JSON.

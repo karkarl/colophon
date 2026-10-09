@@ -35,9 +35,14 @@
       id: "frame", ...(component ? { el: "div", layout: { mode: "freeform", width: 160, height: 96 } } : { layout: "freeform", width: 160, height: 96 }),
       appearance: { background: color("surface"), borderColor: color("line"), borderWidth: 1 }, children: [],
     };
-    if (kind === "rectangle") return {
-      id: "rectangle", ...(component ? { el: "div", layout: { width: 96, height: 64 } } : { layout: "none", width: 96, height: 64, children: [] }),
+    if (kind === "rectangle" || kind === "ellipse") return {
+      id: kind, shape: kind, ...(component ? { el: "div", layout: { width: 96, height: 64 } } : { layout: "none", width: 96, height: 64, children: [] }),
       appearance: { background: color("line") },
+    };
+    if (kind === "line" || kind === "arrow") return {
+      id: kind, shape: kind, endpoints: root.ShapeGeometry.defaultEndpoints(),
+      ...(component ? { el: "div", layout: { width: 96, height: 16 } } : { layout: "none", width: 96, height: 16 }),
+      appearance: { ...(color("ink") ? { borderColor: color("ink") } : {}), borderWidth: 2 },
     };
     if (kind === "text") return {
       id: "text", ...(component ? { el: "p", layout: { width: "hug" }, children: ["Text"] } : { text: "Text", width: "hug" }),
@@ -45,5 +50,27 @@
     };
     throw new Error("Unknown insert tool.");
   }
-  root.EditorGeometry = { scale, template, dimensions };
+  function creationBounds(start, end, square = false, linear = false) {
+    let dx = end.x - start.x, dy = end.y - start.y;
+    if (square && linear) {
+      const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI / 4;
+      const length = Math.hypot(dx, dy);
+      dx = Math.round(Math.cos(angle) * length * 100) / 100;
+      dy = Math.round(Math.sin(angle) * length * 100) / 100;
+    } else if (square) {
+      const side = Math.max(Math.abs(dx), Math.abs(dy));
+      dx = (dx < 0 ? -1 : 1) * side;
+      dy = (dy < 0 ? -1 : 1) * side;
+    }
+    const round = (value) => Math.round(value * 100) / 100;
+    const result = { x: round(start.x + Math.min(0, dx)), y: round(start.y + Math.min(0, dy)),
+      width: round(Math.max(1, Math.abs(dx))), height: round(Math.max(1, Math.abs(dy))) };
+    if (Object.values(result).some((value) => !Number.isFinite(value) || Math.abs(value) > 1000000)) throw new Error("Created geometry exceeds the supported range.");
+    if (linear) {
+      const axis = (delta, start) => delta === 0 ? .5 : start ? (delta < 0 ? 1 : 0) : (delta < 0 ? 0 : 1);
+      result.endpoints = { start: { x: axis(dx, true), y: axis(dy, true) }, end: { x: axis(dx, false), y: axis(dy, false) } };
+    }
+    return result;
+  }
+  root.EditorGeometry = { scale, template, dimensions, creationBounds };
 })(globalThis);

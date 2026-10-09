@@ -21,10 +21,19 @@ export async function prototypeWorkspaceBehavior() {
   else check(q("#layers-panel").getBoundingClientRect().bottom <= q("#inspector").getBoundingClientRect().top + 1, "narrow editor rails stack");
   q("#inspector-dock-btn").click();
   check(JSON.stringify(state.proto.doc) === original && !state.dirty, "docking is view-only");
+  const { creationToolbarBehavior } = await import("/creation-toolbar-scenario.mjs");
+  await creationToolbarBehavior({ schema: "prototype", choose, node: selected, doc: () => state.proto.doc,
+    history: () => state.past.length, byId, boardId: "board", flowId: "flow",
+    zoomSelector: "#zoom-select", previewSelector: "#frame-wrap", errorSelector: "#editor-error" });
   q("#insert-palette").open = true;
   const add = (kind) => {
     const history = state.past.length;
-    q(`[data-insert-kind="${kind}"]`).click();
+    if (kind.startsWith("component:")) q(`[data-insert-kind="${kind}"]`).click();
+    else {
+      document.activeElement?.blur();
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: { frame: "f", rectangle: "r", text: "t" }[kind], bubbles: true }));
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    }
     check(state.past.length === history + 1, `insert ${kind} in one transaction: ${q("#editor-error").textContent}`);
   };
   add("frame");
@@ -105,7 +114,7 @@ export async function prototypeWorkspaceBehavior() {
   check(selected().id === textId && !selected().position, "flow reparent removes absolute geometry");
   q("#select-parent-btn").click();
   check(selected().id === "flow", "parent navigation");
-  const palette = q('[data-insert-kind="rectangle"]');
+  const palette = q('[data-insert-kind="component:Button"]');
   palette.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
   drag("dragover", byId(textId), .9);
   check(q("#inspect-drop-label").textContent === `After ${textId}` && q("#inspect-drop-box").dataset.axis === "y", "text leaf shows sibling insertion line");

@@ -656,7 +656,7 @@ function freeformTarget(start) {
   return null;
 }
 function beginFreeformDrag(event) {
-  if (!state.inspectMode || event.button !== 0 || state.freeformDrag || window.PrototypeWorkspace?.busy()) return;
+  if (!state.inspectMode || event.button !== 0 || state.freeformDrag || window.PrototypeWorkspace?.busy() || window.PrototypeWorkspace?.wantsCreate()) return;
   if (state.propertyEdit && !commitPropertyEdit()) return;
   const target = freeformTarget(event.target);
   if (!target) return;
@@ -1146,7 +1146,7 @@ function wire() {
   });
   $("#frame-wrap").addEventListener("click", (event) => {
     if (!state.inspectMode) return;
-    if (Date.now() < state.suppressInspectClickUntil) {
+    if (Date.now() < state.suppressInspectClickUntil || window.PrototypeWorkspace?.wantsCreate()) {
       event.preventDefault();
       event.stopImmediatePropagation();
       return;

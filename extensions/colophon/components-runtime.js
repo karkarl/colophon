@@ -126,7 +126,7 @@
   }
 
   function nodeStyle(node) {
-    return { ...autoLayoutStyle(node), ...appearanceStyle(node) };
+    return { ...autoLayoutStyle(node), ...appearanceStyle(node), ...globalThis.ShapeGeometry.style(node) };
   }
 
   function mergeNodeStyle(spec, node, source) {
@@ -183,6 +183,8 @@
       children: [],
     };
     for (const [key, value] of Object.entries(node.attrs || {})) spec.attrs[key] = typeof value === "string" ? interpolate(value, props) : value;
+    const shape = globalThis.ShapeGeometry.svgSpec(node);
+    if (shape) spec.children.push(shape);
     const children = Array.isArray(node.children) ? node.children : node.children == null ? [] : [node.children];
     for (const [index, child] of children.entries()) {
       const childSource = source && typeof child === "object" && child != null

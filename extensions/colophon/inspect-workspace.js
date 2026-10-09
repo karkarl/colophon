@@ -31,6 +31,11 @@ window.InspectWorkspace = window.EditorWorkspace.create({
   clearTreeDrop: clearDropClasses,
   suppressClick: () => { state.suppressInspectClickUntil = Date.now() + 500; },
   report: (error) => { $("#inspect-error").textContent = error.message; },
+  focusText: () => {
+    setInspectorTab("properties");
+    const input = $('[aria-label="Text content"]');
+    input?.focus(); input?.select();
+  },
   refresh: (zoom) => {
     document.body.classList.toggle("inspect-components", state.inspectMode && state.page === "components");
     for (const surface of document.querySelectorAll("#app .ds-preview-surface")) surface.style.zoom = state.inspectMode ? String(zoom) : "";
