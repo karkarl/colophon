@@ -9,6 +9,7 @@ import test from "node:test";
 import { renderProtoShell } from "./proto-renderer.mjs";
 import { parseComponents } from "./componentsio.mjs";
 import { loadPrototypes, savePrototypes, validatePrototypes } from "./prototypeio.mjs";
+import { prototypeWorkspaceBehavior } from "./prototype-workspace-scenario.mjs";
 
 async function browserPath() {
   for (const candidate of [
@@ -35,9 +36,10 @@ async function editorBehavior() {
   const screensPanel = document.querySelector(".screen-nav");
   const inspector = document.querySelector("#inspector");
   check(!layersPanel.hidden && !inspector.hidden, "Inspect opens both editor sidebars");
-  check(layersPanel.getBoundingClientRect().right <= screensPanel.getBoundingClientRect().left + 1, "Layers is left of Screens");
-  check(screensPanel.getBoundingClientRect().right <= document.querySelector(".stage").getBoundingClientRect().left + 1, "Screens is left of the preview");
-  check(document.querySelector(".stage").getBoundingClientRect().right <= inspector.getBoundingClientRect().left + 1, "Properties stays right of the preview");
+  check(layersPanel.contains(screensPanel), "Screens stays accessible in the Inspect rail");
+  check(layersPanel.getBoundingClientRect().right <= document.querySelector(".stage").getBoundingClientRect().left + 1, "Layers stays left of the preview");
+  if (innerWidth > 896) check(document.querySelector(".stage").getBoundingClientRect().right <= inspector.getBoundingClientRect().left + 1, "Properties stays right of the preview");
+  else check(layersPanel.getBoundingClientRect().bottom <= inspector.getBoundingClientRect().top + 1, "narrow Properties stacks below Layers");
   check(layersPanel.contains(document.querySelector("#layers-undo-btn")) && layersPanel.contains(document.querySelector("#layers-duplicate-btn")), "Layer actions stay with the left tree");
   document.querySelector("#inspect-btn").click();
   check(layersPanel.hidden && inspector.hidden, "leaving Inspect hides both sidebars");
@@ -87,7 +89,7 @@ async function editorBehavior() {
     matchingButtons("#apply-json-btn", "#outline-btn");
     const ink = getComputedStyle(inspector).color;
     check(getComputedStyle(document.querySelector("#properties-tab")).borderBottomColor === ink, "active tab uses neutral ink");
-    check(getComputedStyle(node("card")).outlineColor === ink, "preview selection uses neutral ink");
+    check(!document.querySelector("#inspect-selection-box").hidden, "shared selection overlay is visible");
     const field = document.querySelector("#proto-properties input");
     field.focus();
     check(getComputedStyle(field).outlineColor === ink, "property focus uses neutral ink");
@@ -350,7 +352,7 @@ async function editorBehavior() {
   check(state.past.length === 0 && state.future.length === 0, "reload resets obsolete history");
 }
 
-test("prototype Properties, transactions, zoomed drag and persistence", { timeout: 90000 }, async (t) => {
+for (const viewportWidth of [1600, 700]) test(`prototype Properties and shared workspace at ${viewportWidth}px`, { timeout: 90000 }, async (t) => {
   const browser = await browserPath();
   if (!browser) { t.skip("Set COLOPHON_BROWSER to run editor browser coverage."); return; }
   const dir = await mkdtemp(path.join(os.tmpdir(), "colophon-editor-"));
@@ -378,13 +380,14 @@ test("prototype Properties, transactions, zoomed drag and persistence", { timeou
   let releaseSave = null;
   const assets = new Map();
   for (const name of ["proto.css", "property-controls.css", "property-controls.js", "proto-properties.js", "proto-layout.js",
+    "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js",
     "proto-render.js", "proto-client.js", "components-runtime.js", "components-interactions.js", "components-interactions.css"]) {
     assets.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   const html = renderProtoShell().replace("</body>", `<script>
     (async () => {
       const result = document.createElement("pre"); result.id = "editor-result";
-      try { await (${editorBehavior.toString()})(); result.textContent = "PASS"; }
+      try { await (${editorBehavior.toString()})(); await (${prototypeWorkspaceBehavior.toString()})(); result.textContent = "PASS"; }
       catch (error) { result.textContent = "FAIL " + error.stack; }
       document.body.append(result);
     })();
@@ -458,7 +461,7 @@ test("prototype Properties, transactions, zoomed drag and persistence", { timeou
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const { stdout } = await promisify(execFile)(browser, [
       "--headless=new", "--disable-gpu", "--disable-extensions", "--disable-background-networking", "--no-first-run", "--no-default-browser-check",
-      "--window-size=1600,1000", `--user-data-dir=${path.join(dir, "browser")}`, "--dump-dom", "--virtual-time-budget=12000",
+      `--window-size=${viewportWidth},1100`, `--user-data-dir=${path.join(dir, "browser")}`, "--dump-dom", "--virtual-time-budget=12000",
       `http://127.0.0.1:${server.address().port}`,
     ], { timeout: 40000, maxBuffer: 4 * 1024 * 1024 });
     const result = stdout.match(/<pre id="editor-result">([\s\S]*?)<\/pre>/)?.[1];
@@ -466,7 +469,7 @@ test("prototype Properties, transactions, zoomed drag and persistence", { timeou
     const persisted = await loadPrototypes(dir);
     assert.equal(persisted.doc.screens[0].root.children.find((child) => child.id === "card").width, 280);
     assert.equal(persisted.doc.screens[0].root.children.find((child) => child.id === "card").appearance.borderWidth, 2.5);
-    assert.equal(writes, 3);
+    assert.equal(writes, 4);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));

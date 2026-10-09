@@ -33,6 +33,7 @@
   function validateNode(node, parent, tokenNames = {}) {
     const errors = [], warnings = [];
     if (!object(node)) return { errors: ["Node must be an object."], warnings };
+    errors.push(...root.ShapeGeometry.validate(node));
     const checkToken = (value, group, where, strict = false) => {
       const known = names(tokenNames, group);
       if (known.size && !known.has(String(value))) {
@@ -180,7 +181,7 @@
       css.left = `${node.position.x}px`;
       css.top = `${node.position.y}px`;
     }
-    return { ...css, ...appearanceStyle(node) };
+    return { ...css, ...appearanceStyle(node), ...root.ShapeGeometry.style(node) };
   }
 
   root.ProtoLayout = { validateNode, style, appearanceStyle };

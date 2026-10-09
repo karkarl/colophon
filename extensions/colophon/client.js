@@ -216,13 +216,41 @@ function updateHistoryButtons() {
   if (redo) redo.disabled = state.componentFuture.length === 0;
 }
 
-async function commitComponentMutation(mutator, { selectPath = null } = {}) {
+let pendingComponentMutation = null, pendingComponentField = null;
+
+function commitComponentMutation(mutator, options) {
+  const mutation = applyComponentMutation(mutator, options);
+  pendingComponentMutation = mutation;
+  mutation.then(() => { if (pendingComponentMutation === mutation) pendingComponentMutation = null; });
+  return mutation;
+}
+
+function commitComponentPropertyEdit() {
+  const field = pendingComponentField;
+  if (field?.isConnected) {
+    if (!field.checkValidity()) { field.reportValidity(); return false; }
+    pendingComponentField = null;
+    $("#inspect-error").textContent = "";
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+    if ($("#inspect-error").textContent) {
+      if (field.isConnected) pendingComponentField = field;
+      return false;
+    }
+  }
+  return pendingComponentMutation || true;
+}
+
+async function applyComponentMutation(mutator, { selectPath = null } = {}) {
   const before = clone(state.componentsDoc);
   const beforeSelection = selectedComponentDescriptor();
   try {
     const resultPath = mutator();
     const validation = window.DSComp?.validateComponentsDoc?.(state.componentsDoc, { tokens: state.tokens });
     if (validation && !validation.ok) throw new Error(validation.errors.join(" "));
+    if (JSON.stringify(before) === JSON.stringify(state.componentsDoc)) {
+      renderInspector();
+      return true;
+    }
     state.componentPast.push(before);
     if (state.componentPast.length > 50) state.componentPast.shift();
     state.componentFuture = [];
@@ -412,6 +440,12 @@ function renderComponentProperties() {
       }),
     });
     identityGrid.append(propertyField("Element", elementInput), propertyField("Class", classInput));
+    if (Array.isArray(node.children) && node.children.length && node.children.every((child) => typeof child === "string")) {
+      identityGrid.append(propertyField("Text content", el("textarea", {
+        "aria-label": "Text content",
+        onchange: (event) => commitComponentMutation(() => { selectedComponentNode().children = [event.target.value]; }),
+      }, node.children.join("")), { wide: true }));
+    }
   } else {
     identityGrid.append(propertySelect(
       "Component",
@@ -528,6 +562,7 @@ function renderComponentProperties() {
     state.spacingSnap
       ? "Spacing follows design token increments. Dimensions accept hug, fill, or fixed pixels."
       : "Spacing is unsnapped. Dimensions accept hug, fill, or fixed pixels."));
+  window.InspectWorkspace?.appendScaleControl(layoutSection, propertyField);
 
   const parentPath = state.selection?.path?.slice(0, -2);
   const parentNode = parentPath ? valueAtPath(state.componentsDoc, parentPath) : null;
@@ -562,6 +597,7 @@ function renderComponentProperties() {
   }
 
   const appearance = node.appearance || {};
+  const linearShape = window.ShapeGeometry.linear(node);
   const radii = (state.tokens?.radii || []).map((token) => token?.name).filter(Boolean);
   const shadows = (state.tokens?.shadows || []).map((token) => token?.name).filter(Boolean);
   const appearanceSection = el("section", { class: "property-section" },
@@ -574,7 +610,7 @@ function renderComponentProperties() {
     options,
     (event) => commitComponentMutation(() => setAppearanceOverride(key, event.target.value)),
   );
-  appearanceGrid.append(
+  if (!linearShape) appearanceGrid.append(
     typographyPicker("Text style", appearance.textStyle || "", "textStyle",
       (value) => commitComponentMutation(() => setAppearanceOverride("textStyle", value))),
     typographyPicker("Font family", appearance.fontFamily || "", "fontFamily",
@@ -582,17 +618,21 @@ function renderComponentProperties() {
     colorPicker("Text color", appearance.color || "",
       (value) => commitComponentMutation(() => setAppearanceOverride("color", value))),
     colorPicker("Background", appearance.background || "",
-      (value) => commitComponentMutation(() => setAppearanceOverride("background", value))),
-    colorPicker("Border color", appearance.borderColor || "",
+      (value) => commitComponentMutation(() => setAppearanceOverride("background", value))));
+  appearanceGrid.append(
+    colorPicker(linearShape ? "Stroke color" : "Border color", appearance.borderColor || "",
       (value) => commitComponentMutation(() => setAppearanceOverride("borderColor", value))),
-    pixelNumberbox("Border thickness (px)", appearance.borderWidth,
-      (value) => commitComponentMutation(() => setAppearanceOverride("borderWidth", value))),
+    pixelNumberbox(linearShape ? "Stroke thickness (px)" : "Border thickness (px)", appearance.borderWidth,
+      (value) => commitComponentMutation(() => setAppearanceOverride("borderWidth", value))));
+  if (!linearShape) appearanceGrid.append(
     appearanceField("Text align", "textAlign", inheritedOptions(["start", "center", "end", "left", "right"], (value) => value[0].toUpperCase() + value.slice(1))),
-    appearanceField("Radius", "radius", [...inheritedOptions(radii), [APPEARANCE_NONE, "None"]]),
+    ...(node.shape === "ellipse" ? [el("div", { class: "property-help" }, "Ellipse geometry sets the corner radius.")] :
+      [appearanceField("Radius", "radius", [...inheritedOptions(radii), [APPEARANCE_NONE, "None"]])]),
     appearanceField("Shadow", "shadow", [...inheritedOptions(shadows), [APPEARANCE_NONE, "None"]]),
   );
   appearanceSection.append(el("div", { class: "property-help" },
-    "Inherit removes the override from components.jsonc. None writes an explicit transparent, square, or shadowless value. Token choices take precedence over parent or class styling."));
+    linearShape ? "Stroke color and thickness apply to the line and arrowhead. Width/height resize its bounds; normalized endpoints preserve direction." :
+      "Inherit removes the override from components.jsonc. None writes an explicit transparent, square, or shadowless value. Token choices take precedence over parent or class styling."));
 
   const spacing = el("section", { class: "property-section" },
     el("h3", { class: "property-section-title" }, "Outer spacing"),
@@ -602,6 +642,7 @@ function renderComponentProperties() {
 }
 
 function clearDropClasses() {
+  window.InspectWorkspace?.clearDrop();
   for (const row of document.querySelectorAll(".component-layer-row")) {
     row.classList.remove("is-drop-before", "is-drop-after", "is-drop-inside");
     delete row.dataset.dropPlacement;
@@ -639,14 +680,17 @@ function renderComponentLayerNode(node, path, depth, root = false) {
   }
   if (node && typeof node === "object") {
     row.addEventListener("dragover", (event) => {
+      clearDropClasses();
       if (!state.dragPath || state.dragPath[1] !== path[1] || isPathPrefix(state.dragPath, path)) return;
+      const ratio = (event.clientY - row.getBoundingClientRect().top) / row.getBoundingClientRect().height;
+      const placement = !root && ratio < .28 ? "before" : !root && ratio > .72 ? "after" : (window.DSComp.canContainComponentChildren(node) ? "inside" : "before");
+      try { window.DSComp.componentDropDestination(state.componentsDoc, path, placement, state.dragPath); }
+      catch (error) { window.InspectWorkspace?.announce(error.message); return; }
       event.preventDefault();
       event.stopPropagation();
-      clearDropClasses();
-      const ratio = (event.clientY - row.getBoundingClientRect().top) / row.getBoundingClientRect().height;
-      const placement = !root && ratio < .28 ? "before" : !root && ratio > .72 ? "after" : ("el" in node ? "inside" : "before");
       row.dataset.dropPlacement = placement;
       row.classList.add(`is-drop-${placement}`);
+      window.InspectWorkspace?.showTreeDrop(path, placement);
       event.dataTransfer.dropEffect = "move";
     });
     row.addEventListener("drop", (event) => {
@@ -660,6 +704,8 @@ function renderComponentLayerNode(node, path, depth, root = false) {
       commitComponentMutation(() => window.DSComp.moveComponentNode(state.componentsDoc, source, path, placement));
     });
   }
+  row.addEventListener("pointerenter", () => window.InspectWorkspace?.hoverPath(path));
+  row.addEventListener("pointerleave", () => window.InspectWorkspace?.hoverPath(null));
   const fragment = document.createDocumentFragment();
   fragment.append(row);
   if (node && typeof node === "object") {
@@ -709,6 +755,7 @@ function renderInspector() {
   renderComponentProperties();
   renderComponentLayers();
   setInspectorTab(state.inspectorTab);
+  window.InspectWorkspace?.refresh();
 }
 
 function applyInspectHighlight() {
@@ -774,7 +821,7 @@ function updateFreeformPosition(path, x, y) {
 }
 
 function beginFreeformDrag(event) {
-  if (!state.inspectMode || event.button !== 0 || state.freeformDrag) return;
+  if (!state.inspectMode || event.button !== 0 || state.freeformDrag || window.InspectWorkspace?.busy() || window.InspectWorkspace?.wantsCreate()) return;
   const target = freeformDragTarget(event.target);
   if (!target) return;
   const parentRect = target.parentElement?.getBoundingClientRect();
@@ -815,6 +862,7 @@ function moveFreeformDrag(event) {
   drag.node.position.x = x;
   drag.node.position.y = y;
   updateFreeformPosition(drag.path, x, y);
+  window.InspectWorkspace?.refreshBounds();
   event.preventDefault();
 }
 
@@ -831,7 +879,7 @@ function finishFreeformDrag(event, cancelled = false) {
     drag.node.position.x = drag.originX;
     drag.node.position.y = drag.originY;
     updateFreeformPosition(drag.path, drag.originX, drag.originY);
-  } else if (drag.moved) {
+  } else if (drag.moved && (drag.node.position.x !== drag.originX || drag.node.position.y !== drag.originY)) {
     state.componentPast.push(drag.before);
     if (state.componentPast.length > 50) state.componentPast.shift();
     state.componentFuture = [];
@@ -841,6 +889,7 @@ function finishFreeformDrag(event, cancelled = false) {
     applyInspectHighlight();
     postDesignSelection();
   }
+  window.InspectWorkspace?.refreshBounds();
   event.preventDefault();
   event.stopImmediatePropagation();
 }
@@ -1664,6 +1713,8 @@ function setTheme(theme) {
 let renderSeq = 0;
 
 async function render() {
+  window.InspectWorkspace?.cancel();
+  cancelFreeformDrag();
   const gen = ++renderSeq;
   const t = state.tokens;
   const root = $("#app");
@@ -1694,6 +1745,8 @@ function reportPointer(result) {
 }
 
 async function doSave() {
+  window.InspectWorkspace?.cancel();
+  cancelFreeformDrag();
   const btn = $("#save-btn");
   btn.disabled = true; btn.textContent = "Saving…";
   try {
@@ -1754,6 +1807,8 @@ function updateSourcePill() {
 }
 
 async function load() {
+  window.InspectWorkspace?.cancel();
+  cancelFreeformDrag();
   const data = await api("/api/design");
   await whenDSComp();
   state.design = data.design;
@@ -1780,10 +1835,18 @@ function connectEvents() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  $("#inspect-properties").addEventListener("input", (event) => {
+    if (event.target.matches("input, textarea, select")) pendingComponentField = event.target;
+  });
+  $("#inspect-properties").addEventListener("change", (event) => {
+    if (event.target === pendingComponentField && !$("#inspect-error").textContent) pendingComponentField = null;
+  });
   $("#save-btn").addEventListener("click", doSave);
   $("#reload-btn").addEventListener("click", () => load());
   $("#validate-btn")?.addEventListener("click", doValidate);
   $("#inspect-btn")?.addEventListener("click", async () => {
+    window.InspectWorkspace?.cancel();
+    cancelFreeformDrag();
     state.inspectMode = !state.inspectMode;
     window.DSInteractions?.resetTree($("#app"));
     for (const select of document.querySelectorAll(".preview-state select")) {
@@ -1817,13 +1880,14 @@ window.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("pointermove", moveFreeformDrag, true);
   window.addEventListener("pointerup", (event) => finishFreeformDrag(event), true);
   window.addEventListener("pointercancel", (event) => finishFreeformDrag(event, true), true);
+  app.addEventListener("lostpointercapture", (event) => finishFreeformDrag(event, true), true);
   window.addEventListener("blur", cancelFreeformDrag);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) cancelFreeformDrag();
   });
   app.addEventListener("click", (event) => {
     if (!state.inspectMode) return;
-    if (Date.now() < state.suppressInspectClickUntil) {
+    if (Date.now() < state.suppressInspectClickUntil || window.InspectWorkspace?.wantsCreate()) {
       event.preventDefault();
       event.stopImmediatePropagation();
       return;
@@ -1834,6 +1898,7 @@ window.addEventListener("DOMContentLoaded", () => {
       event.stopImmediatePropagation();
       const path = renderedNodePath(renderedNode);
       if (!path) return;
+      window.InspectWorkspace?.rememberSelection(renderedNode);
       selectDesignPath("components.jsonc", path, `Layer: ${renderedNode.dataset.dsNodeId || renderedNode.localName}`);
       return;
     }
@@ -1877,9 +1942,9 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (state.freeformDrag) return;
+    if (state.freeformDrag || window.InspectWorkspace?.busy()) return;
     if (!state.inspectMode || !(event.ctrlKey || event.metaKey) || event.altKey) return;
-    if (event.target.closest("input, textarea, select")) return;
+    if (event.target.closest("input, textarea, select, [contenteditable]")) return;
     const key = event.key.toLowerCase();
     if (key === "z" && !event.shiftKey) {
       event.preventDefault();
