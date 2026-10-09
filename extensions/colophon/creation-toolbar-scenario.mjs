@@ -59,6 +59,15 @@ export async function creationToolbarBehavior({ schema, choose, node, doc, histo
   check(document.activeElement === q("#component-search"), "component menu focuses search");
   const libraryNames = [...q("#insert-items").querySelectorAll("button")].map((button) => button.textContent);
   check(q("#component-search-results").children.length === libraryNames.length, "dropdown reads the same live library");
+  const pickerHeader = getComputedStyle(q("#insert-palette summary"));
+  for (const element of [q("#component-search"), ...q("#component-search-results").children]) {
+    const style = getComputedStyle(element);
+    check(style.fontSize === pickerHeader.fontSize && style.lineHeight === pickerHeader.lineHeight, "flyout typography matches the Components header");
+  }
+  for (const element of q("#component-search-results").children) {
+    const style = getComputedStyle(element);
+    check(style.borderStyle === "none" && style.backgroundColor === "rgba(0, 0, 0, 0)", "component results use borderless subtle buttons");
+  }
   const search = (value) => { q("#component-search").value = value; q("#component-search").dispatchEvent(new Event("input")); };
   search("no-component-matches-this");
   check(q("#component-search-results").children.length === 0 && q("#component-search-status").textContent === "No matching components.", "explicit empty search");

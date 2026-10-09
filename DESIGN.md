@@ -270,6 +270,9 @@ rail's Components picker; do not duplicate primitive tools there. Add components
 in the toolbar opens a searchable dropdown of the same live component names,
 not a second library. It uses the SubtlePicker/Field patterns, spacing `2`,
 radius `md`, shadow `md`, and a four-spacing-8-unit width bounded by the viewport.
+Search and result text use the same `small` typography as the Components header.
+Result rows are borderless subtle buttons: transparent at rest, `line` on hover,
+and `paper` when pressed, with a visible neutral keyboard focus outline.
 Show an explicit empty-search message. Selecting an item inserts a reference
 into the selected container, or beside a leaf; Escape closes and restores focus.
 

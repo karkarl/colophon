@@ -110,7 +110,10 @@ body.inspect-open .wrap { padding-left: calc(var(--inspect-left) + var(--space-5
   background: var(--color-surface); color: var(--color-ink); border: 1px solid var(--color-line);
   border-radius: var(--radius-md); box-shadow: var(--shadow-md);
 }
-#component-tools-menu { width: calc(var(--space-8) * 4); }
+#component-tools-menu {
+  width: calc(var(--space-8) * 4);
+  font: var(--text-small-size)/var(--text-small-line-height) var(--font-body);
+}
 #component-tools-menu input {
   width: 100%; padding: var(--space-2); font: inherit; border: 1px solid var(--color-line);
   border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-ink);
@@ -118,7 +121,11 @@ body.inspect-open .wrap { padding-left: calc(var(--inspect-left) + var(--space-5
 #component-tools-menu input:focus-visible { outline: 2px solid var(--editor-control-ink); }
 #component-tools-menu p { margin: var(--space-2) 0; color: var(--color-muted); font: var(--text-caption-size)/var(--text-caption-line-height) var(--font-body); }
 #component-search-results { display: flex; flex-direction: column; max-height: min(35vh, calc(var(--space-8) * 4)); overflow: auto; }
-#component-search-results button { flex-shrink: 0; cursor: pointer; }
+#component-search-results button {
+  flex-shrink: 0; cursor: pointer; border: 0; background: transparent; border-radius: var(--radius-md);
+}
+#component-search-results button:hover { background: var(--color-line); }
+#component-search-results button:active { background: var(--color-paper); }
 #shape-tools-menu button {
   display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-2);
   border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit;
