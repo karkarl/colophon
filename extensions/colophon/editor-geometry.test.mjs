@@ -184,3 +184,43 @@ test("line and arrow share SVG paths, stroke controls, serialization, scale and 
     assert.equal(validatePrototypes({ screens: [{ id: "one", root: { ...flat, width: "fill" } }] }).ok, false);
   }
 });
+
+test("shape geometry follows nested instance overrides in both component runtimes", async () => {
+  const window = {};
+  vm.runInNewContext(await readFile(new URL("./components-runtime.js", import.meta.url), "utf8"), { window, ShapeGeometry });
+  const doc = { meta: { version: 3 }, components: [
+    { name: "Ellipse", root: { id: "ellipse", el: "div", shape: "ellipse", layout: { width: 96, height: 64 } } },
+    { name: "EllipseInstance", root: { id: "ellipse-instance", component: "Ellipse", appearance: { radius: "md" } } },
+    { name: "Arrow", root: { id: "arrow", el: "div", shape: "arrow", layout: { width: 96, height: 16 },
+      endpoints: { start: { x: 1, y: 1 }, end: { x: 0, y: 0 } }, appearance: { borderColor: "#000000", borderWidth: 2 } } },
+    { name: "ArrowInstance", root: { id: "arrow-instance", component: "Arrow", layout: { width: 192 },
+      appearance: { borderColor: "#ff0000", borderWidth: 4, background: "#ffffff" } } },
+    { name: "Nested", root: { id: "nested", component: "ArrowInstance", appearance: { borderColor: "$none", borderWidth: 0 } } },
+  ] };
+  assert.equal(validateComponentsDoc(doc).ok, true);
+  const before = structuredClone(doc);
+  for (const expand of [expandInstance, window.DSComp.expandInstance]) {
+    assert.equal(expand(doc, "EllipseInstance").style["border-radius"], "50%");
+    const arrow = expand(doc, "ArrowInstance");
+    assert.equal(arrow.style["border-width"], "0");
+    assert.equal(arrow.style["background-color"], "transparent");
+    assert.equal(arrow.children.length, 1);
+    assert.equal(arrow.children[0].attrs.viewBox, "0 0 192 16");
+    assert.equal(arrow.children[0].children[0].attrs.stroke, "#ff0000");
+    assert.equal(arrow.children[0].children[0].attrs["stroke-width"], 4);
+    assert.match(arrow.children[0].children[0].attrs.d, /^M 192 16 L 0 0/);
+    const nested = expand(doc, "Nested");
+    assert.equal(nested.children[0].children[0].attrs.stroke, "transparent");
+    assert.equal(nested.children[0].children[0].attrs["stroke-width"], 0);
+    const prototype = ShapeGeometry.applyToSpec({ ...arrow, style: { ...arrow.style, ...ProtoLayout.style({
+      component: "ArrowInstance", width: "fill", position: { mode: "absolute", x: 10, y: 20 }, appearance: { borderWidth: 6 },
+    }) } }, { width: "fill", position: { mode: "absolute", x: 10, y: 20 }, appearance: { borderWidth: 6 } });
+    assert.equal(prototype.style.position, "absolute");
+    assert.equal(prototype.style.width, "100%");
+    assert.equal(prototype.style["border-width"], "0");
+    assert.equal(prototype.children[0].attrs.viewBox, "0 0 192 16");
+    assert.equal(prototype.children[0].children[0].attrs["stroke-width"], 6);
+    assert.equal(arrow.children[0].children[0].attrs["stroke-width"], 4, "overrides do not mutate the expanded definition");
+  }
+  assert.deepEqual(doc, before);
+});

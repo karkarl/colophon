@@ -193,6 +193,8 @@ Open the **Design System** canvas to see the system rendered live:
   removes obsolete absolute positioning.
   Selection handles resize width, height, or both; hold **Shift** on the corner
   to preserve aspect ratio. W/H fields remain the keyboard alternative.
+  Pending property edits are committed before measuring a resize; invalid edits
+  block the gesture. Text and resize remain separate undo steps.
   **Scale geometry** accepts 0.1-10x and changes fixed dimensions and descendant
   positions, **not** shared typography, spacing, radius, or effect tokens.
   **Zoom** (50-200%) only changes the preview. **Properties on left** swaps the
@@ -239,6 +241,9 @@ non-negative pixel numbers in v3. Spacing values reference keys in
 explicit pixel values. Format v1 remains readable, while v2 and later require
 unique stable IDs within each component so canvas selections and future layer moves
 remain durable.
+Compatible component-reference and default text insertions preserve the document
+version. Creating fixed geometry, resizing, or scaling requires an explicit v3
+upgrade; these tools never automatically migrate unrelated legacy definitions.
 
 A freeform parent establishes a local coordinate system without flattening the
 relational tree. Direct children opt into arbitrary placement with finite pixel
@@ -272,6 +277,9 @@ Lines/arrows store normalized `endpoints: { start: { x, y }, end: { x, y } }`
 in fixed positive-pixel width/height bounds. Stroke color/thickness use
 `appearance.borderColor` / `borderWidth`. Shared SVG rendering preserves their
 direction in both previews, standalone exports, and generated React.
+Component-instance appearance overrides update the resolved shape: ellipses keep
+their geometric radius, and line/arrow stroke overrides style the SVG rather
+than adding a rectangular border. Referenced definitions remain unchanged.
 
 Visual values inherit through normal component classes and the element hierarchy.
 An omitted `appearance` key means **inherit**; selecting a different value in

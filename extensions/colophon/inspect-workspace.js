@@ -15,7 +15,11 @@ window.InspectWorkspace = window.EditorWorkspace.create({
   layout: (node) => node?.layout?.mode,
   canContain: (node) => window.DSComp.canContainComponentChildren(node) && !(typeof node.children === "string"
     || (Array.isArray(node.children) && node.children.length && node.children.every((child) => typeof child === "string"))),
-  prepare: (doc) => { doc.meta ||= {}; doc.meta.version = Math.max(3, Number(doc.meta.version) || 0); },
+  prepare: (doc, { kind, geometry = false } = {}) => {
+    if ((geometry || ["frame", "rectangle", "ellipse", "line", "arrow"].includes(kind)) && Number(doc.meta?.version || 0) < 3) {
+      throw new Error("Geometry editing requires components.jsonc v3. Upgrade the document explicitly before creating or resizing fixed geometry.");
+    }
+  },
   destination: (...args) => window.DSComp.componentDropDestination(...args),
   insert: (...args) => window.DSComp.insertComponentNode(...args),
   move: (...args) => window.DSComp.moveComponentNode(...args),
@@ -24,6 +28,7 @@ window.InspectWorkspace = window.EditorWorkspace.create({
     if (!validation.ok) throw new Error(validation.errors.join(" "));
   },
   commit: commitComponentMutation,
+  beforeGesture: commitComponentPropertyEdit,
   dragPath: () => state.dragPath,
   setDragPath: (path) => { state.dragPath = path; },
   moving: () => !!state.freeformDrag,

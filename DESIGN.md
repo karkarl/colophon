@@ -298,6 +298,9 @@ pixel bounds. The arrowhead is at the drag's release point, including reverse
 drags. Shared SVG geometry drives both previews, exports, and generated code.
 Use `appearance.borderColor` and `borderWidth` for the labeled stroke controls;
 these shapes have no background fill or rectangular border.
+Apply instance appearance overrides before resolving shape geometry, so ellipse
+radii and line/arrow stroke behavior remain consistent without modifying the
+referenced component definition.
 
 ## Components
 

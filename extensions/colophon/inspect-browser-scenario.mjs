@@ -60,6 +60,55 @@ export async function inspectWorkspaceBehavior() {
   content.dispatchEvent(new Event("change"));
   await tick();
   check(node().children[0] === "A field note", "literal text editable");
+  const beforePendingText = JSON.stringify(node()), beforePendingHistory = state.componentPast.length;
+  const pendingText = query('[aria-label="Text content"]');
+  pendingText.focus();
+  pendingText.value = "A pending edit with a different measured width";
+  pendingText.dispatchEvent(new Event("input", { bubbles: true }));
+  const pendingHandle = query('[data-resize="e"]');
+  pendingHandle.setPointerCapture = () => {};
+  const pendingRect = pendingHandle.getBoundingClientRect();
+  const pendingPointer = (target, type, extra = {}) => target.dispatchEvent(new PointerEvent(type, {
+    bubbles: true, cancelable: true, pointerId: 42, button: 0, clientX: pendingRect.x, clientY: pendingRect.y, ...extra,
+  }));
+  pendingPointer(pendingHandle, "pointerdown");
+  await tick();
+  const freshWidth = parseFloat(getComputedStyle(ds(textId)).width);
+  check(node().children[0] === pendingText.value, "resize flushes pending text before measuring");
+  pendingPointer(window, "pointermove", { clientX: pendingRect.x + 20 });
+  pendingPointer(window, "pointerup", { clientX: pendingRect.x + 20 });
+  await tick();
+  check(Math.abs(node().layout.width - freshWidth - 20) < .1, "resize measures freshly rendered text");
+  check(state.componentPast.length === beforePendingHistory + 2, "text and resize are distinct undoable edits");
+  query("#layers-undo-btn").click();
+  await tick();
+  check(node().children[0] === pendingText.value && node().layout.width === "hug", "resize undo retains committed text");
+  query("#layers-undo-btn").click();
+  await tick();
+  check(JSON.stringify(node()) === beforePendingText, "text edit has its own undo entry");
+  const invalidId = query('#inspect-properties input');
+  invalidId.focus();
+  invalidId.value = "inspect-board";
+  invalidId.dispatchEvent(new Event("input", { bubbles: true }));
+  pendingPointer(pendingHandle, "pointerdown");
+  await tick();
+  pendingPointer(window, "pointermove", { clientX: pendingRect.x + 20 });
+  pendingPointer(window, "pointerup", { clientX: pendingRect.x + 20 });
+  await tick();
+  check(JSON.stringify(node()) === beforePendingText && state.componentPast.length === beforePendingHistory, "invalid pending edits block resize without history");
+  check(query("#inspect-error").textContent && !window.InspectWorkspace.busy(), "pending edit validation remains visible");
+  for (const ending of ["pointerup", "pointercancel", "Escape"]) {
+    const input = query('[aria-label="Text content"]');
+    input.focus(); input.value = "Keep text even if resize ends early";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    pendingPointer(pendingHandle, "pointerdown");
+    if (ending === "Escape") document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    else pendingPointer(window, ending);
+    await tick();
+    check(node().children[0] === input.value && node().layout.width === "hug" && !window.InspectWorkspace.busy(), `${ending} cannot start a late resize`);
+    query("#layers-undo-btn").click();
+    await tick();
+  }
   await add("rectangle");
   check(pathFor(textId).slice(0, -1).join() === state.selection.path.slice(0, -1).join(), "click insert next to a text leaf, not inside it");
   const snap = query(".snap-toggle");
@@ -199,5 +248,65 @@ export async function inspectWorkspaceBehavior() {
   query("#inspect-btn").click();
   check(query("#inspect-overlays").hidden, "leaving Inspect hides editing overlays");
   check(window.DSComp.validateComponentsDoc(state.componentsDoc, { tokens: state.tokens }).ok, "saved graph validates");
+  await legacyComponentEditingBehavior();
   return "PASS";
+}
+
+async function legacyComponentEditingBehavior() {
+  const check = (value, message) => { if (!value) throw new Error(`legacy editing: ${message}`); };
+  const q = (selector) => document.querySelector(selector);
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
+  const saved = { doc: state.componentsDoc, past: state.componentPast, future: state.componentFuture, dirty: state.componentsDirty };
+  try {
+    state.componentsDoc = { meta: { version: 1 }, components: [
+      { name: "Container", root: { el: "div", children: [] } },
+      { name: "Label", root: { el: "span", children: ["Legacy label"] } },
+    ] };
+    state.design.componentsDoc = state.componentsDoc;
+    state.componentPast = []; state.componentFuture = []; state.componentsDirty = false;
+    if (!state.inspectMode) q("#inspect-btn").click();
+    await render();
+    selectDesignPath("components.jsonc", ["components", 0, "root"], "Container");
+    q("#component-menu-btn").click();
+    q('#component-search-results [data-insert-kind="component:Label"]').click();
+    await tick();
+    check(selectedComponentNode().component === "Label" && state.componentPast.length === 1, "picker inserts a reference without upgrading");
+    check(state.componentsDoc.meta.version === 1 && !state.componentsDoc.components[1].root.id, "unrelated legacy definitions stay untouched");
+    q("#layers-undo-btn").click(); await tick();
+    check(state.componentsDoc.components[0].root.children.length === 0, "legacy insertion undoes");
+    q("#layers-redo-btn").click(); await tick();
+    check(state.componentsDoc.components[0].root.children[0].component === "Label", "legacy insertion redoes");
+    selectDesignPath("components.jsonc", ["components", 0, "root"], "Container");
+    q('[data-tool="text"]').click();
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await tick();
+    check(selectedComponentNode().el === "p" && state.componentsDoc.meta.version === 1, "default text insertion is compatible with v1");
+    q("#layers-undo-btn").click(); await tick();
+    selectDesignPath("components.jsonc", ["components", 0, "root"], "Container");
+    const root = [...document.querySelectorAll("[data-ds-node-path]")].find((element) => element.dataset.dsNodePath === JSON.stringify(state.selection.path));
+    const rect = root.getBoundingClientRect(), transfer = new DataTransfer();
+    q('#insert-items [data-insert-kind="component:Label"]').dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+    const drag = (type) => root.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer,
+      clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 }));
+    drag("dragover");
+    check(!q("#inspect-drop-box").hidden, "compatible legacy drop previews validate");
+    drag("drop"); await tick();
+    check(state.componentsDoc.components[0].root.children.length === 2 && state.componentsDoc.meta.version === 1, "legacy canvas drop preserves the version");
+    q("#layers-undo-btn").click(); await tick();
+    selectDesignPath("components.jsonc", ["components", 0, "root"], "Container");
+    const before = JSON.stringify(state.componentsDoc), history = state.componentPast.length;
+    q('[data-tool="frame"]').click();
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await tick();
+    check(q("#inspect-error").textContent.includes("requires components.jsonc v3"), "unsupported geometry has an explicit version error");
+    check(JSON.stringify(state.componentsDoc) === before && state.componentPast.length === history, "unsupported geometry never migrates or dirties the document");
+    check(window.DSComp.validateComponentsDoc(state.componentsDoc).ok, "legacy document still validates");
+  } finally {
+    window.InspectWorkspace.cancel();
+    state.componentsDoc = saved.doc; state.design.componentsDoc = saved.doc;
+    state.componentPast = saved.past; state.componentFuture = saved.future; state.componentsDirty = saved.dirty;
+    state.selection = null;
+    await render();
+    if (state.inspectMode) q("#inspect-btn").click();
+  }
 }

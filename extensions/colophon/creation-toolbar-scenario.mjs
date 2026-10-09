@@ -1,4 +1,38 @@
 // Shared behavioral coverage runs against both document adapters.
+export function shapeInstanceBehavior(schema) {
+  const check = (value, message) => { if (!value) throw new Error(`${schema} shape instances: ${message}`); };
+  const doc = { meta: { version: 3 }, components: [
+    { name: "Ellipse", root: { id: "ellipse", el: "div", shape: "ellipse", layout: { width: 96, height: 64 } } },
+    { name: "Arrow", root: { id: "arrow", el: "div", shape: "arrow", layout: { width: 96, height: 16 },
+      appearance: { borderColor: "#000000", borderWidth: 2 } } },
+  ] };
+  const children = [
+    { id: "ellipse-override", component: "Ellipse", appearance: { radius: "md" } },
+    { id: "arrow-override", component: "Arrow", appearance: { borderColor: "#ff0000", borderWidth: 4, background: "#ffffff" } },
+  ];
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:0;top:0;pointer-events:none";
+  document.body.append(host);
+  try {
+    if (schema === "component") {
+      doc.components.push({ name: "Instances", root: { id: "instances", el: "div", children } });
+      host.append(window.DSComp.renderComponent(doc, "Instances"));
+    } else {
+      const runtime = window.ProtoRender.createRuntime({ componentsDoc: doc,
+        doc: { screens: [{ id: "shapes", root: { id: "instances", layout: "stack", children } }] } });
+      window.ProtoRender.renderScreen(host, runtime, {});
+    }
+    const attribute = schema === "component" ? "data-ds-node-id" : "data-proto-node-id";
+    const ellipse = host.querySelector(`[${attribute}="ellipse-override"]`);
+    const arrow = host.querySelector(`[${attribute}="arrow-override"]`);
+    check(getComputedStyle(ellipse).borderTopLeftRadius === "50%", "radius override cannot turn an ellipse into a rectangle");
+    check(getComputedStyle(arrow).borderTopWidth === "0px" && getComputedStyle(arrow).backgroundColor === "rgba(0, 0, 0, 0)", "stroke overrides never paint a rectangular frame");
+    check(arrow.querySelector("path").getAttribute("stroke") === "#ff0000"
+      && arrow.querySelector("path").getAttribute("stroke-width") === "4", "effective stroke reaches the SVG");
+    check(doc.components[1].root.appearance.borderWidth === 2, "definition remains unchanged");
+  } finally { window.DSInteractions.disposeTree(host); host.remove(); }
+}
+
 export async function creationToolbarBehavior({ schema, choose, node, doc, history, byId, boardId, flowId, zoomSelector, previewSelector, errorSelector }) {
   const q = (selector) => document.querySelector(selector);
   const check = (value, message) => { if (!value) throw new Error(`${schema} toolbar: ${message}`); };
@@ -18,6 +52,7 @@ export async function creationToolbarBehavior({ schema, choose, node, doc, histo
     check(toolbar.left >= viewport.left && toolbar.right <= viewport.right && toolbar.bottom <= viewport.bottom, "does not overlap editor rails");
   };
   checkPosition();
+  shapeInstanceBehavior(schema);
   check(!q('[data-insert-kind="frame"]') && !q('[data-insert-kind="rectangle"]') && !q('[data-insert-kind="text"]'), "primitives removed from sidebar");
   const beforeTools = JSON.stringify(doc()), beforeHistory = history();
   q('[data-tool="move"]').focus();

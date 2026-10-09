@@ -216,7 +216,31 @@ function updateHistoryButtons() {
   if (redo) redo.disabled = state.componentFuture.length === 0;
 }
 
-async function commitComponentMutation(mutator, { selectPath = null } = {}) {
+let pendingComponentMutation = null, pendingComponentField = null;
+
+function commitComponentMutation(mutator, options) {
+  const mutation = applyComponentMutation(mutator, options);
+  pendingComponentMutation = mutation;
+  mutation.then(() => { if (pendingComponentMutation === mutation) pendingComponentMutation = null; });
+  return mutation;
+}
+
+function commitComponentPropertyEdit() {
+  const field = pendingComponentField;
+  if (field?.isConnected) {
+    if (!field.checkValidity()) { field.reportValidity(); return false; }
+    pendingComponentField = null;
+    $("#inspect-error").textContent = "";
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+    if ($("#inspect-error").textContent) {
+      if (field.isConnected) pendingComponentField = field;
+      return false;
+    }
+  }
+  return pendingComponentMutation || true;
+}
+
+async function applyComponentMutation(mutator, { selectPath = null } = {}) {
   const before = clone(state.componentsDoc);
   const beforeSelection = selectedComponentDescriptor();
   try {
@@ -1811,6 +1835,12 @@ function connectEvents() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  $("#inspect-properties").addEventListener("input", (event) => {
+    if (event.target.matches("input, textarea, select")) pendingComponentField = event.target;
+  });
+  $("#inspect-properties").addEventListener("change", (event) => {
+    if (event.target === pendingComponentField && !$("#inspect-error").textContent) pendingComponentField = null;
+  });
   $("#save-btn").addEventListener("click", doSave);
   $("#reload-btn").addEventListener("click", () => load());
   $("#validate-btn")?.addEventListener("click", doValidate);

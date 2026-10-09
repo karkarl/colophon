@@ -199,7 +199,7 @@
           // Apply instance overrides before interaction listeners capture their rest
           // styles, so hover/pressed transitions restore this instance, not the library.
           const instance = spec && typeof spec === "object"
-            ? { ...spec, style: { ...(spec.style || {}), ...window.ProtoLayout.style(node) } }
+            ? window.ShapeGeometry.applyToSpec({ ...spec, style: { ...(spec.style || {}), ...window.ProtoLayout.style(node) } }, node)
             : spec;
           dom = interactions.mount(DS.specToDom(instance, false, context), context);
           if (dom?.nodeType === 1) styledComponents.add(dom);

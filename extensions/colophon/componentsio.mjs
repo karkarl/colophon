@@ -666,12 +666,12 @@ function nodeStyle(node) {
 
 function mergeNodeStyle(spec, node, source) {
   if (!spec || typeof spec === "string") return spec;
-  return {
+  return globalThis.ShapeGeometry.applyToSpec({
     ...spec,
     style: { ...(spec.style || {}), ...nodeStyle(node) },
     ...interactionSpec(node, spec),
     source,
-  };
+  }, node);
 }
 
 function interactionSpec(node, base = {}) {
@@ -724,8 +724,6 @@ export function expandNode(doc, node, props, seen = [], source = null) {
     children: [],
   };
   if (node.class != null) spec.class = interpolate(node.class, props);
-  const shape = globalThis.ShapeGeometry.svgSpec(node);
-  if (shape) spec.children.push(shape);
   for (const [k, v] of Object.entries(node.attrs || {})) {
     spec.attrs[k] = typeof v === "string" ? interpolate(v, props) : v;
   }
@@ -737,5 +735,5 @@ export function expandNode(doc, node, props, seen = [], source = null) {
     const r = expandNode(doc, kid, props, seen, childSource);
     if (r != null) spec.children.push(r);
   }
-  return spec;
+  return globalThis.ShapeGeometry.applyToSpec(spec, node);
 }

@@ -61,5 +61,26 @@
     const spec = svgSpec(node);
     return spec ? create(spec) : null;
   }
-  root.ShapeGeometry = { kinds, linear, defaultEndpoints, validate, style, svgSpec, createSvg };
+  function applyToSpec(spec, node) {
+    if (!spec || typeof spec !== "object" || (!node.shape && !spec.shapeGeometry)) return spec;
+    const base = spec.shapeGeometry || {};
+    const size = typeof node.layout === "object" ? node.layout : node;
+    const geometry = {
+      ...base, shape: node.shape || base.shape,
+      ...(node.endpoints ? { endpoints: node.endpoints } : {}),
+      ...(node.position ? { position: node.position } : {}),
+      appearance: { ...base.appearance, ...(node.color ? { color: node.color } : {}), ...node.appearance },
+    };
+    for (const key of ["width", "height"]) {
+      if (Number.isFinite(size[key]) && size[key] > 0) geometry[key] = size[key];
+    }
+    const svg = svgSpec(geometry);
+    return {
+      ...spec, shapeGeometry: geometry,
+      style: { ...spec.style, ...style(geometry) },
+      ...(svg ? { children: [svg] } : {}),
+    };
+  }
+  root.ShapeGeometry = { kinds, linear, defaultEndpoints, validate, style, svgSpec, createSvg, applyToSpec };
+  if (typeof window !== "undefined") window.ShapeGeometry = root.ShapeGeometry;
 })(globalThis);

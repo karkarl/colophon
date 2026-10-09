@@ -13,7 +13,7 @@ window.EditorWorkspace = { create(adapter) {
     return element;
   };
   let zoom = 1, paletteKey = "", paletteDrag = null, resizing = null, hovered = null, selectedElement = null;
-  let activeTool = "move", shapeTool = "rectangle", drawing = null;
+  let activeTool = "move", shapeTool = "rectangle", drawing = null, preparing = null;
   let frame = 0;
   const elementsFor = (path) => [...adapter.preview().querySelectorAll(adapter.nodeSelector)]
     .filter((node) => pathKey(adapter.nodePath(node)) === pathKey(path));
@@ -96,7 +96,7 @@ window.EditorWorkspace = { create(adapter) {
       if (geometry) Object.assign(window.EditorGeometry.dimensions(node, adapter.schema), { width: geometry.width, height: geometry.height });
       if (geometry?.endpoints) node.endpoints = geometry.endpoints;
       return adapter.commit(() => {
-        adapter.prepare(adapter.doc());
+        adapter.prepare(adapter.doc(), { kind, geometry: !!geometry });
         const path = adapter.insert(adapter.doc(), destination.path, node, destination.placement);
         positionAtDrop(adapter.doc(), path, destination);
         return path;
@@ -217,7 +217,7 @@ window.EditorWorkspace = { create(adapter) {
     const destination = { path, placement, element, axis, parentElement };
     if (adapter.layout(destinationParent) === "freeform") destination.point = documentPoint(event, parentElement);
     const candidate = clone(adapter.doc());
-    adapter.prepare(candidate);
+    adapter.prepare(candidate, { kind });
     const nextPath = kind
       ? adapter.insert(candidate, path, template(kind), placement)
       : adapter.move(candidate, adapter.dragPath(), path, placement);
@@ -276,19 +276,42 @@ window.EditorWorkspace = { create(adapter) {
     announce(kind === "move" ? "Move tool. Select or move a layer." : `${kind[0].toUpperCase() + kind.slice(1)} tool. Click or drag on a layer to create. Enter inserts into the selection; Escape cancels.`);
   }
 
+  function preparePointer(event, start) {
+    try {
+      const ready = adapter.beforeGesture?.();
+      if (!ready?.then) { if (ready !== false) start(); return; }
+      const pending = { pointerId: event.pointerId, latest: null };
+      preparing = pending;
+      Promise.resolve(ready).then((committed) => {
+        if (preparing !== pending) return;
+        preparing = null;
+        if (committed === false || !adapter.enabled()) return;
+        start();
+        if (pending.latest) { moveResize(pending.latest); moveDrawing(pending.latest); }
+      }).catch((error) => {
+        if (preparing === pending) preparing = null;
+        finishDrawing(true); finishResize(true);
+        report(error);
+      });
+    } catch (error) { finishDrawing(true); finishResize(true); report(error); }
+  }
+
   function beginDrawing(event) {
-    if (!adapter.enabled() || activeTool === "move" || event.button !== 0 || event.isPrimary === false || drawing) return;
+    if (!adapter.enabled() || activeTool === "move" || event.button !== 0 || event.isPrimary === false || drawing || preparing) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (adapter.beforeGesture?.() === false) return;
-    try {
-      const destination = dropDestination(event, activeTool);
+    const kind = activeTool, target = event.target.closest?.(adapter.nodeSelector), path = target && adapter.nodePath(target);
+    preparePointer(event, () => {
+      const destination = dropDestination({ target: target?.isConnected ? target : path ? locate(path) : event.target,
+        clientX: event.clientX, clientY: event.clientY }, kind);
       const parent = destination.parentElement;
-      drawing = { kind: activeTool, destination, parent, pointerId: event.pointerId,
+      activeTool = kind;
+      renderToolState();
+      drawing = { kind, destination, parent, pointerId: event.pointerId,
         start: documentPoint(event, parent), screenX: event.clientX, screenY: event.clientY, geometry: null };
       adapter.preview().setPointerCapture(event.pointerId);
       showDrop(destination);
-    } catch (error) { finishDrawing(true); report(error); }
+    });
   }
 
   function moveDrawing(event) {
@@ -337,20 +360,23 @@ window.EditorWorkspace = { create(adapter) {
   }
 
   function beginResize(event) {
-    if (event.button !== 0 || !adapter.enabled() || activeTool !== "move" || adapter.moving() || resizing || adapter.beforeGesture?.() === false) return;
-    const path = adapter.selection();
-    if (!path) return;
-    const element = locate(path);
-    if (!resizeable(element)) return;
+    if (event.button !== 0 || !adapter.enabled() || activeTool !== "move" || adapter.moving() || resizing || preparing) return;
     event.preventDefault();
-    const size = bounds(element);
-    resizing = {
-      pointerId: event.pointerId, handle: event.currentTarget, axes: event.currentTarget.dataset.resize,
-      path: path.slice(), x: event.clientX, y: event.clientY, size, next: {},
-      originals: elementsFor(path).map((node) => [node, node.style.cssText]),
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-    document.body.classList.add("inspect-resizing");
+    const handle = event.currentTarget;
+    preparePointer(event, () => {
+      const path = adapter.selection();
+      if (!path) return;
+      const element = locate(path);
+      if (!resizeable(element)) return;
+      const size = bounds(element);
+      handle.setPointerCapture(event.pointerId);
+      resizing = {
+        pointerId: event.pointerId, handle, axes: handle.dataset.resize,
+        path: path.slice(), x: event.clientX, y: event.clientY, size, next: {},
+        originals: elementsFor(path).map((node) => [node, node.style.cssText]),
+      };
+      document.body.classList.add("inspect-resizing");
+    });
   }
 
   function moveResize(event) {
@@ -386,7 +412,7 @@ window.EditorWorkspace = { create(adapter) {
     adapter.suppressClick();
     if (!cancelled && Object.entries(gesture.next).some(([key, value]) => Math.abs(value - gesture.size[key]) > .01)) {
       Promise.resolve(adapter.commit(() => {
-        adapter.prepare(adapter.doc());
+        adapter.prepare(adapter.doc(), { geometry: true });
         const node = adapter.value(adapter.doc(), gesture.path);
         Object.assign(window.EditorGeometry.dimensions(node, adapter.schema), gesture.next);
       })).then((committed) => {
@@ -397,6 +423,7 @@ window.EditorWorkspace = { create(adapter) {
   }
 
   function cancel() {
+    preparing = null;
     finishDrawing(true);
     finishResize(true);
     paletteDrag = null;
@@ -409,14 +436,15 @@ window.EditorWorkspace = { create(adapter) {
     renderToolState();
   }
 
-  function scale(factor) {
-    if (adapter.beforeGesture?.() === false) return;
+  async function scale(factor) {
+    const ready = adapter.beforeGesture?.();
+    if ((ready?.then ? await ready : ready) === false) return;
     const path = adapter.selection();
     const node = path && adapter.value(adapter.doc(), path);
     const element = node && locate(path);
     if (!element || !resizeable(element)) { report(new Error("Select a visible, resizable layer.")); return; }
     return adapter.commit(() => {
-      adapter.prepare(adapter.doc());
+      adapter.prepare(adapter.doc(), { geometry: true });
       window.EditorGeometry.scale(node, factor, bounds(element), adapter.schema);
     });
   }
@@ -521,13 +549,18 @@ window.EditorWorkspace = { create(adapter) {
       handle.addEventListener("pointerdown", beginResize);
       handle.addEventListener("lostpointercapture", () => finishResize(true));
     }
+    window.addEventListener("pointermove", (event) => {
+      if (preparing?.pointerId === event.pointerId) { preparing.latest = event; event.preventDefault(); }
+    }, true);
     window.addEventListener("pointermove", moveResize, true);
     window.addEventListener("pointermove", moveDrawing, true);
     window.addEventListener("pointerup", (event) => {
+      if (preparing?.pointerId === event.pointerId) preparing = null;
       if (drawing?.pointerId === event.pointerId) { moveDrawing(event); finishDrawing(); }
       if (resizing?.pointerId === event.pointerId) finishResize();
     }, true);
     window.addEventListener("pointercancel", (event) => {
+      if (preparing?.pointerId === event.pointerId) preparing = null;
       if (drawing?.pointerId === event.pointerId) cancel();
       if (resizing?.pointerId === event.pointerId) finishResize(true);
     }, true);
@@ -537,7 +570,7 @@ window.EditorWorkspace = { create(adapter) {
     document.addEventListener("scroll", () => { if (drawing) cancel(); clearDrop(); scheduleBounds(); }, true);
     new ResizeObserver(scheduleBounds).observe(adapter.preview());
     adapter.preview().addEventListener("pointerover", (event) => {
-      if (!adapter.enabled() || resizing || drawing || adapter.moving()) return;
+      if (!adapter.enabled() || resizing || drawing || preparing || adapter.moving()) return;
       hovered = event.target.closest?.(adapter.nodeSelector);
       refreshBounds();
     });
@@ -580,13 +613,13 @@ window.EditorWorkspace = { create(adapter) {
     document.addEventListener("dragend", () => { paletteDrag = null; adapter.setDragPath(null); adapter.clearTreeDrop(); });
     document.addEventListener("keydown", (event) => {
       if (!adapter.enabled()) return;
-      if (event.key === "Escape" && (activeTool !== "move" || resizing || adapter.moving() || paletteDrag || adapter.dragPath())) {
+      if (event.key === "Escape" && (activeTool !== "move" || resizing || preparing || adapter.moving() || paletteDrag || adapter.dragPath())) {
         event.preventDefault();
         cancel(); adapter.cancelMove(); adapter.clearTreeDrop(); refreshBounds();
         announce("Gesture cancelled.");
         return;
       }
-      if (event.target.closest?.("input, textarea, select, [contenteditable], [role=menu], #component-tools-menu") || resizing || drawing || adapter.moving() || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.target.closest?.("input, textarea, select, [contenteditable], [role=menu], #component-tools-menu") || resizing || drawing || preparing || adapter.moving() || event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key === "Enter" && event.shiftKey) { event.preventDefault(); selectParent(); }
       else if (event.key === "Enter" && activeTool !== "move" && (!event.target.closest?.("button, a") || event.target.dataset.tool === activeTool)) {
         event.preventDefault();
@@ -604,6 +637,6 @@ window.EditorWorkspace = { create(adapter) {
     refresh, refreshBounds, cancel, clearDrop, showTreeDrop, hoverPath, scale, announce, appendScaleControl,
     rememberSelection: (element) => { selectedElement = element; },
     wantsCreate: () => activeTool !== "move",
-    busy: () => !!resizing || !!drawing,
+    busy: () => !!resizing || !!drawing || !!preparing,
   };
 } };
