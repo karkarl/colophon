@@ -236,6 +236,23 @@ Personality: editorial, precise, warm, unhurried.
 
 Use the named spacing tokens rather than ad-hoc values.
 
+### Editor navigation
+
+The Colophon Pages sidebar is editor chrome, not a preview of this design.
+Use the host's generic surface, text, muted-text, and border tokens. Selected and
+hovered rows use the same soft gray backplate with ink text. Mark selection with
+a small ink pill at the leading edge, not a solid ink row; retain ink focus rings
+(black in the default light theme).
+The preview theme and authored tokens must not recolor or resize this navigation.
+Reuse the generic editor's compact spacing: 4px gaps/radii, 8px list padding,
+and 12px heading/action padding. The selection indicator uses
+`--page-nav-indicator-width` (4px) and `--page-nav-indicator-height` (20px), with
+fully rounded ends and a 4px leading inset. Reserve 16px of leading row padding
+in every state so labels do not shift on selection.
+Keep Northlight tokens in the authored preview.
+
+### Inspect workspace
+
 Both Colophon and Prototype Inspect use a Layers rail of four spacing-8 units and a Properties
 rail of five spacing-8 units. Below their combined width plus five spacing-8
 units of canvas, stack the rails into one column. Editor controls reuse the

@@ -12,8 +12,7 @@ import { renderShell } from "./renderer.mjs";
 import { renderProtoShell } from "./proto-renderer.mjs";
 import { buildPrototypeExportHtml } from "./prototypeexport.mjs";
 import { loadPrototypes, savePrototypes, validatePrototypes } from "./prototypeio.mjs";
-import { saveComponents } from "./designio.mjs";
-import { inspectWorkspaceBehavior } from "./inspect-browser-scenario.mjs";
+import { loadDesign, saveTokens, saveComponents } from "./designio.mjs";
 
 // No browser package dependency: run the same contract against both renderers in
 // installed Chromium. CI can set COLOPHON_BROWSER to its Chrome/Edge executable.
@@ -283,6 +282,238 @@ async function shellBehavior(kind) {
     }
     throw new Error(message);
   };
+  if (kind === "brand") {
+    await waitFor("#brand-name");
+    const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
+      .find((node) => node.querySelector(".page-nav-label")?.textContent === name);
+    const inputFor = (label) => document.querySelector(`.inline-text-input[aria-label="${label}"]`);
+    const editFor = (label) => document.querySelector(`button[aria-label="Edit ${label}"]`);
+    const finish = (input, key = "Enter", options = {}) => input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options }));
+    const editText = (label, value, key = "Enter", options = {}) => {
+      const input = inputFor(label);
+      check(input.hidden && input.readOnly, `${label} starts read-only`);
+      editFor(label).click();
+      check(!input.hidden && !input.readOnly && document.activeElement === input, `${label} edit icon opens and focuses its input`);
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      finish(input, key, options);
+      check(input.hidden && input.readOnly && document.activeElement === editFor(label), `${label} finishes and restores edit-button focus`);
+    };
+    check(document.querySelector(".page-nav-title").textContent === "Pages", "sidebar is labeled Pages");
+    check(document.querySelector("#save-btn").disabled, "viewing brand does not dirty the document");
+    for (const input of document.querySelectorAll(".brand input, .brand textarea, .authority input[type=text]")) {
+      check(input.hidden && input.readOnly && getComputedStyle(input).display === "none", "brand and authority inputs are hidden and read-only initially");
+    }
+    document.querySelector("#brand-name").click();
+    check(inputFor("Brand name").hidden, "clicking brand text does not start editing");
+    const edit = editFor("Brand name");
+    edit.style.transition = "none";
+    check(getComputedStyle(edit).opacity === (matchMedia("(hover: none)").matches ? "1" : "0"), "edit icon is hidden at rest except on touch devices");
+    edit.focus();
+    check(getComputedStyle(edit).opacity === "1", "keyboard focus reveals the edit icon");
+    edit.blur();
+
+    if (innerWidth > 720) {
+      const toolbar = document.querySelector(".topbar");
+      const saveButton = document.querySelector("#save-btn");
+      const initialHeight = toolbar.offsetHeight;
+      saveButton.style.flexBasis = "100%";
+      await waitUntil(() => parseFloat(document.documentElement.style.getPropertyValue("--canvas-topbar-offset")) === toolbar.offsetHeight && toolbar.offsetHeight > initialHeight,
+        "sidebar offset follows toolbar wrapping without a window resize or rerender");
+      check(document.querySelector(".page-nav").getBoundingClientRect().top >= toolbar.getBoundingClientRect().bottom, "wrapped toolbar remains above Pages");
+      const saveRect = saveButton.getBoundingClientRect();
+      check(saveButton.contains(document.elementFromPoint(saveRect.left + 5, saveRect.top + saveRect.height / 2)), "Pages cannot cover the wrapped Save button");
+      saveButton.style.flexBasis = "";
+      await waitUntil(() => parseFloat(document.documentElement.style.getPropertyValue("--canvas-topbar-offset")) === toolbar.offsetHeight && toolbar.offsetHeight === initialHeight,
+        "sidebar offset follows the toolbar shrinking again");
+    }
+    state.validation = { ok: false, errors: ["An actionable validation error"], warnings: [] };
+    renderValidation();
+    const banner = document.querySelector("#validation-slot .banner");
+    banner.style.animation = "none";
+    if (innerWidth > 720) {
+      // Exercise the overlapping region at desktop widths even in a wide test window.
+      document.querySelector("#validation-slot").style.left = "100px";
+      const error = banner.querySelector(".err li").getBoundingClientRect();
+      check(banner.contains(document.elementFromPoint(error.left + 1, error.top + error.height / 2)), "validation error text stays above Pages");
+      document.querySelector("#validation-slot").style.left = "";
+    }
+    state.validation = null;
+    renderValidation();
+
+    const navigationStyles = () => {
+      const styles = {};
+      for (const selector of [".page-nav", ".page-nav-title", ".page-nav-list", ".page-nav-link.is-active", ".page-add"]) {
+        const computed = getComputedStyle(document.querySelector(selector));
+        styles[selector] = Object.fromEntries(["backgroundColor", "color", "borderTopColor", "borderRightColor", "fontSize", "padding", "borderRadius"]
+          .map((name) => [name, computed[name]]));
+      }
+      const indicator = getComputedStyle(document.querySelector(".page-nav-link.is-active"), "::before");
+      styles.indicator = Object.fromEntries(["backgroundColor", "content", "width", "height", "borderRadius", "insetInlineStart", "top", "transform"]
+        .map((name) => [name, indicator[name]]));
+      return styles;
+    };
+    const genericNavigation = navigationStyles();
+    const activeNavigation = genericNavigation[".page-nav-link.is-active"];
+    check(activeNavigation.backgroundColor !== genericNavigation[".page-nav"].color && activeNavigation.backgroundColor !== genericNavigation[".page-nav"].backgroundColor &&
+      activeNavigation.backgroundColor !== "rgba(0, 0, 0, 0)", "active page uses a soft backplate, not a solid ink row");
+    check(activeNavigation.color === genericNavigation[".page-nav"].color &&
+      genericNavigation.indicator.backgroundColor === genericNavigation[".page-nav"].color,
+      "active page uses generic ink for text and its selection pill");
+    check(genericNavigation.indicator.content === '""' && genericNavigation.indicator.width === "4px" && genericNavigation.indicator.height === "20px" &&
+      parseFloat(genericNavigation.indicator.borderRadius) >= 2, "selection pill is small with fully rounded ends");
+    check(getComputedStyle(pageButton("Components"), "::before").content === "none", "inactive pages do not show a selection pill");
+    check(getComputedStyle(pageButton("Components")).paddingInlineStart === getComputedStyle(pageButton("Brand")).paddingInlineStart,
+      "selection does not shift navigation labels");
+    for (const theme of ["dark", "highContrast", "light"]) {
+      document.querySelector(`[data-theme="${theme}"]`).click();
+      await waitFor("#brand-name");
+      const nav = document.querySelector(".page-nav");
+      check(JSON.stringify(navigationStyles()) === JSON.stringify(genericNavigation), "preview themes do not recolor or resize generic Pages navigation");
+      if (innerWidth > 720) {
+        const bounds = nav.getBoundingClientRect();
+        check(bounds.left === 0 && Math.abs(bounds.bottom - innerHeight) < 1, "Pages fills the left edge down to the viewport bottom");
+        check(Math.abs(bounds.top - document.querySelector(".topbar").getBoundingClientRect().bottom) < 1, "Pages starts directly below the toolbar");
+        check(bounds.right <= document.querySelector(".page-content").getBoundingClientRect().left, "Pages never overlaps content");
+      } else {
+        check(nav.getBoundingClientRect().bottom <= document.querySelector(".page-content").getBoundingClientRect().top, "narrow Pages index stays above content");
+        check(document.documentElement.scrollWidth <= innerWidth, "narrow brand page has no horizontal overflow");
+      }
+    }
+    const originalTokens = structuredClone(state.tokens);
+    for (const color of state.tokens.colors) {
+      color.value = "#ff00ff";
+      color.themes = { dark: "#00ff00", highContrast: "#0000ff" };
+    }
+    for (const step of state.tokens.spacing.scale) step.value = "40px";
+    for (const radius of state.tokens.radii) radius.value = "40px";
+    state.tokens.typography.scale.find((style) => style.name === "caption").size = "40px";
+    applyVars();
+    check(JSON.stringify(navigationStyles()) === JSON.stringify(genericNavigation), "authored palette, type, spacing, and radii cannot leak into Pages chrome");
+    state.tokens = originalTokens;
+    applyVars();
+    const rootStyle = document.documentElement.style;
+    const hostColors = { "--background-color-default": "rgb(20, 20, 20)", "--text-color-default": "rgb(240, 240, 240)", "--border-color-default": "rgb(70, 70, 70)" };
+    const originalHost = Object.fromEntries(Object.keys(hostColors).map((key) => [key, rootStyle.getPropertyValue(key)]));
+    for (const [key, value] of Object.entries(hostColors)) rootStyle.setProperty(key, value);
+    await waitUntil(() => getComputedStyle(document.querySelector(".page-nav-link.is-active")).color === "rgb(240, 240, 240)",
+      "generic sidebar transitions to the host's updated ink");
+    const hostNavigation = navigationStyles();
+    check(hostNavigation[".page-nav"].backgroundColor === "rgb(20, 20, 20)" && hostNavigation.indicator.backgroundColor === "rgb(240, 240, 240)" &&
+      hostNavigation[".page-nav-link.is-active"].backgroundColor !== "rgb(240, 240, 240)",
+      "Pages responds to the host theme independently of the preview");
+    for (const [key, value] of Object.entries(originalHost)) {
+      if (value) rootStyle.setProperty(key, value);
+      else rootStyle.removeProperty(key);
+    }
+    state.tokens.pages = Array.from({ length: 40 }, (_, index) => ({ id: `page-${index}`, name: `Page ${index}` }));
+    await render();
+    const list = document.querySelector(".page-nav-list");
+    check(list.scrollHeight > list.clientHeight, "long page list scrolls independently");
+    const add = document.querySelector(".page-add").getBoundingClientRect();
+    check(add.bottom <= document.querySelector(".page-nav").getBoundingClientRect().bottom, "Add page remains reachable below a long list");
+    list.scrollTop = list.scrollHeight;
+    const scrollTop = list.scrollTop;
+    pageButton("Page 39").click();
+    await waitUntil(() => document.querySelector(".page-nav-list") && document.querySelector(".page-nav-list") !== list, "lower page navigation renders");
+    const checkActiveVisible = () => {
+      const viewport = document.querySelector(".page-nav-list").getBoundingClientRect();
+      const active = document.querySelector(".page-nav-link.is-active").getBoundingClientRect();
+      check(active.top >= viewport.top - 1 && active.bottom <= viewport.bottom + 1, "active page remains visible within the scrolling list");
+    };
+    check(Math.abs(document.querySelector(".page-nav-list").scrollTop - scrollTop) < 1, "page navigation preserves internal scroll position");
+    checkActiveVisible();
+    await render();
+    checkActiveVisible();
+    check(Math.abs(document.querySelector(".page-nav-list").scrollTop - scrollTop) < 1, "rerender preserves internal scroll position");
+    const beforeAdd = document.querySelector(".page-nav-list");
+    document.querySelector(".page-add").click();
+    await waitUntil(() => document.querySelector(".page-nav-list") && document.querySelector(".page-nav-list") !== beforeAdd, "new page navigation renders");
+    checkActiveVisible();
+    state.tokens.pages = [];
+    await render();
+    check(pageButton("Brand").getAttribute("aria-current") === "page", "removing the current custom page selects the fallback page");
+    editText("Brand name", "Northlight notes");
+    editText("Tagline", "A quieter workspace", "Escape");
+    check(state.tokens.brand.tagline === "A quieter workspace", "Escape finishes without losing edits");
+    const descriptionLabel = "Description (app / project context for codegen)";
+    editFor(descriptionLabel).click();
+    const description = inputFor(descriptionLabel);
+    description.value = "First line\nSecond line";
+    description.dispatchEvent(new Event("input", { bubbles: true }));
+    finish(description);
+    check(!description.hidden, "Enter stays inside multiline editing");
+    description.blur();
+    check(description.hidden && description.readOnly && document.querySelector("#brand-desc").textContent === description.value, "blur returns multiline text to read-only");
+    editText("Personality (one per line)", "calm\nprecise", "Enter", { ctrlKey: true });
+    check(state.tokens.brand.personality.join("|") === "calm|precise" && document.querySelectorAll(".brand .chip").length === 2, "personality edits keep array values and chips");
+    editText("Voice", "Plain and exact", "Enter", { metaKey: true });
+    editFor("Voice").click();
+    const nextEdit = editFor("Avoid (one per line)");
+    const mouseDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
+    nextEdit.dispatchEvent(mouseDown);
+    check(mouseDown.defaultPrevented && document.activeElement === inputFor("Voice"), "next pencil keeps the current editor focused until click completes");
+    const secondaryDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 2 });
+    nextEdit.dispatchEvent(secondaryDown);
+    check(!secondaryDown.defaultPrevented, "secondary mouse button retains its native behavior");
+    nextEdit.click();
+    check(document.activeElement === inputFor("Avoid (one per line)") && inputFor("Voice").hidden, "one pencil activation switches editors");
+    finish(inputFor("Avoid (one per line)"), "Escape");
+    editText("Avoid (one per line)", "noise\nclutter", "Enter", { ctrlKey: true });
+    editText("Implementation owner (optional)", "@northlight");
+    editText("Sync process (optional)", "Review each release");
+    editFor("Tagline").click();
+    const tagline = inputFor("Tagline");
+    tagline.value = "";
+    tagline.dispatchEvent(new Event("input", { bubbles: true }));
+    tagline.blur();
+    check(document.querySelector("#brand-tag").textContent === "Not set" && editFor("Tagline"), "empty text stays editable");
+    editText("Tagline", "A quieter workspace");
+    pageButton("Components").click();
+    await waitFor(".preview");
+    pageButton("Brand").click();
+    await waitFor("#brand-name");
+    check(document.querySelector("#brand-name").textContent === "Northlight notes" && inputFor("Brand name").hidden, "navigation preserves draft text and restores read-only mode");
+    if (innerWidth > 720) {
+      document.querySelector("#inspect-btn").click();
+      await waitFor(".preview");
+      check(getComputedStyle(document.querySelector(".page-nav")).display === "none", "component Inspect reserves the workspace for Layers and Properties");
+      pageButton("Brand").click();
+      await waitFor("#brand-name");
+      const checkInspectLayout = () => {
+        const layers = document.querySelector("#component-layers").getBoundingClientRect();
+        const properties = document.querySelector("#design-inspector").getBoundingClientRect();
+        const pages = document.querySelector(".page-nav").getBoundingClientRect();
+        const content = document.querySelector(".page-content").getBoundingClientRect();
+        const leftPanel = properties.left === 0 ? properties : layers;
+        check(leftPanel.right <= pages.left && pages.right <= content.left, "Inspect keeps its docked panel, Pages, and content separate");
+        if (innerWidth > 896) {
+          const rightPanel = properties.left === 0 ? layers : properties;
+          check(content.right <= rightPanel.left, "Inspect right panel does not cover content");
+        }
+      };
+      checkInspectLayout();
+      document.querySelector("#inspector-dock-btn").click();
+      checkInspectLayout();
+      document.querySelector("#inspector-dock-btn").click();
+      document.querySelector("#brand-name").click();
+      check(state.selection.path.join("/") === "brand" && inputFor("Brand name").hidden, "Inspect still selects brand without editing text");
+      for (const pencil of document.querySelectorAll(".inline-text-edit")) {
+        check(getComputedStyle(pencil).display === "none", "Inspect hides misleading inline-edit controls from pointer and keyboard navigation");
+      }
+      editFor("Brand name").click();
+      check(inputFor("Brand name").hidden, "Inspect cannot accidentally open a hidden inline editor");
+      document.querySelector("#inspect-btn").click();
+      check(getComputedStyle(editFor("Brand name")).display !== "none", "leaving Inspect restores inline-edit controls");
+    }
+    document.querySelector("#save-btn").click();
+    await waitUntil(() => !state.dirty && document.querySelector("#save-btn").disabled, "brand edits save");
+    document.querySelector("#reload-btn").click();
+    await waitUntil(() => state.tokens.brand.name === "Northlight notes" && document.querySelector("#save-btn").textContent === "Saved", "saved brand reloads");
+    check(state.tokens.brand.description === "First line\nSecond line" && state.tokens.brand.antiReferences.join("|") === "noise|clutter", "multiline and list edits persist");
+    check(state.tokens.authority.owner === "@northlight" && inputFor("Implementation owner (optional)").hidden, "authority edits persist in read-only mode");
+    return;
+  }
   if (kind === "compact") {
     await waitFor("#screen-list [data-screen-id]");
     const list = document.querySelector("#screen-list");
@@ -624,7 +855,12 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   const inject = (html, kind) => html.replace("</body>", `<script>(async () => {
     const result = document.createElement("pre"); result.id = "browser-result";
     document.body.append(result);
-    try { await (${kind === "inspect" ? inspectWorkspaceBehavior.toString() : shellBehavior.toString()})(${JSON.stringify(kind)}); result.textContent = "PASS"; }
+    try {
+      ${kind === "inspect"
+        ? 'await (await import("/inspect-browser-scenario.mjs")).inspectWorkspaceBehavior();'
+        : `await (${shellBehavior.toString()})(${JSON.stringify(kind)});`}
+      result.textContent = "PASS";
+    }
     catch (error) { result.textContent = "FAIL " + error.stack; }
     document.body.append(result);
     })();</script></body>`);
@@ -640,6 +876,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   });
   const resources = new Map([
     ["/", ["text/html", inject(renderShell(), "gallery")]],
+    ["/brand", ["text/html", inject(renderShell(), "brand")]],
     ["/inspect", ["text/html", inject(renderShell(), "inspect")]],
     ["/prototype", ["text/html", inject(renderProtoShell(), "prototype")]],
     ["/compact", ["text/html", inject(renderProtoShell(), "compact")]],
@@ -649,10 +886,11 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ["/api/design/select", ["application/json", "{}"]],
     ["/events", ["text/event-stream", ": connected\n\n"]],
   ]);
-  for (const name of ["client.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
+  for (const name of ["client.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "inspect-browser-scenario.mjs", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
     resources.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   let prototypeWorkspace;
+  let brandWorkspace;
   let savedPrototype = false;
   let savedComponents = false;
   let failSave = false;
@@ -675,6 +913,15 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       if (request.url === "/test/fail-save") {
         failSave = true;
         response.writeHead(200).end();
+        return;
+      }
+      if (request.url === "/api/save") {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const { tokens, revision } = JSON.parse(Buffer.concat(chunks).toString());
+        const saved = await saveTokens(brandWorkspace, tokens, { revision });
+        resources.set("/api/design", ["application/json", JSON.stringify({ design: await loadDesign(brandWorkspace) })]);
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(saved));
         return;
       }
       if (request.url === "/api/prototypes/save" || request.url === "/api/prototypes/validate") {
@@ -717,6 +964,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     await writeFile(path.join(dir, "export.html"), exported);
     await writeFile(path.join(dir, "compact-export.html"), inject(await buildPrototypeExportHtml(compactBundle(true)), "compact"));
     for (const [name, url] of [
+      ["brand", `http://127.0.0.1:${server.address().port}/brand`],
+      ["brand-narrow", `http://127.0.0.1:${server.address().port}/brand`],
       ["gallery", `http://127.0.0.1:${server.address().port}`],
       ["inspect", `http://127.0.0.1:${server.address().port}/inspect`],
       ["inspect-narrow", `http://127.0.0.1:${server.address().port}/inspect`],
@@ -729,10 +978,15 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ]) {
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
+      let design = structuredClone(bundle.design);
+      if (name.startsWith("brand")) {
+        brandWorkspace = prototypeWorkspace;
+        await saveTokens(brandWorkspace, tokens);
+        design = await loadDesign(brandWorkspace);
+      }
       savedPrototype = false;
       savedComponents = false;
       failSave = false;
-      const design = structuredClone(bundle.design);
       if (name.startsWith("inspect")) design.componentsDoc.components.push({ name: "InspectFixture", root: {
         id: "inspect-board", el: "div", layout: { mode: "freeform", width: 560, height: 400 }, children: [
           { id: "inspect-flow", el: "div", layout: { mode: "vertical", width: 200, height: 160 },
@@ -747,6 +1001,13 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ], { timeout: 25000, maxBuffer: 4 * 1024 * 1024 });
       const result = stdout.match(/<pre id="browser-result">([\s\S]*?)<\/pre>/)?.[1];
       assert.equal(result, "PASS", `${name}: ${result}; ${stdout.match(/<body[^>]*>/)?.[0]}`);
+      if (name.startsWith("brand")) {
+        const persisted = await loadDesign(brandWorkspace);
+        assert.equal(persisted.format, "markdown");
+        assert.equal(persisted.tokens.brand.name, "Northlight notes");
+        assert.deepEqual(persisted.tokens.brand.personality, ["calm", "precise"]);
+        assert.equal(persisted.tokens.authority.owner, "@northlight");
+      }
       if (name.startsWith("prototype")) {
         const persisted = await loadPrototypes(prototypeWorkspace);
         assert.equal(persisted.source, "repo");
