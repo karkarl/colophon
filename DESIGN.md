@@ -227,6 +227,15 @@ Personality: editorial, precise, warm, unhurried.
 
 Use the named spacing tokens rather than ad-hoc values.
 
+### Editor navigation
+
+The Colophon Pages sidebar is editor chrome, not a preview of this design.
+Use the host's generic surface, text, muted-text, and border tokens, with a
+neutral gray hover and ink selection/focus (black in the default light theme).
+The preview theme and authored tokens must not recolor or resize this navigation.
+Reuse the generic editor's compact spacing: 4px gaps/radii, 8px list padding,
+and 12px heading/action padding. Keep Northlight tokens in the authored preview.
+
 ## Elevation & Depth
 
 Use the named shadows in `x-colophon.tokens.shadows` when elevation is needed.

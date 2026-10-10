@@ -339,13 +339,25 @@ async function shellBehavior(kind) {
     state.validation = null;
     renderValidation();
 
+    const navigationStyles = () => {
+      const styles = {};
+      for (const selector of [".page-nav", ".page-nav-title", ".page-nav-list", ".page-nav-link.is-active", ".page-add"]) {
+        const computed = getComputedStyle(document.querySelector(selector));
+        styles[selector] = Object.fromEntries(["backgroundColor", "color", "borderTopColor", "borderRightColor", "fontSize", "padding", "borderRadius"]
+          .map((name) => [name, computed[name]]));
+      }
+      return styles;
+    };
+    const genericNavigation = navigationStyles();
+    check(genericNavigation[".page-nav-link.is-active"].backgroundColor === genericNavigation[".page-nav"].color,
+      "active page uses generic ink, not a sample-accent tint");
+    check(genericNavigation[".page-nav-link.is-active"].color === genericNavigation[".page-nav"].backgroundColor,
+      "active page uses contrasting generic surface text");
     for (const theme of ["dark", "highContrast", "light"]) {
       document.querySelector(`[data-theme="${theme}"]`).click();
       await waitFor("#brand-name");
       const nav = document.querySelector(".page-nav");
-      const sidebar = getComputedStyle(nav);
-      const inspector = getComputedStyle(document.querySelector("#design-inspector"));
-      check(sidebar.backgroundColor === inspector.backgroundColor && sidebar.borderRightColor === inspector.borderLeftColor, "Pages shares inspector surface and divider in every theme");
+      check(JSON.stringify(navigationStyles()) === JSON.stringify(genericNavigation), "preview themes do not recolor or resize generic Pages navigation");
       if (innerWidth > 720) {
         const bounds = nav.getBoundingClientRect();
         check(bounds.left === 0 && Math.abs(bounds.bottom - innerHeight) < 1, "Pages fills the left edge down to the viewport bottom");
@@ -355,6 +367,31 @@ async function shellBehavior(kind) {
         check(nav.getBoundingClientRect().bottom <= document.querySelector(".page-content").getBoundingClientRect().top, "narrow Pages index stays above content");
         check(document.documentElement.scrollWidth <= innerWidth, "narrow brand page has no horizontal overflow");
       }
+    }
+    const originalTokens = structuredClone(state.tokens);
+    for (const color of state.tokens.colors) {
+      color.value = "#ff00ff";
+      color.themes = { dark: "#00ff00", highContrast: "#0000ff" };
+    }
+    for (const step of state.tokens.spacing.scale) step.value = "40px";
+    for (const radius of state.tokens.radii) radius.value = "40px";
+    state.tokens.typography.scale.find((style) => style.name === "caption").size = "40px";
+    applyVars();
+    check(JSON.stringify(navigationStyles()) === JSON.stringify(genericNavigation), "authored palette, type, spacing, and radii cannot leak into Pages chrome");
+    state.tokens = originalTokens;
+    applyVars();
+    const rootStyle = document.documentElement.style;
+    const hostColors = { "--background-color-default": "rgb(20, 20, 20)", "--text-color-default": "rgb(240, 240, 240)", "--border-color-default": "rgb(70, 70, 70)" };
+    const originalHost = Object.fromEntries(Object.keys(hostColors).map((key) => [key, rootStyle.getPropertyValue(key)]));
+    for (const [key, value] of Object.entries(hostColors)) rootStyle.setProperty(key, value);
+    await waitUntil(() => getComputedStyle(document.querySelector(".page-nav-link.is-active")).backgroundColor === "rgb(240, 240, 240)",
+      "generic sidebar transitions to the host's updated ink");
+    const hostNavigation = navigationStyles();
+    check(hostNavigation[".page-nav"].backgroundColor === "rgb(20, 20, 20)" && hostNavigation[".page-nav-link.is-active"].backgroundColor === "rgb(240, 240, 240)",
+      "Pages responds to the host theme independently of the preview");
+    for (const [key, value] of Object.entries(originalHost)) {
+      if (value) rootStyle.setProperty(key, value);
+      else rootStyle.removeProperty(key);
     }
     state.tokens.pages = Array.from({ length: 40 }, (_, index) => ({ id: `page-${index}`, name: `Page ${index}` }));
     await render();

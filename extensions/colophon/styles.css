@@ -5,6 +5,14 @@
       --radius-*, --shadow-*) which client.js injects from design.json.            */
 
 /* ---------- 1. Canvas chrome ---------- */
+:root {
+  /* Resolve host colors before the body maps preview tokens onto its controls. */
+  --page-nav-surface: var(--background-color-default, #ffffff);
+  --page-nav-ink: var(--text-color-default, #1f2328);
+  --page-nav-muted: var(--text-color-muted, #656d76);
+  --page-nav-line: var(--border-color-default, #d0d7de);
+  --page-nav-hover: color-mix(in srgb, var(--page-nav-ink) 8%, var(--page-nav-surface));
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
@@ -282,30 +290,31 @@ body.inspect-open .page-nav { left: 260px; }
 .canvas-layout { min-width: 0; }
 .page-nav {
   left: 0; width: var(--page-sidebar-width);
-  border-right: 1px solid var(--color-line, #e4ddd0);
+  background: var(--page-nav-surface); color: var(--page-nav-ink);
+  border-right: 1px solid var(--page-nav-line);
 }
 .page-nav-title {
-  padding: var(--space-3, 12px); border-bottom: 1px solid var(--color-line, #e4ddd0);
-  font-size: var(--text-caption-size, 12px); font-weight: 600; color: var(--color-ink, #1c1a17);
+  padding: 12px; border-bottom: 1px solid var(--page-nav-line);
+  font-size: 12px; font-weight: 600;
 }
-.page-nav-list { display: grid; align-content: start; gap: var(--space-1, 4px); padding: var(--space-2, 8px); flex: 1; min-height: 0; overflow: auto; }
+.page-nav-list { display: grid; align-content: start; gap: 4px; padding: 8px; flex: 1; min-height: 0; overflow: auto; }
 .page-nav-link {
-  width: 100%; padding: 8px 10px; border: 0; border-radius: var(--radius-sm, 4px);
-  background: transparent; color: var(--color-muted, #6b6459); cursor: pointer; text-align: left;
+  width: 100%; padding: 8px 10px; border: 0; border-radius: 4px;
+  background: transparent; color: var(--page-nav-muted); cursor: pointer; text-align: left;
   font: inherit; transition: background 160ms ease-out, color 160ms ease-out;
 }
-.page-nav-link:hover { background: color-mix(in srgb, var(--color-muted, #6b6459) 9%, transparent); color: var(--color-ink, #1c1a17); }
-.page-nav-link:focus-visible { outline: 2px solid var(--color-accent, #b5502a); outline-offset: 2px; }
-.page-nav-link.is-active { background: color-mix(in srgb, var(--color-accent, #b5502a) 10%, transparent); color: var(--color-ink, #1c1a17); }
+.page-nav-link:hover:not(.is-active) { background: var(--page-nav-hover); color: var(--page-nav-ink); }
+.page-nav-link:focus-visible { outline: 2px solid var(--page-nav-ink); outline-offset: 2px; }
+.page-nav-link.is-active { background: var(--page-nav-ink); color: var(--page-nav-surface); }
 .page-nav-label { display: block; font-weight: 600; font-size: 13px; }
 .page-nav-description { display: block; margin-top: 2px; font-size: 11px; line-height: 16px; }
 .page-add {
-  width: 100%; padding: var(--space-3, 12px); border: 0; border-top: 1px solid var(--color-line, #e4ddd0);
-  background: transparent; color: var(--color-accent, #b5502a);
+  width: 100%; padding: 12px; border: 0; border-top: 1px solid var(--page-nav-line);
+  background: transparent; color: var(--page-nav-ink);
   cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; text-align: left;
 }
-.page-add:hover { background: color-mix(in srgb, var(--color-accent, #b5502a) 8%, transparent); }
-.page-add:focus-visible { outline: 2px solid var(--color-accent, #b5502a); outline-offset: 2px; }
+.page-add:hover { background: var(--page-nav-hover); }
+.page-add:focus-visible { outline: 2px solid var(--page-nav-ink); outline-offset: 2px; }
 .page-content { min-width: 0; max-width: 1160px; margin: 0 auto; padding: var(--space-5, 24px) 0 var(--space-7, 48px); }
 
 /* User-authored pages keep writing and component selection in one calm working surface. */
@@ -487,7 +496,7 @@ details.src pre { margin: 0; padding: 0 12px 12px; overflow: auto; font-size: 12
 
 @media (max-width: 720px) {
   .wrap { padding: var(--space-4, 16px); }
-  .page-nav { position: static; width: auto; max-height: 50vh; border: 1px solid var(--color-line, #e4ddd0); }
+  .page-nav { position: static; width: auto; max-height: 50vh; border: 1px solid var(--page-nav-line); }
   .page-nav-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .page-add { grid-column: 1 / -1; }
   .page-content { padding: 24px 0 40px; }
