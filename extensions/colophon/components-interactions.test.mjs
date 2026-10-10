@@ -84,6 +84,7 @@ test("control resets are opt-in, restricted, and require token-bound focus cues"
 
 test("classic runtime expansion matches ESM, including metadata and legacy samples", async () => {
   const context = { window: {} };
+  vm.runInNewContext(await readFile(new URL("./shape-geometry.js", import.meta.url), "utf8"), context);
   vm.runInNewContext(await readFile(new URL("./components-runtime.js", import.meta.url), "utf8"), context);
   const sample = parseComponents(await readFile(new URL("./sample/components.jsonc", import.meta.url), "utf8"));
   const design = JSON.parse(await readFile(new URL("./sample/design.json", import.meta.url), "utf8"));

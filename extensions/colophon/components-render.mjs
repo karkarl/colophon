@@ -11,6 +11,10 @@ import {
   moveComponentNode,
   duplicateComponentNode,
   removeComponentNode,
+  canContainComponentChildren,
+  componentDropDestination,
+  insertComponentNode,
+  scaleComponentGeometry,
 } from "./componentsio.mjs";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -72,6 +76,10 @@ const DSComp = {
   moveComponentNode,
   duplicateComponentNode,
   removeComponentNode,
+  canContainComponentChildren,
+  componentDropDestination,
+  insertComponentNode,
+  scaleComponentGeometry,
   specToDom,
   renderComponent,
 };

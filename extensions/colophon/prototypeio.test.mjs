@@ -358,7 +358,7 @@ test("renderer applies instance styles before DS interaction capture and keeps c
     DSInteractions: { createContext: (render) => ({ render }), mount: (dom) => dom, disposeTree: () => disposed++ },
   };
   const context = vm.createContext({ window, document });
-  for (const name of ["proto-layout.js", "proto-render.js"]) {
+  for (const name of ["shape-geometry.js", "proto-layout.js", "proto-render.js"]) {
     vm.runInContext(await readFile(new URL(name, import.meta.url), "utf8"), context);
   }
   const runtime = window.ProtoRender.createRuntime({ doc: freeformDoc, componentsDoc });

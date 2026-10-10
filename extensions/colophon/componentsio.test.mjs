@@ -14,6 +14,10 @@ import {
   parseComponents,
   removeComponentNode,
   validateComponentsDoc,
+  canContainComponentChildren,
+  componentDropDestination,
+  insertComponentNode,
+  scaleComponentGeometry,
 } from "./componentsio.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -398,4 +402,89 @@ test("bundled sample is valid v3 hybrid layout", async () => {
   assert.equal(board.children.every((node) => node.position?.mode === "absolute"), true);
   assert.deepEqual(result.errors, []);
   assert.equal(result.ok, true);
+});
+
+test("insert assigns stable IDs and rejects invalid or recursive destinations atomically", () => {
+  const doc = { meta: { version: 3 }, components: [
+    { name: "Board", root: { id: "board", el: "div", layout: { mode: "freeform" }, children: [{ id: "text", el: "input" }] } },
+    { name: "Label", root: { id: "label", el: "span", children: ["Label"] } },
+    { name: "Recursive", root: { id: "recursive", component: "Board" } },
+  ] };
+  const root = ["components", 0, "root"];
+  const source = { id: "text", el: "p", children: ["Text"] };
+  assert.deepEqual(insertComponentNode(doc, root, source), [...root, "children", 1]);
+  assert.equal(doc.components[0].root.children[1].id, "text-2");
+  assert.equal(source.id, "text");
+  assert.deepEqual(doc.components[0].root.children[1].position, { mode: "absolute", x: 0, y: 0 });
+  insertComponentNode(doc, root, { component: "Label" });
+  assert.equal(validateComponentsDoc(doc).ok, true);
+  const before = structuredClone(doc);
+  for (const name of ["Board", "Recursive", "Missing"]) {
+    assert.throws(() => insertComponentNode(doc, root, { component: name }), /recursive|Unknown component/);
+    assert.deepEqual(doc, before);
+  }
+  for (const node of [{ el: "input" }, { el: "img" }, { el: "textarea" }, { el: "svg" }, { component: "Label" }]) {
+    assert.equal(canContainComponentChildren(node), false);
+  }
+  assert.throws(() => insertComponentNode(doc, [...root, "children", 0], source), /cannot contain/);
+  assert.throws(() => componentDropDestination(doc, root, "before"), /roots cannot/);
+  assert.deepEqual(doc, before);
+});
+
+test("moving from freeform to flow removes absolute positioning without losing identity", () => {
+  const doc = { meta: { version: 3 }, components: [{ name: "Board", root: {
+    id: "board", el: "div", children: [
+      { id: "freeform", el: "div", layout: { mode: "freeform" }, children: [
+        { id: "child", el: "div", position: { mode: "absolute", x: 12, y: -4 }, layout: { width: 96 } },
+      ] },
+      { id: "flow", el: "div", layout: { mode: "horizontal" } },
+    ],
+  } }] };
+  const root = ["components", 0, "root"];
+  const source = [...root, "children", 0, "children", 0];
+  const target = [...root, "children", 1];
+  const child = doc.components[0].root.children[0].children[0];
+  const before = structuredClone(doc);
+  componentDropDestination(doc, target, "inside", source);
+  assert.deepEqual(doc, before, "destination validation does not mutate");
+  assert.deepEqual(moveComponentNode(doc, source, target, "inside"), [...target, "children", 0]);
+  assert.equal(doc.components[0].root.children[1].children[0], child);
+  assert.equal(child.position, undefined);
+  assert.equal(child.layout.width, 96);
+  assert.equal(validateComponentsDoc(doc).ok, true);
+});
+
+test("geometry scaling is atomic and keeps semantic tokens, instances, and root position", () => {
+  const node = { id: "root", el: "div", position: { mode: "absolute", x: 20, y: 30 },
+    layout: { mode: "freeform", width: "fill", height: 100, gap: "2", padding: 8 },
+    appearance: { textStyle: "body", radius: "md", shadow: "sm", borderWidth: 2 },
+    children: [
+      { id: "instance", component: "Card", layout: { width: 40, height: "hug" }, position: { mode: "absolute", x: -5, y: 10 } },
+      { id: "text", el: "p", children: ["hello"] },
+    ],
+  };
+  const original = structuredClone(node);
+  scaleComponentGeometry(node, 2, { width: 200, height: 100 });
+  assert.deepEqual(node.layout, { ...original.layout, width: 400, height: 200 });
+  assert.deepEqual(node.appearance, original.appearance);
+  assert.deepEqual(node.position, original.position);
+  assert.deepEqual(node.children[0].layout, { width: 80, height: "hug" });
+  assert.deepEqual(node.children[0].position, { mode: "absolute", x: -10, y: 20 });
+  assert.deepEqual(node.children[1], original.children[1]);
+  const before = structuredClone(node);
+  for (const factor of [0, -1, NaN, Infinity, 11]) {
+    assert.throws(() => scaleComponentGeometry(node, factor, { width: 200, height: 100 }), /multiplier/);
+    assert.deepEqual(node, before);
+  }
+  assert.throws(() => scaleComponentGeometry(node, 10, { width: 1000000, height: 100 }), /supported range/);
+  assert.deepEqual(node, before);
+});
+
+test("inserting into legacy scalar children preserves existing text", () => {
+  const doc = { meta: { version: 1 }, components: [{
+    name: "Legacy", root: { el: "div", children: "Existing text" },
+  }] };
+  insertComponentNode(doc, ["components", 0, "root"], { el: "span", children: ["New text"] });
+  assert.equal(doc.components[0].root.children[0], "Existing text");
+  assert.equal(doc.components[0].root.children[1].id, "span");
 });

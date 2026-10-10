@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { designDirFor, DESIGN_SUBPATH } from "./designio.mjs";
+import "./shape-geometry.js";
 import "./proto-layout.js";
 
 const { validateNode } = globalThis.ProtoLayout;
@@ -82,7 +83,7 @@ const KEY_ORDER = [
   "$schema", "meta", "version", "updatedBy", "updatedAt", "note",
   "state", "sections", "screens", "flows",
   "id", "name", "sectionId", "device", "start",
-  "layout", "component", "text", "image", "spacer",
+  "layout", "component", "text", "image", "spacer", "shape", "endpoints",
   "direction", "columns", "gap", "padding", "margin", "align", "justify", "wrap",
   "background", "radius", "grow", "size", "fit", "width", "height",
   "position", "appearance", "style", "color", "alt", "src", "props",

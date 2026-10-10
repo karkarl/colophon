@@ -13,6 +13,7 @@ colors:
   positive: "#3f6b4c"
   warning: "#a8791f"
   critical: "#8f2f2a"
+  selection: "#0969da"
 typography:
   display:
     fontFamily: '"Fraunces", "Iowan Old Style", Georgia, serif'
@@ -151,6 +152,11 @@ x-colophon:
         themes:
           dark: "#d1554e"
           highContrast: "#ff5449"
+      selection:
+        usage: Editor-only geometry selection, hover bounds, resize handles, and valid drop targets
+        themes:
+          dark: "#79c0ff"
+          highContrast: "#58e1ff"
     typography:
       display:
         weights:
@@ -213,6 +219,9 @@ Personality: editorial, precise, warm, unhurried.
 - **positive** {colors.positive}: Success states
 - **warning** {colors.warning}: Warnings
 - **critical** {colors.critical}: Errors, destructive
+- **selection** {colors.selection}: Editor geometry feedback only. Never a
+  component fill or secondary action accent. Pair blue outlines with handles,
+  insertion lines, and destination text; invalid targets get no valid-drop cue.
 
 ## Typography
 
@@ -242,6 +251,55 @@ fully rounded ends and a 4px leading inset. Reserve 16px of leading row padding
 in every state so labels do not shift on selection.
 Keep Northlight tokens in the authored preview.
 
+### Inspect workspace
+
+Both Colophon and Prototype Inspect use a Layers rail of four spacing-8 units and a Properties
+rail of five spacing-8 units. Below their combined width plus five spacing-8
+units of canvas, stack the rails into one column. Editor controls reuse the
+small/caption type styles, spacing 1-4, and radius sm/md. Pointer hit areas use
+spacing 4; resize-handle glyphs use spacing 2.
+
+Prototype keeps device framing and Fit zoom. In Inspect, its existing Screens
+navigation lives in a collapsible section of the Layers rail; leaving Inspect
+restores the full screen menu. Reuse the same selection overlays, insertion
+component palette, geometry controls, and panel docking across both editors.
+
+Primitive creation belongs in one floating bottom toolbar, centered in the
+editing viewport rather than over either rail. Reuse the Button/SubtlePicker
+patterns: `surface` background, `line` border, `ink` icons, `lg` outer radius,
+`md` shadow, spacing `2` padding and `1` gaps. Tool targets use spacing `5 + 4`
+with icons at `4 + 1`; the shape-menu toggle uses `5`. Keep spacing `4` clear
+below the toolbar. App-selected buttons use neutral black chrome, independent of
+the sample system: `--editor-control-ink` is #1c1a17 and
+`--editor-control-surface` is #ffffff, matching Prototype's existing controls.
+Do not bind selected editor buttons or their focus rings to the preview's orange
+`accent`. Keep those sample tokens unchanged for rendered design components.
+Blue `selection` remains reserved for geometry feedback.
+
+Move selects and repositions. Frame, Rectangle, Ellipse, Line, Arrow, and Text are modes:
+click creates default geometry; dragging sets bounds, including reverse
+directions. Shift constrains frames and area shapes to a square/circle; for lines
+and arrows it snaps the direction to 45-degree increments. Enter inserts
+into the selected container without a pointer; Escape cancels. Completion
+returns to Move, and Text focuses the literal-text property. Retain flow layout
+when drawing into a flow container. Keep component instances in the Layers
+rail's Components picker; do not duplicate primitive tools there. Add components
+in the toolbar opens a searchable dropdown of the same live component names,
+not a second library. It uses the SubtlePicker/Field patterns, spacing `2`,
+radius `md`, shadow `md`, and a four-spacing-8-unit width bounded by the viewport.
+Search and result text use the same `small` typography as the Components header.
+Result rows are borderless subtle buttons: transparent at rest, `line` on hover,
+and `paper` when pressed, with a visible neutral keyboard focus outline.
+Show an explicit empty-search message. Selecting an item inserts a reference
+into the selected container, or beside a leaf; Escape closes and restores focus.
+
+New freeform frames default to 160 by 96 document pixels; rectangles and ellipses
+to 96 by 64. Text defaults to hug sizing, or fixed bounds when drawn.
+Lines and arrows default to a horizontal 96 by 16 box, with a 2-pixel stroke
+and an arrowhead up to 8 pixels long. Stroke color defaults to `ink`.
+These are editable object geometry, not UI spacing tokens. Geometry scaling
+preserves typography, spacing, radius, and shadow token references.
+
 ## Elevation & Depth
 
 Use the named shadows in `x-colophon.tokens.shadows` when elevation is needed.
@@ -249,6 +307,17 @@ Use the named shadows in `x-colophon.tokens.shadows` when elevation is needed.
 ## Shapes
 
 Use the `rounded` tokens for corner radii.
+Layer `shape: "ellipse"` is geometric, not a radius token: a 50% border radius
+preserves a true ellipse at any aspect ratio and takes precedence over appearance
+radii. All shape primitives are leaves; Frame is the container tool.
+Line/arrow `endpoints` store start/end normalized x/y coordinates in their fixed
+pixel bounds. The arrowhead is at the drag's release point, including reverse
+drags. Shared SVG geometry drives both previews, exports, and generated code.
+Use `appearance.borderColor` and `borderWidth` for the labeled stroke controls;
+these shapes have no background fill or rectangular border.
+Apply instance appearance overrides before resolving shape geometry, so ellipse
+radii and line/arrow stroke behavior remain consistent without modifying the
+referenced component definition.
 
 ## Components
 

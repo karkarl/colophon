@@ -17,6 +17,8 @@ test("prototype shell includes the shared screen menu before the preview", () =>
   assert.doesNotMatch(html, /id="screen-select"/);
   assert.match(html, /id="add-screen-btn"/);
   assert.match(html, /id="add-section-btn"/);
+  assert.equal((html.match(/id="creation-toolbar"/g) || []).length, 1);
+  assert.match(html, /aria-label="Shape tools"/);
 });
 
 test("writes a self-contained prototype export", async () => {
@@ -33,6 +35,8 @@ test("writes a self-contained prototype export", async () => {
     assert.equal(output.path, path.join(workspace, ".agents", "design", "prototype-export", "index.html"));
     assert.match(saved, /window\.__COLOPHON_PROTOTYPE_EXPORT__/);
     assert.match(saved, /window\.DSComp/);
+    assert.match(saved, /root\.ShapeGeometry/);
+    assert.ok(saved.indexOf("root.ShapeGeometry =") < saved.indexOf("window.DSComp ="));
     assert.match(saved, /window\.DSInteractions/);
     assert.match(saved, /\.ds-flyout/);
     assert.ok(saved.indexOf("window.DSInteractions =") < saved.indexOf("window.DSComp ="));
@@ -41,6 +45,7 @@ test("writes a self-contained prototype export", async () => {
     assert.ok(saved.includes(renderScreenNav()));
     assert.doesNotMatch(saved, /id="(?:add-screen-btn|delete-screen-btn|screen-dialog|layers-panel|inspector)"/);
     assert.doesNotMatch(saved, /id="screen-select"/);
+    assert.doesNotMatch(saved, /id="creation-toolbar"/);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

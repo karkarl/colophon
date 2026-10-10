@@ -2,6 +2,8 @@
 // which the loopback server serves statically. Keeping the shell tiny avoids
 // template-escaping pain and lets us edit the app without touching wiring.
 
+import { renderInsertPalette, renderWorkspaceControls, renderWorkspaceOverlays } from "./editor-workspace-renderer.mjs";
+
 export function renderShell() {
   return `<!doctype html>
 <html>
@@ -11,6 +13,7 @@ export function renderShell() {
     <title>Design System</title>
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/property-controls.css" />
+    <link rel="stylesheet" href="/inspect-workspace.css" />
   </head>
   <body>
     <div class="topbar">
@@ -46,6 +49,8 @@ export function renderShell() {
           <button type="button" id="layers-redo-btn" class="panel-icon-btn" title="Redo" aria-label="Redo" disabled>↷</button>
         </div>
       </div>
+      ${renderInsertPalette()}
+      ${renderWorkspaceControls()}
       <div id="component-layer-tree" class="component-layer-tree"></div>
       <div class="layer-actions">
         <button type="button" id="layers-duplicate-btn" class="btn" disabled>Duplicate</button>
@@ -65,6 +70,7 @@ export function renderShell() {
         <button type="button" id="properties-tab" role="tab" aria-selected="true" class="is-active">Properties</button>
         <button type="button" id="json-tab" role="tab" aria-selected="false">JSON</button>
       </div>
+      <button type="button" id="inspector-dock-btn" class="btn" aria-pressed="false">Properties on left</button>
       <div id="inspect-properties" class="inspector-panel" role="tabpanel"></div>
       <div id="inspect-json-panel" class="inspector-panel json-panel" role="tabpanel" hidden>
         <textarea id="inspect-json" aria-label="Selected design-system JSON" spellcheck="false" disabled></textarea>
@@ -77,11 +83,16 @@ export function renderShell() {
         <span id="inspect-error" role="alert"></span>
       </div>
     </aside>
+    ${renderWorkspaceOverlays()}
     <link rel="stylesheet" href="/components-interactions.css" />
     <script src="/components-interactions.js"></script>
+    <script src="/shape-geometry.js"></script>
     <script type="module" src="/components-render.mjs"></script>
     <script src="/property-controls.js"></script>
     <script src="/client.js"></script>
+    <script src="/editor-geometry.js"></script>
+    <script src="/editor-workspace.js"></script>
+    <script src="/inspect-workspace.js"></script>
   </body>
 </html>`;
 }

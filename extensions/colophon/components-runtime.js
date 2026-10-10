@@ -126,12 +126,12 @@
   }
 
   function nodeStyle(node) {
-    return { ...autoLayoutStyle(node), ...appearanceStyle(node) };
+    return { ...autoLayoutStyle(node), ...appearanceStyle(node), ...globalThis.ShapeGeometry.style(node) };
   }
 
   function mergeNodeStyle(spec, node, source) {
     if (!spec || typeof spec === "string") return spec;
-    return { ...spec, style: { ...(spec.style || {}), ...nodeStyle(node) }, ...interactionSpec(node, spec), source };
+    return globalThis.ShapeGeometry.applyToSpec({ ...spec, style: { ...(spec.style || {}), ...nodeStyle(node) }, ...interactionSpec(node, spec), source }, node);
   }
 
   function interactionSpec(node, base = {}) {
@@ -191,7 +191,7 @@
       const expanded = expandNode(doc, child, props, seen, childSource);
       if (expanded != null) spec.children.push(expanded);
     }
-    return spec;
+    return globalThis.ShapeGeometry.applyToSpec(spec, node);
   }
 
   function specToDom(spec, inSvg = false, context = null) {

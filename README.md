@@ -175,6 +175,38 @@ Open the **Design System** canvas to see the system rendered live:
   duplicate/delete layers; and undo/redo before saving. In Inspect mode, drag an
   absolutely positioned child directly on a freeform preview to update its
   parent-relative X/Y coordinates live; one undo step is recorded when it is dropped.
+- **Direct manipulation in Inspect** — the floating bottom toolbar contains
+  **Move (V)**, **Frame (F)**, **Shape tools** (Rectangle **R**, Ellipse **O**,
+  Line **L**, Arrow **Shift+L**), **Text (T)**, and **Add components**.
+  The component dropdown searches the current design system and inserts a
+  reusable instance into the selection. Editor-selected buttons stay neutral
+  black; the sample design's accent applies only to the rendered sample.
+  Choose a creation tool, then click on a preview layer for
+  default sizing or drag to draw its bounds; **Shift** draws a square/circle or
+  snaps a line/arrow to 45-degree increments. Arrows point toward release.
+  **Enter** inserts into the selected container (or after a selected leaf).
+  Creation returns to Move; Text focuses its content field. **Escape** cancels.
+  Component references remain in the sidebar's **Components** picker: click to
+  insert or drag onto a preview. Drag existing layers from the tree: blue
+  destination bounds mean **inside**, while a line means **before/after**.
+  Invalid containers, recursive references, cycles, and cross-component moves
+  are rejected before a valid destination is shown. Moving into a flow layout
+  removes obsolete absolute positioning.
+  Selection handles resize width, height, or both; hold **Shift** on the corner
+  to preserve aspect ratio. W/H fields remain the keyboard alternative.
+  Pending property edits are committed before measuring a resize; invalid edits
+  block the gesture. Text and resize remain separate undo steps.
+  **Scale geometry** accepts 0.1-10x and changes fixed dimensions and descendant
+  positions, **not** shared typography, spacing, radius, or effect tokens.
+  **Zoom** (50-200%) only changes the preview. **Properties on left** swaps the
+  sidebars; narrow views stack them in one rail. **Parent** (or Shift+Enter)
+  navigates up the layer tree. Escape cancels a drag or resize, and completed
+  gestures remain draft edits until **Save to repo**.
+
+The [Inspect interaction proposal](docs/inspect-interactions-proposal.md)
+documents the Figma research, the implemented scope, and deliberate differences
+from a full illustration editor. Editor geometry cues use a `selection` color
+token when supplied by the design system, falling back to its existing `accent`.
 
 `components.jsonc` v3 uses stable IDs and token names for semantic layout, with
 fixed pixel dimensions reserved for intentional freeform composition:
@@ -210,6 +242,9 @@ non-negative pixel numbers in v3. Spacing values reference keys in
 explicit pixel values. Format v1 remains readable, while v2 and later require
 unique stable IDs within each component so canvas selections and future layer moves
 remain durable.
+Compatible component-reference and default text insertions preserve the document
+version. Creating fixed geometry, resizing, or scaling requires an explicit v3
+upgrade; these tools never automatically migrate unrelated legacy definitions.
 
 A freeform parent establishes a local coordinate system without flattening the
 relational tree. Direct children opt into arbitrary placement with finite pixel
@@ -234,6 +269,18 @@ coordinates:
 Omitting `position` keeps a child in normal flow. Auto Layout drag operations still
 reorder or reparent `children`; freeform movement updates only the child node's
 parent-relative `x` and `y`.
+
+Both component and prototype nodes support `shape: "rectangle" | "ellipse" | "line" | "arrow"` for
+primitive leaves. Ellipse uses a geometric 50% radius at any aspect ratio,
+overriding appearance radii; it is not a pill-radius token. Shape nodes cannot
+contain children. Use a frame for grouping.
+Lines/arrows store normalized `endpoints: { start: { x, y }, end: { x, y } }`
+in fixed positive-pixel width/height bounds. Stroke color/thickness use
+`appearance.borderColor` / `borderWidth`. Shared SVG rendering preserves their
+direction in both previews, standalone exports, and generated React.
+Component-instance appearance overrides update the resolved shape: ellipses keep
+their geometric radius, and line/arrow stroke overrides style the SVG rather
+than adding a rectangular border. Referenced definitions remain unchanged.
 
 Visual values inherit through normal component classes and the element hierarchy.
 An omitted `appearance` key means **inherit**; selecting a different value in
@@ -370,16 +417,30 @@ group. Existing files without sections keep their flat list. Agent patches can u
 - **Device frames** — preview each screen in web breakpoints, desktop-app windows (Windows/WinUI, macOS), mobile (iPhone/Android), and tablet — selectable, rotatable, with custom sizes and a zoom-to-fit — like Chrome DevTools' device toolbar, but including native app chrome.
 - **Interactions (v1)** — navigate between screens, simple state (toggles, tabs), open/close modals, and visibility bound to state. Click through it live in the canvas, rendered with your real tokens + components in Light/Dark/High-contrast.
 - **Structured properties** — toggle **Inspect** to select a layer in the preview or
-  Layers tree. Layers and its history/actions occupy the left sidebar, before
-  Screens; Properties / JSON stay on the right of the preview. **Properties** is
+  Layers tree. Layers and its history/actions occupy the left sidebar, with
+  **Screens** available in a collapsible section; Properties / JSON stay on the
+  right of the preview. **Properties** is
   the default tab: edit its stable ID, text, image,
   component-instance content, layout, dimensions, padding, margin, and sparse
   appearance overrides. Typography previews, palette swatches, explicit **None**,
   custom colors, and snapped/free spacing reuse Colophon's token-backed controls.
   Instance content changes never modify a component definition. **JSON** remains
   available for exact edits, including navigation and complex props.
-  Editor buttons and selection/focus highlights use neutral chrome; preview
-  components and palette swatches retain the design system's own colors.
+  Editor buttons and field focus retain neutral chrome. Geometry cues use the
+  same `selection` token as Colophon; preview components and palette swatches
+  retain the design system's own colors.
+- **Shared direct manipulation** — Prototype uses the same bottom tool modes,
+  click/drag creation, component picker,
+  validated blue destination outlines/insertion lines, resize handles,
+  geometry scaling, parent navigation, and properties docking as Colophon.
+  Insert frames, rectangles, ellipses, lines, arrows, text, and component instances; drag tree layers
+  into a preview or use the tree for reparenting. A component remains an
+  instance, never a detached definition. W/H resize is distinct from
+  **Scale geometry**, which changes fixed dimensions and descendant positions
+  while preserving typography, spacing, effects, props, and navigation.
+  Device **Fit** and 50-200% zoom are view-only. Narrow editors stack the rails.
+  Cancel on Escape, pointer cancellation, lost capture, blur, reload, or
+  leaving Inspect; completed gestures join the existing undo/save history.
 - **Live local draft** — typing previews valid changes immediately. Finishing an
   input commits one local edit; **Escape** cancels its preview. Invalid values show
   an error instead of entering the saved document. Changes stay local until
@@ -446,6 +507,11 @@ extensions/colophon/              the canvas extension:
   renderer.mjs    tiny iframe shell (design canvas)
   client.js       the in-canvas inspector app (onboarding, render, edit, live previews)
   property-controls.js / property-controls.css  shared token-backed inspector controls
+  editor-workspace.js / editor-workspace-renderer.mjs  shared tools, gestures, component picker and overlays
+  shape-geometry.js shared shape validation and SVG geometry for rendering/export/codegen
+  editor-geometry.js  shared creation templates and atomic, token-preserving geometry scaling
+  inspect-workspace.js / proto-workspace.js  component and prototype document adapters
+  inspect-workspace.css  shared editor cues, docking and narrow layouts
   styles.css      canvas chrome + the ds-* component runtime (from tokens)
   prototypeio.mjs  load / save / surgically patch / validate prototypes.jsonc (scene graph)
   proto-render.js  in-canvas JSON→DOM interpreter + interaction/state runtime
@@ -453,6 +519,7 @@ extensions/colophon/              the canvas extension:
   proto-client.js  the Prototype canvas app (device frames, inspect/edit/layers, click-through)
   proto-properties.js  structured properties with caller-owned preview/commit transactions
   proto-layout.js  shared flat layout, appearance validation, and styling
+  proto-editor-model.js  validated insertion/reparenting for tree and preview drops
   proto-renderer.mjs / proto.css   prototype iframe shell + device-frame styles
   proto-outline.mjs                Markdown flow-outline generator
   protocodegen.mjs                 convert a screen to code for the port target
@@ -466,11 +533,13 @@ extensions/colophon/              the canvas extension:
   they work fully offline — no CDN, no React/Babel.
 - Design-system inspection supports token editing plus visual Auto Layout controls,
   drag/reparent, duplicate/delete, undo/redo, and exact JSON fallback for
-  `components.jsonc` layers. Fixed/min/max dimensions, absolute positioning,
-  responsive variants, and multi-selection are not yet part of the component schema.
+  `components.jsonc` layers. Fixed dimensions and parent-relative absolute
+  positioning are supported; min/max dimensions, responsive variants, and
+  multi-selection are not yet part of the component schema.
 - Prototype layers support structured properties and JSON editing, local live
   drafts, undo/redo, duplicate/delete, tree reordering/reparenting, and direct
-  freeform movement. The model stays flat: `layout` is a discriminator such as
+  freeform movement, click/drag creation tools, resize handles, and geometry scaling. The model
+  stays flat: `layout` is a discriminator such as
   `"stack"`, `"row"`, `"grid"`, `"scroll"`, `"freeform"`, or `"none"`; dimensions,
   spacing, margin, and `position` live on the node, not a nested layout object.
   Standalone exports include rendering and navigation, not authoring controls.

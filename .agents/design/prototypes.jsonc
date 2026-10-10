@@ -1,0 +1,553 @@
+// prototypes.jsonc — click-through prototypes built from this repo's design system.
+// Framework-agnostic scene graph (not shipping code): layout primitives + references to
+// components.jsonc by name + navigation as data. Copilot authors/patches this; review it in
+// the Prototype canvas. Node kinds: layout | component | text | image | spacer. Every node
+// may carry id, on (interactions), visibleWhen/hiddenWhen. Actions: navigate, back,
+// setState, toggle, openModal, closeModal. This file is regenerated with stable key order
+// Layouts: stack, row, grid, scroll, freeform, none. Common fields: width/height
+// (hug, fill, pixels or CSS length), gap, padding/margin (token, pixels or edge box),
+// appearance (sparse component-system overrides). Only direct freeform children may
+// carry position: { mode: "absolute", x, y }. Appearance overrides legacy flat styles.
+// Optional sections: [{ id, name }]. A screen's sectionId assigns it to a sidebar group.
+// on save — use "note" fields for durable annotations.
+{
+  "meta": {
+    "version": 1,
+    "updatedBy": "copilot",
+    "updatedAt": "2026-10-08T22:10:00.128Z",
+    "note": "Click-through proposal for selection, drop feedback, resize, and save. Direct manipulation is implemented in the Colophon canvas.",
+    "name": "Colophon Inspect interactions"
+  },
+  "state": {
+    "step": "select",
+    "tool": "move"
+  },
+  "screens": [
+    {
+      "id": "inspect-workspace",
+      "name": "Inspect workspace",
+      "device": "responsive",
+      "root": {
+        "id": "workspace",
+        "layout": "stack",
+        "gap": "4",
+        "padding": "5",
+        "background": "paper",
+        "children": [
+          {
+            "id": "title",
+            "text": "Inspect, without losing the system",
+            "style": "title"
+          },
+          {
+            "id": "intro",
+            "text": "Create a layer. Preview its destination. Resize it. Save the same token-bound component graph.",
+            "style": "small",
+            "color": "muted"
+          },
+          {
+            "id": "steps",
+            "layout": "row",
+            "gap": "3",
+            "children": [
+              {
+                "id": "select-step",
+                "component": "Button",
+                "props": {
+                  "children": "1. Select",
+                  "variant": "secondary"
+                },
+                "on": {
+                  "tap": {
+                    "setState": {
+                      "step": "select"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "drop-step",
+                "component": "Button",
+                "props": {
+                  "children": "2. Preview drop",
+                  "variant": "secondary"
+                },
+                "on": {
+                  "tap": {
+                    "setState": {
+                      "step": "drop"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "resize-step",
+                "component": "Button",
+                "props": {
+                  "children": "3. Resize",
+                  "variant": "secondary"
+                },
+                "on": {
+                  "tap": {
+                    "setState": {
+                      "step": "resize"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "panes",
+            "layout": "grid",
+            "columns": 3,
+            "gap": "4",
+            "children": [
+              {
+                "id": "layers",
+                "layout": "stack",
+                "gap": "3",
+                "padding": "4",
+                "background": "surface",
+                "children": [
+                  {
+                    "id": "layers-heading",
+                    "text": "Layers + Components",
+                    "style": "heading"
+                  },
+                  {
+                    "id": "frame-item",
+                    "text": "Frame  /  field-notes",
+                    "style": "small"
+                  },
+                  {
+                    "id": "title-item",
+                    "text": "Text  /  heading",
+                    "style": "small"
+                  },
+                  {
+                    "id": "instance-item",
+                    "text": "Instance  /  Card",
+                    "style": "small",
+                    "color": "selection"
+                  },
+                  {
+                    "id": "insert-help",
+                    "text": "The bottom toolbar creates frames, shapes, and text. Existing component instances stay available in the Layers rail.",
+                    "style": "small",
+                    "color": "muted"
+                  }
+                ]
+              },
+              {
+                "id": "preview",
+                "layout": "stack",
+                "gap": "4",
+                "padding": "4",
+                "background": "surface",
+                "children": [
+                  {
+                    "id": "preview-heading",
+                    "text": "Component canvas",
+                    "style": "heading"
+                  },
+                  {
+                    "id": "selected",
+                    "component": "Card",
+                    "props": {
+                      "body": "A reusable Northlight component.",
+                      "title": "Field notes"
+                    }
+                  },
+                  {
+                    "id": "selected-cue",
+                    "text": "Selected: card-root. Resize handles appear on its bounds.",
+                    "style": "small",
+                    "color": "selection",
+                    "visibleWhen": {
+                      "step": "select"
+                    }
+                  },
+                  {
+                    "id": "drop-cue",
+                    "layout": "stack",
+                    "padding": "3",
+                    "appearance": {
+                      "borderColor": "selection",
+                      "borderWidth": 2
+                    },
+                    "visibleWhen": {
+                      "step": "drop"
+                    },
+                    "children": [
+                      {
+                        "id": "drop-label",
+                        "text": "Inside field-notes",
+                        "style": "small",
+                        "color": "selection"
+                      },
+                      {
+                        "id": "drop-help",
+                        "text": "Blue outlines mark valid containers. A line marks insertion between siblings. Escape cancels.",
+                        "style": "small"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "resize-cue",
+                    "text": "320 x 180. Shift locks the corner ratio. One release, one undo step.",
+                    "style": "small",
+                    "color": "selection",
+                    "visibleWhen": {
+                      "step": "resize"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "properties",
+                "layout": "stack",
+                "gap": "3",
+                "padding": "4",
+                "background": "surface",
+                "children": [
+                  {
+                    "id": "properties-heading",
+                    "text": "Properties",
+                    "style": "heading"
+                  },
+                  {
+                    "id": "properties-dock",
+                    "text": "Dock on either side",
+                    "style": "caption",
+                    "color": "muted"
+                  },
+                  {
+                    "id": "layout-label",
+                    "text": "Layout: vertical / gap 2 / padding 5",
+                    "style": "small"
+                  },
+                  {
+                    "id": "size-label",
+                    "text": "Size: fixed, hug, or fill",
+                    "style": "small"
+                  },
+                  {
+                    "id": "appearance-label",
+                    "text": "Appearance: surface / ink / radius md",
+                    "style": "small"
+                  },
+                  {
+                    "id": "scale-help",
+                    "text": "Scale geometry changes fixed dimensions, not shared type or spacing tokens. Zoom changes only the viewport.",
+                    "style": "small",
+                    "color": "muted"
+                  },
+                  {
+                    "id": "save",
+                    "component": "Button",
+                    "props": {
+                      "children": "Review save behavior",
+                      "variant": "primary"
+                    },
+                    "on": {
+                      "tap": {
+                        "navigate": "inspect-save"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "bottom-tools",
+            "layout": "stack",
+            "gap": "2",
+            "align": "center",
+            "children": [
+              {
+                "id": "tool-hint",
+                "text": "Move, Frame, Shapes, Text, and Add components. Choose a shape and draw; search the live component library to insert an instance. Editor selection uses neutral black, not the sample accent.",
+                "style": "small",
+                "color": "muted"
+              },
+              {
+                "id": "tool-strip",
+                "layout": "row",
+                "gap": "1",
+                "padding": "2",
+                "appearance": {
+                  "background": "surface",
+                  "radius": "lg",
+                  "shadow": "md"
+                },
+                "children": [
+                  {
+                    "id": "tool-move",
+                    "component": "Button",
+                    "props": {
+                      "children": "Move (V)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "move"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "tool-frame",
+                    "component": "Button",
+                    "props": {
+                      "children": "Frame (F)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "frame"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "tool-shape",
+                    "component": "Button",
+                    "props": {
+                      "children": "Shape tools",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "shape"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "tool-text",
+                    "component": "Button",
+                    "props": {
+                      "children": "Text (T)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "text"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "tool-components",
+                    "component": "Button",
+                    "props": {
+                      "children": "Add components",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "components"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "shape-options",
+                "layout": "row",
+                "gap": "2",
+                "visibleWhen": {
+                  "tool": "shape"
+                },
+                "children": [
+                  {
+                    "id": "rectangle-tool",
+                    "component": "Button",
+                    "props": {
+                      "children": "Rectangle (R)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "rectangle"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "ellipse-tool",
+                    "component": "Button",
+                    "props": {
+                      "children": "Ellipse (O)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "ellipse"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "line-tool",
+                    "component": "Button",
+                    "props": {
+                      "children": "Line (L)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "line"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "arrow-tool",
+                    "component": "Button",
+                    "props": {
+                      "children": "Arrow (Shift+L)",
+                      "variant": "secondary"
+                    },
+                    "on": {
+                      "tap": {
+                        "setState": {
+                          "tool": "arrow"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "move-help",
+                "text": "Move selects and repositions layers. A completed creation returns to Move.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "move"
+                }
+              },
+              {
+                "id": "frame-help",
+                "text": "Frame: click for a default freeform frame, or drag its bounds.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "frame"
+                }
+              },
+              {
+                "id": "rectangle-help",
+                "text": "Rectangle: drag its bounds. Hold Shift to draw a square.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "rectangle"
+                }
+              },
+              {
+                "id": "ellipse-help",
+                "text": "Ellipse: drag its bounds. Hold Shift to draw a circle.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "ellipse"
+                }
+              },
+              {
+                "id": "text-help",
+                "text": "Text: click for hug-width text, or drag a fixed text box.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "text"
+                }
+              },
+              {
+                "id": "line-help",
+                "text": "Line: draw in either direction. Shift snaps to 45-degree increments. Stroke color and thickness are editable.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "line"
+                }
+              },
+              {
+                "id": "arrow-help",
+                "text": "Arrow: draw toward the destination. The arrowhead follows release, including reverse drags.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "arrow"
+                }
+              },
+              {
+                "id": "components-help",
+                "text": "Search components by name. Choose a result to insert a reference into the selection, or beside a leaf. Escape closes the dropdown.",
+                "style": "small",
+                "visibleWhen": {
+                  "tool": "components"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "inspect-save",
+      "name": "Save and recover",
+      "device": "responsive",
+      "root": {
+        "id": "save-workspace",
+        "layout": "stack",
+        "gap": "5",
+        "padding": "6",
+        "background": "paper",
+        "children": [
+          {
+            "id": "save-title",
+            "text": "Your graph stays the source",
+            "style": "title"
+          },
+          {
+            "id": "save-body",
+            "text": "Completed gestures stay in the draft until Save to repo. Undo and redo operate on complete edits. Cancelling a gesture leaves the graph unchanged.",
+            "style": "body"
+          },
+          {
+            "id": "save-note",
+            "text": "No token detachment. No automatic publishing. Exact JSON and Send to chat remain available.",
+            "style": "small",
+            "color": "muted"
+          },
+          {
+            "id": "back",
+            "component": "Button",
+            "props": {
+              "children": "Back to Inspect",
+              "variant": "secondary"
+            },
+            "on": {
+              "tap": {
+                "navigate": "inspect-workspace"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "flows": [
+    {
+      "id": "inspect",
+      "name": "Create, place, resize, and save",
+      "start": "inspect-workspace"
+    }
+  ]
+}

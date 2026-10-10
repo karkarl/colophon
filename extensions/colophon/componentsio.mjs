@@ -12,13 +12,15 @@
 // explicit unsnapped pixel values. In v3, a freeform parent establishes a coordinate
 // system for children with absolute, parent-relative positions.
 
+import "./editor-geometry.js";
+import "./shape-geometry.js";
+
 export const COMPONENTS_FILENAME = "components.jsonc";
 
 // ---- JSONC + (de)serialization -------------------------------------------
 
 // Strip // line and /* */ block comments without touching those sequences inside
-// strings. Shared shape with prototypeio.stripJsonc; kept local so this module has
-// no cross-imports and stays isomorphic.
+// strings. Kept local to avoid pulling Node-only prototype IO into the browser.
 export function stripJsonc(text) {
   let out = "";
   let inStr = false, quote = "", inLine = false, inBlock = false;
@@ -119,22 +121,37 @@ function editableChild(doc, path) {
   return { parent, node };
 }
 
-export function moveComponentNode(doc, sourcePath, targetPath, placement = "before") {
+const CONTAINER_TAGS = new Set(["div", "section", "article", "main", "aside", "header", "footer", "nav", "form", "fieldset", "label", "button", "a", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol"]);
+
+export function canContainComponentChildren(node) {
+  return !!node && !node.component && !node.shape && typeof node.el === "string" && CONTAINER_TAGS.has(node.el.toLowerCase());
+}
+
+export function componentDropDestination(doc, targetPath, placement = "inside", sourcePath = null) {
   if (!["before", "after", "inside"].includes(placement)) throw new Error(`Unsupported layer placement "${placement}".`);
-  if (sourcePath?.[1] !== targetPath?.[1]) throw new Error("Layers can only move within the same component.");
-  const { parent: sourceParent, node: sourceNode } = editableChild(doc, sourcePath);
-  if (isPathPrefix(sourcePath, targetPath)) throw new Error("A layer cannot move into itself.");
-  const targetNode = valueAtPath(doc, targetPath);
-  if (!targetNode || typeof targetNode !== "object") throw new Error("Layers can only be dropped on element or component layers.");
-  if (placement === "inside" && !("el" in targetNode)) throw new Error("Only element layers can contain children.");
-  if (placement !== "inside") {
-    const targetParent = valueAtPath(doc, targetPath.slice(0, -1));
-    if (!Array.isArray(targetParent)) throw new Error("Component roots cannot be reordered.");
+  if (!findComponentNodePath(doc, targetPath?.[1], valueAtPath(doc, targetPath))) throw new Error("The target layer no longer exists.");
+  const target = valueAtPath(doc, targetPath);
+  if (!target || typeof target !== "object") throw new Error("Choose an element or component layer.");
+  const parentPath = placement === "inside" ? targetPath : targetPath.slice(0, -2);
+  const parent = valueAtPath(doc, parentPath);
+  if (placement !== "inside" && targetPath.at(-2) !== "children") throw new Error("Component roots cannot be reordered.");
+  if (!canContainComponentChildren(parent)) throw new Error("This layer cannot contain children.");
+  if (sourcePath) {
+    if (sourcePath[1] !== targetPath[1]) throw new Error("Layers can only move within the same component.");
+    editableChild(doc, sourcePath);
+    if (isPathPrefix(sourcePath, targetPath)) throw new Error("A layer cannot move into itself.");
   }
+  return { parent, parentPath, target };
+}
+
+export function moveComponentNode(doc, sourcePath, targetPath, placement = "before") {
+  const destination = componentDropDestination(doc, targetPath, placement, sourcePath);
+  const { parent: sourceParent, node: sourceNode } = editableChild(doc, sourcePath);
+  const targetNode = destination.target;
 
   sourceParent.splice(sourceParent.indexOf(sourceNode), 1);
   if (placement === "inside") {
-    const children = Array.isArray(targetNode.children) ? targetNode.children : (targetNode.children = []);
+    const children = Array.isArray(targetNode.children) ? targetNode.children : (targetNode.children = targetNode.children == null ? [] : [targetNode.children]);
     children.push(sourceNode);
   } else {
     const freshTargetPath = findComponentNodePath(doc, targetPath[1], targetNode);
@@ -143,7 +160,49 @@ export function moveComponentNode(doc, sourcePath, targetPath, placement = "befo
     const targetIndex = targetParent.indexOf(targetNode);
     targetParent.splice(targetIndex + (placement === "after" ? 1 : 0), 0, sourceNode);
   }
+  if (destination.parent.layout?.mode !== "freeform") delete sourceNode.position;
   return findComponentNodePath(doc, sourcePath[1], sourceNode);
+}
+
+export function insertComponentNode(doc, targetPath, template, placement = "inside") {
+  const { parent, target } = componentDropDestination(doc, targetPath, placement);
+  if (!template || typeof template !== "object") throw new Error("Choose a layer to insert.");
+  const owner = doc.components[targetPath[1]];
+  const map = getComponentMap(doc);
+  const checkReferences = (node, ancestors) => {
+    if (!node || typeof node !== "object") return;
+    if (node.component) {
+      if (!Object.hasOwn(map, node.component)) throw new Error(`Unknown component "${node.component}".`);
+      if (ancestors.includes(node.component)) throw new Error("Inserting this component would create a recursive reference.");
+      checkReferences(map[node.component].root, [...ancestors, node.component]);
+    }
+    for (const child of node.children || []) checkReferences(child, ancestors);
+  };
+  checkReferences(template, [owner.name]);
+  const node = JSON.parse(JSON.stringify(template));
+  const ids = new Set();
+  collectNodeIds(owner.root, ids);
+  const assignIds = (value) => {
+    if (!value || typeof value !== "object") return;
+    const base = value.id || value.component || value.el || "layer";
+    let id = base;
+    let suffix = 2;
+    while (ids.has(id)) id = `${base}-${suffix++}`;
+    value.id = id;
+    ids.add(id);
+    for (const child of value.children || []) assignIds(child);
+  };
+  assignIds(node);
+  if (parent.layout?.mode === "freeform") node.position ||= { mode: "absolute", x: 0, y: 0 };
+  else delete node.position;
+  if (!Array.isArray(parent.children)) parent.children = parent.children == null ? [] : [parent.children];
+  const index = placement === "inside" ? parent.children.length : parent.children.indexOf(target) + (placement === "after" ? 1 : 0);
+  parent.children.splice(index, 0, node);
+  return findComponentNodePath(doc, targetPath[1], node);
+}
+
+export function scaleComponentGeometry(node, factor, bounds) {
+  globalThis.EditorGeometry.scale(node, factor, bounds, "component");
 }
 
 function collectNodeIds(node, ids) {
@@ -429,6 +488,7 @@ export function validateComponentsDoc(doc, { text = null, tokens = null } = {}) 
         return;
       }
       const where = `${c.name}${path}`;
+      errors.push(...globalThis.ShapeGeometry.validate(node).map((error) => `${where}.${error}`));
       if (requiresIds && (typeof node.id !== "string" || !node.id)) errors.push(`${where}: missing a stable string "id" (required in components.jsonc v2+).`);
       if (typeof node.id === "string" && node.id) {
         if (ids.has(node.id)) errors.push(`${c.name}: duplicate node id "${node.id}".`);
@@ -601,17 +661,17 @@ export function appearanceStyle(node) {
 }
 
 function nodeStyle(node) {
-  return { ...autoLayoutStyle(node), ...appearanceStyle(node) };
+  return { ...autoLayoutStyle(node), ...appearanceStyle(node), ...globalThis.ShapeGeometry.style(node) };
 }
 
 function mergeNodeStyle(spec, node, source) {
   if (!spec || typeof spec === "string") return spec;
-  return {
+  return globalThis.ShapeGeometry.applyToSpec({
     ...spec,
     style: { ...(spec.style || {}), ...nodeStyle(node) },
     ...interactionSpec(node, spec),
     source,
-  };
+  }, node);
 }
 
 function interactionSpec(node, base = {}) {
@@ -675,5 +735,5 @@ export function expandNode(doc, node, props, seen = [], source = null) {
     const r = expandNode(doc, kid, props, seen, childSource);
     if (r != null) spec.children.push(r);
   }
-  return spec;
+  return globalThis.ShapeGeometry.applyToSpec(spec, node);
 }

@@ -12,7 +12,7 @@ import { renderShell } from "./renderer.mjs";
 import { renderProtoShell } from "./proto-renderer.mjs";
 import { buildPrototypeExportHtml } from "./prototypeexport.mjs";
 import { loadPrototypes, savePrototypes, validatePrototypes } from "./prototypeio.mjs";
-import { loadDesign, saveTokens } from "./designio.mjs";
+import { loadDesign, saveTokens, saveComponents } from "./designio.mjs";
 
 // No browser package dependency: run the same contract against both renderers in
 // installed Chromium. CI can set COLOPHON_BROWSER to its Chrome/Edge executable.
@@ -233,10 +233,12 @@ test("real Chromium behavior: classic and ESM component previews", { timeout: 45
       asset("components-interactions.js"), asset("components-runtime.js"), asset("styles.css"),
       asset("components-interactions.css"), asset("sample/components.jsonc"), asset("componentsio.mjs"), asset("components-render.mjs"),
     ]);
-    await Promise.all([writeFile(path.join(dir, "componentsio.mjs"), io), writeFile(path.join(dir, "components-render.mjs"), esm)]);
+    await Promise.all([writeFile(path.join(dir, "componentsio.mjs"), io), writeFile(path.join(dir, "components-render.mjs"), esm),
+      writeFile(path.join(dir, "shape-geometry.js"), await asset("shape-geometry.js")),
+      writeFile(path.join(dir, "editor-geometry.js"), await asset("editor-geometry.js"))]);
     const html = `<!doctype html><meta charset="utf-8"><style>${styles}\n${css}
     :root { --color-ink:#1c1a17;--color-muted:#6b6459;--color-accent:#b5502a;--color-paper:#f7f4ee;--color-surface:#fff;--color-line:#e4ddd0;--space-2:8px;--space-3:12px;--space-4:16px;--radius-md:8px;--font-body:sans-serif; }
-    </style><body><script>${interactions}</script><script>${classic}</script><script type="module">
+    </style><body><script src="./shape-geometry.js"></script><script>${interactions}</script><script>${classic}</script><script type="module">
     const result = document.createElement("pre"); result.id = "browser-result";
     try {
       const behavior = ${behavior.toString()};
@@ -475,13 +477,25 @@ async function shellBehavior(kind) {
     if (innerWidth > 720) {
       document.querySelector("#inspect-btn").click();
       await waitFor(".preview");
-      const layers = document.querySelector("#component-layers").getBoundingClientRect();
-      const pages = document.querySelector(".page-nav").getBoundingClientRect();
-      const content = document.querySelector(".page-content").getBoundingClientRect();
-      check(layers.right <= pages.left && pages.right <= content.left, "Inspect keeps Layers, Pages, and content separate");
-      check(content.right <= document.querySelector("#design-inspector").getBoundingClientRect().left, "Inspect properties do not cover content");
+      check(getComputedStyle(document.querySelector(".page-nav")).display === "none", "component Inspect reserves the workspace for Layers and Properties");
       pageButton("Brand").click();
       await waitFor("#brand-name");
+      const checkInspectLayout = () => {
+        const layers = document.querySelector("#component-layers").getBoundingClientRect();
+        const properties = document.querySelector("#design-inspector").getBoundingClientRect();
+        const pages = document.querySelector(".page-nav").getBoundingClientRect();
+        const content = document.querySelector(".page-content").getBoundingClientRect();
+        const leftPanel = properties.left === 0 ? properties : layers;
+        check(leftPanel.right <= pages.left && pages.right <= content.left, "Inspect keeps its docked panel, Pages, and content separate");
+        if (innerWidth > 896) {
+          const rightPanel = properties.left === 0 ? layers : properties;
+          check(content.right <= rightPanel.left, "Inspect right panel does not cover content");
+        }
+      };
+      checkInspectLayout();
+      document.querySelector("#inspector-dock-btn").click();
+      checkInspectLayout();
+      document.querySelector("#inspector-dock-btn").click();
       document.querySelector("#brand-name").click();
       check(state.selection.path.join("/") === "brand" && inputFor("Brand name").hidden, "Inspect still selects brand without editing text");
       for (const pencil of document.querySelectorAll(".inline-text-edit")) {
@@ -841,7 +855,12 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   const inject = (html, kind) => html.replace("</body>", `<script>(async () => {
     const result = document.createElement("pre"); result.id = "browser-result";
     document.body.append(result);
-    try { await (${shellBehavior.toString()})(${JSON.stringify(kind)}); result.textContent = "PASS"; }
+    try {
+      ${kind === "inspect"
+        ? 'await (await import("/inspect-browser-scenario.mjs")).inspectWorkspaceBehavior();'
+        : `await (${shellBehavior.toString()})(${JSON.stringify(kind)});`}
+      result.textContent = "PASS";
+    }
     catch (error) { result.textContent = "FAIL " + error.stack; }
     document.body.append(result);
     })();</script></body>`);
@@ -858,6 +877,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   const resources = new Map([
     ["/", ["text/html", inject(renderShell(), "gallery")]],
     ["/brand", ["text/html", inject(renderShell(), "brand")]],
+    ["/inspect", ["text/html", inject(renderShell(), "inspect")]],
     ["/prototype", ["text/html", inject(renderProtoShell(), "prototype")]],
     ["/compact", ["text/html", inject(renderProtoShell(), "compact")]],
     ["/api/prototypes", ["application/json", JSON.stringify(bundle)]],
@@ -866,15 +886,30 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ["/api/design/select", ["application/json", "{}"]],
     ["/events", ["text/event-stream", ": connected\n\n"]],
   ]);
-  for (const name of ["client.js", "styles.css", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
+  for (const name of ["client.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "inspect-browser-scenario.mjs", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
     resources.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   let prototypeWorkspace;
   let brandWorkspace;
   let savedPrototype = false;
+  let savedComponents = false;
   let failSave = false;
   const server = createServer(async (request, response) => {
     try {
+      if (request.url === "/api/components/save") {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const { doc } = JSON.parse(Buffer.concat(chunks).toString());
+        await saveComponents(prototypeWorkspace, doc);
+        savedComponents = true;
+        response.writeHead(200, { "content-type": "application/json" }).end("{}");
+        return;
+      }
+      if (request.url === "/api/design" && savedComponents) {
+        const componentsDoc = parseComponents(await readFile(path.join(prototypeWorkspace, ".agents", "design", "components.jsonc"), "utf8"));
+        response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ design: { ...bundle.design, componentsDoc } }));
+        return;
+      }
       if (request.url === "/test/fail-save") {
         failSave = true;
         response.writeHead(200).end();
@@ -932,6 +967,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ["brand", `http://127.0.0.1:${server.address().port}/brand`],
       ["brand-narrow", `http://127.0.0.1:${server.address().port}/brand`],
       ["gallery", `http://127.0.0.1:${server.address().port}`],
+      ["inspect", `http://127.0.0.1:${server.address().port}/inspect`],
+      ["inspect-narrow", `http://127.0.0.1:${server.address().port}/inspect`],
       ["prototype", `http://127.0.0.1:${server.address().port}/prototype`],
       ["prototype-narrow", `http://127.0.0.1:${server.address().port}/prototype`],
       ["export", pathToFileURL(path.join(dir, "export.html")).href],
@@ -941,15 +978,22 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ]) {
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
+      let design = structuredClone(bundle.design);
       if (name.startsWith("brand")) {
         brandWorkspace = prototypeWorkspace;
         await saveTokens(brandWorkspace, tokens);
-        resources.set("/api/design", ["application/json", JSON.stringify({ design: await loadDesign(brandWorkspace) })]);
-      } else {
-        resources.set("/api/design", ["application/json", JSON.stringify({ design: bundle.design })]);
+        design = await loadDesign(brandWorkspace);
       }
       savedPrototype = false;
+      savedComponents = false;
       failSave = false;
+      if (name.startsWith("inspect")) design.componentsDoc.components.push({ name: "InspectFixture", root: {
+        id: "inspect-board", el: "div", layout: { mode: "freeform", width: 560, height: 400 }, children: [
+          { id: "inspect-flow", el: "div", layout: { mode: "vertical", width: 200, height: 160 },
+            position: { mode: "absolute", x: 300, y: 200 }, children: [] },
+        ],
+      } });
+      resources.set("/api/design", ["application/json", JSON.stringify({ design })]);
       const { stdout } = await promisify(execFile)(browser, [
         "--headless=new", "--disable-gpu", "--disable-extensions", "--disable-background-networking", "--no-first-run", "--no-default-browser-check",
         `--window-size=${name.endsWith("-narrow") ? "700,900" : "1400,1000"}`,
