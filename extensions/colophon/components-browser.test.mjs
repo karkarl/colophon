@@ -346,13 +346,23 @@ async function shellBehavior(kind) {
         styles[selector] = Object.fromEntries(["backgroundColor", "color", "borderTopColor", "borderRightColor", "fontSize", "padding", "borderRadius"]
           .map((name) => [name, computed[name]]));
       }
+      const indicator = getComputedStyle(document.querySelector(".page-nav-link.is-active"), "::before");
+      styles.indicator = Object.fromEntries(["backgroundColor", "content", "width", "height", "borderRadius", "insetInlineStart", "top", "transform"]
+        .map((name) => [name, indicator[name]]));
       return styles;
     };
     const genericNavigation = navigationStyles();
-    check(genericNavigation[".page-nav-link.is-active"].backgroundColor === genericNavigation[".page-nav"].color,
-      "active page uses generic ink, not a sample-accent tint");
-    check(genericNavigation[".page-nav-link.is-active"].color === genericNavigation[".page-nav"].backgroundColor,
-      "active page uses contrasting generic surface text");
+    const activeNavigation = genericNavigation[".page-nav-link.is-active"];
+    check(activeNavigation.backgroundColor !== genericNavigation[".page-nav"].color && activeNavigation.backgroundColor !== genericNavigation[".page-nav"].backgroundColor &&
+      activeNavigation.backgroundColor !== "rgba(0, 0, 0, 0)", "active page uses a soft backplate, not a solid ink row");
+    check(activeNavigation.color === genericNavigation[".page-nav"].color &&
+      genericNavigation.indicator.backgroundColor === genericNavigation[".page-nav"].color,
+      "active page uses generic ink for text and its selection pill");
+    check(genericNavigation.indicator.content === '""' && genericNavigation.indicator.width === "4px" && genericNavigation.indicator.height === "20px" &&
+      parseFloat(genericNavigation.indicator.borderRadius) >= 2, "selection pill is small with fully rounded ends");
+    check(getComputedStyle(pageButton("Components"), "::before").content === "none", "inactive pages do not show a selection pill");
+    check(getComputedStyle(pageButton("Components")).paddingInlineStart === getComputedStyle(pageButton("Brand")).paddingInlineStart,
+      "selection does not shift navigation labels");
     for (const theme of ["dark", "highContrast", "light"]) {
       document.querySelector(`[data-theme="${theme}"]`).click();
       await waitFor("#brand-name");
@@ -384,10 +394,11 @@ async function shellBehavior(kind) {
     const hostColors = { "--background-color-default": "rgb(20, 20, 20)", "--text-color-default": "rgb(240, 240, 240)", "--border-color-default": "rgb(70, 70, 70)" };
     const originalHost = Object.fromEntries(Object.keys(hostColors).map((key) => [key, rootStyle.getPropertyValue(key)]));
     for (const [key, value] of Object.entries(hostColors)) rootStyle.setProperty(key, value);
-    await waitUntil(() => getComputedStyle(document.querySelector(".page-nav-link.is-active")).backgroundColor === "rgb(240, 240, 240)",
+    await waitUntil(() => getComputedStyle(document.querySelector(".page-nav-link.is-active")).color === "rgb(240, 240, 240)",
       "generic sidebar transitions to the host's updated ink");
     const hostNavigation = navigationStyles();
-    check(hostNavigation[".page-nav"].backgroundColor === "rgb(20, 20, 20)" && hostNavigation[".page-nav-link.is-active"].backgroundColor === "rgb(240, 240, 240)",
+    check(hostNavigation[".page-nav"].backgroundColor === "rgb(20, 20, 20)" && hostNavigation.indicator.backgroundColor === "rgb(240, 240, 240)" &&
+      hostNavigation[".page-nav-link.is-active"].backgroundColor !== "rgb(240, 240, 240)",
       "Pages responds to the host theme independently of the preview");
     for (const [key, value] of Object.entries(originalHost)) {
       if (value) rootStyle.setProperty(key, value);
