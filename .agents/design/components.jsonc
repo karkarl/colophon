@@ -6,6 +6,53 @@
   },
   "components": [
     {
+      "name": "ToggleSwitch",
+      "note": "Instance-local on/off control. Northlight colors with WinUI thumb geometry; slide and resize use independent motion.",
+      "props": { "label": "Publish notes" },
+      "root": {
+        "id": "toggle-switch", "el": "button",
+        "attrs": { "type": "button", "role": "switch", "aria-label": "{label}" },
+        "state": { "checked": false },
+        "on": { "click": { "toggle": "checked" } },
+        "layout": { "mode": "freeform", "width": 42, "height": 22, "padding": 0 },
+        "appearance": { "background": "paper", "borderColor": "muted", "borderWidth": 1, "radius": "pill" },
+        "control": { "chrome": "none", "focus": { "kind": "outline", "color": "accent" } },
+        "states": {
+          "hover": { "background": "line" },
+          "pressed": { "background": "surface" },
+          "disabled": { "background": "line", "borderColor": "line" }
+        },
+        "when": [
+          { "state": { "checked": true }, "style": { "background": "accent", "borderColor": "accent" } },
+          { "state": { "checked": true }, "interaction": "hover", "style": { "background": "accent" } },
+          { "state": { "checked": true }, "interaction": "pressed", "style": { "background": "accent" } }
+        ],
+        "children": [{
+          "id": "toggle-carrier", "el": "span", "attrs": { "aria-hidden": "true" },
+          "position": { "mode": "absolute", "x": 0, "y": 0 },
+          "layout": { "mode": "horizontal", "align": "center", "justify": "center", "width": 20, "height": 20 },
+          "geometry": { "translateX": 0 },
+          "transitions": [{ "properties": ["translate"], "duration": 367, "easing": [0.1, 0.9, 0.2, 1] }],
+          "when": [{ "state": { "checked": true }, "style": { "geometry": { "translateX": 20 } } }],
+          "children": [{
+            "id": "toggle-thumb", "el": "span",
+            "layout": { "width": 12, "height": 12 },
+            "appearance": { "background": "muted", "radius": "pill" },
+            "transitions": [{ "properties": ["width", "height"], "duration": 83, "easing": [0, 0, 0, 1] }],
+            "states": {
+              "hover": { "geometry": { "width": 14, "height": 14 } },
+              "pressed": { "geometry": { "width": 17, "height": 14 } },
+              "disabled": {
+                "background": "muted",
+                "transitions": [{ "properties": ["width", "height"], "duration": 250, "easing": [0, 0, 0, 1] }]
+              }
+            },
+            "when": [{ "state": { "checked": true }, "style": { "background": "accentInk" } }]
+          }]
+        }]
+      }
+    },
+    {
       "name": "SubtlePicker",
       "note": "A quiet publishing-format picker. Hover or press to see its states; click to open transient radio options.",
       "root": {

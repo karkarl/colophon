@@ -331,7 +331,8 @@ Omitted properties restore their previous inline/class/inherited values. On a
 component reference, states merge by state and property over the component root;
 an explicit `on` replaces the root's action, and `control` merges by field.
 Existing definitions without these fields retain their styling.
-Interaction metadata (`states`, `on`, and `control`) is supported only outside SVG
+Interaction metadata (`states`, `on`, `control`, `state`, `when`, `geometry`, and
+`transitions`) is supported only outside SVG
 subtrees. Validation rejects it on SVG roots and descendants, including expanded
 component references. Put interactions on an HTML button wrapping an SVG icon.
 
@@ -345,6 +346,83 @@ opening flyouts.
 Entering Inspect clears forced preview states and disables the State selector so
 temporary disabled previews do not block layer selection.
 
+**Persistent controls and moving parts.** Declare literal boolean defaults on a
+node with `state: { "checked": false }` and activate it with
+`on: { "click": { "toggle": "checked" } }`. State is local to that rendered
+subtree; a nested declaration starts a new scope. Two instances never share
+values, and clicks never modify the JSON. State survives hover, press, forced
+preview states, and transient interaction resets. Disposing/re-rendering starts
+from defaults, including the gallery's first Inspect entry when it renders the
+initial layer selection. Inspect itself never activates a control.
+References merge state defaults by name. `open` and `toggle` are mutually
+exclusive actions, not executable expressions.
+
+Toggle targets are buttons, divs, or spans with a `switch` (default) or `checkbox`
+role. Supply an accessible label. The runtime binds `aria-checked` to the named
+boolean, makes custom controls keyboard-focusable, and activates on click or
+Space release (Enter is also supported). Repeated keydown events do not toggle
+repeatedly. Disabled/inert and Inspect controls do not activate. Pointer cancel,
+lost capture, removal, focus loss, and window blur clear transient presses
+without changing the boolean or replacing the focused DOM element.
+Toggle keyboard shortcuts apply only when the toggle itself has focus; editable
+or focusable descendants keep their own keyboard behavior.
+
+Children can follow the owner's input and state with sparse conditional rules:
+
+```json
+{
+  "id": "thumb-carrier",
+  "el": "span",
+  "geometry": { "translateX": 0 },
+  "transitions": [
+    { "properties": ["translate"], "duration": 367, "easing": [0.1, 0.9, 0.2, 1] }
+  ],
+  "when": [
+    { "state": { "checked": true }, "style": { "geometry": { "translateX": 20 } } },
+    { "state": { "checked": false }, "interaction": "pressed", "style": { "background": "muted" } }
+  ]
+}
+```
+
+`when` rules require all named booleans to match. Omit `interaction` for persistent
+styling; otherwise use hover, pressed, hoverPressed, or disabled. Precedence is
+base, persistent rules, then each active interaction in the existing order with
+its matching conditional rules applied immediately after it. Rules at the same
+level run in array order; reference rules append to the component's rules.
+Disabled keeps persistent styling but excludes hover and press.
+
+Both `states` entries and `when[].style` accept the existing flat appearance
+fields plus `geometry` and `transitions`. Geometry supports finite pixel
+`translateX`/`translateY` (a translation pair, omitted axes are zero), and
+non-negative pixel `width`/`height`. CSS's individual `translate` property keeps
+movement independent of resize and editor transforms. The explicit transition
+array replaces the legacy 160ms color transitions; an empty array disables them.
+Each entry requires `properties`, non-negative `duration` in milliseconds, and
+`easing` (linear, ease, ease-in, ease-out, ease-in-out, or a cubic Bezier tuple).
+Allowed properties are color, background-color, border-color, border-width,
+border-radius, box-shadow, width, height, and translate; no arbitrary CSS or
+JavaScript. A state transition array replaces the entire list until that state
+ends. Reduced motion suppresses even inline authored transitions.
+Passive parts follow their scope's current toggle input; nested interactive
+controls retain their own hover and press states. Input cancellation is resolved
+for the entire scope before styles are applied, independent of child order.
+
+Inspect's **Scale geometry** also scales base, state, and conditional pixel
+geometry, including translations, but never transition durations or easing.
+Width/height controls and resize handles show the effective base geometry size;
+editing it stores the new size in `layout` and removes any competing base
+`geometry` size override. Conditional sizes remain authored overrides unless the
+whole component is scaled.
+
+The bundled **ToggleSwitch** demonstrates 20px travel, 12x12 / 14x14 / 17x14
+thumb sizes, 83ms resizing with `[0,0,0,1]`, and 250ms disabled resizing.
+Its separate 367ms slide uses `[0.1,0.9,0.2,1]`: the
+[WinUI reposition reference](https://github.com/microsoft/microsoft-ui-xaml/blob/c7b06094d5e2766968df53306cc9c4648aaab177/dxaml/test/resources/masters/Foundation_Graphics_ThemeAnimationTests_RepositionThemeAnimation.Reposition.master.xml)
+records 3.67s with the test's
+[0.1 speed ratio](https://github.com/microsoft/microsoft-ui-xaml/blob/c7b06094d5e2766968df53306cc9c4648aaab177/dxaml/xcp/core/animation/timemgr.cpp).
+This is a declarative browser reproduction of the platform reference, not a
+runtime dependency on Windows theme APIs.
+
 `on.click.open` is a literal, exact component name, not a node ID or interpolated
 prop. The target renders with its own defaults and design tokens in a non-clipping
 flyout. Only one flyout opens at a time; nested flyouts are not supported.
@@ -357,6 +435,9 @@ canvas, and self-contained exports; they do not define production framework beha
 Run `node --test extensions/colophon/*.test.mjs` for regression coverage. The browser
 tests use installed Chrome/Edge without an npm dependency; set `COLOPHON_BROWSER`
 to a Chromium executable on other hosts (otherwise those tests report a skip).
+Set `COLOPHON_BROWSER_CASES` to a comma-separated list such as
+`gallery,prototype,export,export-reduced-motion` to focus the shell integration
+test without running unrelated editor scenarios.
 
 `control` is an **opt-in** browser chrome reset/focus treatment for native buttons,
 textual inputs, textareas, and `contenteditable` elements. `chrome: "none"` removes

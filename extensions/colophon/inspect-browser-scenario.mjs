@@ -239,6 +239,52 @@ export async function inspectWorkspaceBehavior() {
   const selectionBounds = query("#inspect-selection-box").getBoundingClientRect();
   check(Math.abs(actualBounds.left - selectionBounds.left) < 1 && Math.abs(actualBounds.top - selectionBounds.top) < 1,
     "selection bounds follow the clicked instance, not the first shared definition preview");
+
+  choose(frameId);
+  const beforeMotionEdit = JSON.stringify(node());
+  await commitComponentMutation(() => { selectedComponentNode().geometry = { width: 120, height: 80, translateX: 3 }; });
+  await tick();
+  const sizes = [...document.querySelectorAll('#inspect-properties input[placeholder="Unset, hug, fill, or px"]')];
+  check(sizes[0].value === "120" && sizes[1].value === "80", "size properties show effective motion geometry");
+  sizes[0].value = "140";
+  sizes[0].dispatchEvent(new Event("change"));
+  await tick();
+  check(node().layout.width === 140 && node().geometry.width === undefined && node().geometry.height === 80,
+    "width edit replaces only its competing geometry override");
+  check(getComputedStyle(ds(frameId)).width === "140px", "edited base geometry width is visible");
+  query("#layers-undo-btn").click();
+  await tick();
+  check(node().geometry.width === 120, "width undo restores the authored geometry field");
+  query("#inspect-zoom").value = "1";
+  query("#inspect-zoom").dispatchEvent(new Event("change"));
+  choose(frameId);
+  const motionHandle = query('[data-resize="e"]');
+  motionHandle.setPointerCapture = () => {};
+  const motionBounds = ds(frameId).getBoundingClientRect();
+  const motionPointer = (target, type, x) => target.dispatchEvent(new PointerEvent(type, {
+    bubbles: true, cancelable: true, pointerId: 49, button: 0, clientX: x, clientY: motionBounds.top + motionBounds.height / 2,
+  }));
+  motionPointer(motionHandle, "pointerdown", motionBounds.right);
+  motionPointer(window, "pointermove", motionBounds.right + 20);
+  motionPointer(window, "pointerup", motionBounds.right + 20);
+  await tick();
+  check(node().layout.width === 140 && node().geometry.height === 80 && node().geometry.translateX === 3 &&
+    node().geometry.width === undefined,
+    `resize handles replace competing size overrides while preserving translation: ${JSON.stringify({ layout: node().layout, geometry: node().geometry, error: query("#inspect-error").textContent })}`);
+  check(getComputedStyle(ds(frameId)).width === "140px", "resizing authored geometry changes the rendered width");
+  query("#layers-undo-btn").click();
+  await tick();
+  query('[aria-label="Geometry scale multiplier"]').value = "2";
+  query(".geometry-scale button").click();
+  await tick();
+  check(node().layout.width === 240 && node().layout.height === 160 && node().geometry.translateX === 6 &&
+    node().geometry.width === undefined, "Scale geometry normalizes base size and scales translation");
+  query("#layers-undo-btn").click();
+  await tick();
+  query("#layers-undo-btn").click();
+  await tick();
+  check(JSON.stringify(node()) === beforeMotionEdit, "motion geometry edits remain independently undoable");
+
   const savedDoc = JSON.stringify(state.componentsDoc);
   query("#save-btn").click();
   await wait(() => !state.componentsDirty, "save did not complete");

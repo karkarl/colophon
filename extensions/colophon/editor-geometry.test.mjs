@@ -91,6 +91,66 @@ test("creation bounds normalize reverse drags, square constraints, and invalid g
   for (const x of [NaN, Infinity, 1000001]) assert.throws(() => EditorGeometry.creationBounds({ x: 0, y: 0 }, { x, y: 0 }), /range/);
 });
 
+test("scaling includes base and conditional motion geometry without changing timing or tokens", async () => {
+  const doc = parseComponents(await readFile(new URL("./sample/components.jsonc", import.meta.url), "utf8"));
+  const root = doc.components.find((component) => component.name === "ToggleSwitch").root;
+  const original = structuredClone(root);
+  scaleComponentGeometry(root, 2, { width: 42, height: 22 });
+  const carrier = root.children[0], thumb = carrier.children[0];
+  assert.equal(root.layout.width, 84);
+  assert.deepEqual(thumb.layout, { width: 24, height: 24 });
+  assert.deepEqual(thumb.states.hover.geometry, { width: 28, height: 28 });
+  assert.deepEqual(thumb.states.pressed.geometry, { width: 34, height: 28 });
+  assert.equal(carrier.when[0].style.geometry.translateX, 40);
+  assert.deepEqual(thumb.transitions, original.children[0].children[0].transitions);
+  assert.deepEqual(thumb.states.disabled.transitions, original.children[0].children[0].states.disabled.transitions);
+  assert.deepEqual(carrier.transitions, original.children[0].transitions);
+  assert.deepEqual(root.appearance, original.appearance);
+  assert.equal(validateComponentsDoc(doc).ok, true);
+
+  for (const schema of ["component", "prototype"]) {
+    const node = { ...(schema === "component" ? { layout: { width: 100, height: 50 } } : { width: 100, height: 50 }),
+      geometry: { width: 12, height: 12, translateX: -5, translateY: 3 },
+      states: { hover: { geometry: { translateX: -7, height: 14 } } },
+      when: [{ state: { checked: true }, style: { geometry: { translateY: 20 } } }],
+      children: [{ geometry: { width: 6, height: 8, translateX: 2 } }],
+    };
+    EditorGeometry.scale(node, 2, { width: 12, height: 12 }, schema);
+    const size = schema === "component" ? node.layout : node;
+    assert.equal(size.width, 24);
+    assert.equal(size.height, 24);
+    assert.deepEqual(node.geometry, { translateX: -10, translateY: 6 });
+    assert.deepEqual(node.states.hover.geometry, { translateX: -14, height: 28 });
+    assert.deepEqual(node.when[0].style.geometry, { translateY: 40 });
+    assert.deepEqual(node.children[0].geometry, { width: 12, height: 16, translateX: 4 });
+    node.when[0].style.geometry.translateY = 999999;
+    const tooLarge = JSON.stringify(node);
+    assert.throws(() => EditorGeometry.scale(node, 2, { width: 24, height: 24 }, schema), /range/);
+    assert.equal(JSON.stringify(node), tooLarge, "conditional geometry failures remain atomic");
+  }
+});
+
+test("size edits replace conflicting base geometry and retain untouched axes and state overrides", () => {
+  const root = { id: "sized", el: "div", layout: { width: 100, height: 50 },
+    geometry: { width: 12, height: 12 }, states: { hover: { geometry: { width: 14 } } } };
+  const doc = { meta: { version: 3 }, components: [{ name: "Sized", root }] };
+  EditorGeometry.setDimensions(root, { width: 80 }, "component");
+  assert.deepEqual(root.geometry, { height: 12 });
+  assert.equal(expandInstance(doc, "Sized").style.width, "80px");
+  assert.equal(expandInstance(doc, "Sized").style.height, "12px");
+  EditorGeometry.setDimensions(root, { height: "hug" }, "component");
+  assert.equal(root.geometry, undefined);
+  assert.equal(expandInstance(doc, "Sized").style.height, "fit-content");
+  EditorGeometry.setDimensions(root, { width: undefined }, "component");
+  assert.equal(expandInstance(doc, "Sized").style.width, undefined);
+  assert.equal(root.states.hover.geometry.width, 14);
+  assert.equal(validateComponentsDoc(doc).ok, true);
+  root.geometry = { width: 12, height: 12 };
+  scaleComponentGeometry(root, 2, { width: 12, height: 12 });
+  assert.equal(root.geometry, undefined, "scaling removes the original root's stale base size override");
+  assert.equal(expandInstance(doc, "Sized").style.width, "24px");
+});
+
 test("ellipse primitives roundtrip and render consistently in components, exports, prototypes, and codegen", async () => {
   const tokens = { colors: [{ name: "line" }] };
   const root = EditorGeometry.template("ellipse", tokens, "component");

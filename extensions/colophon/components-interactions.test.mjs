@@ -135,6 +135,9 @@ test("SVG subtrees reject interaction metadata on roots, descendants, and refere
     { states: { hover: { color: "accent" } } },
     { on: { click: { open: "Panel" } } },
     { control: { focus: { kind: "outline", color: "accent" } } },
+    { state: { checked: false } },
+    { geometry: { translateX: 20 } },
+    { transitions: [] },
   ]) {
     for (const root of [
       { el: "svg", ...metadata },
@@ -160,4 +163,98 @@ test("SVG subtrees reject interaction metadata on roots, descendants, and refere
   assert.deepEqual(validateComponentsDoc(doc, { tokens }).errors, []);
   doc.components.push({ name: "Container", root: { el: "svg", children: [{ component: "IconButton" }] } });
   assert.match(validateComponentsDoc(doc, { tokens }).errors.join("\n"), /Container\.root\.children\[0\]\.on: interaction metadata is not supported in SVG subtrees/);
+});
+
+function toggleFixture() {
+  return { components: [
+    { name: "Toggle", root: { el: "button", state: { checked: false }, on: { click: { toggle: "checked" } },
+      children: [{ el: "span", geometry: { width: 12, height: 12, translateX: 0 },
+        transitions: [{ properties: ["width", "height"], duration: 83, easing: [0, 0, 0, 1] }],
+        states: { pressed: { geometry: { width: 17, height: 14 } } },
+        when: [
+          { state: { checked: true }, style: { geometry: { translateX: 20 }, background: "accent" } },
+          { state: { checked: false }, interaction: "hover", style: { geometry: { width: 14 } } },
+        ],
+      }],
+    } },
+    { name: "On", root: { component: "Toggle", state: { checked: true },
+      when: [{ state: { checked: true }, interaction: "disabled", style: { color: "ink" } }],
+    } },
+  ] };
+}
+
+test("boolean defaults, conditional geometry and explicit motion round-trip in both renderers", async () => {
+  const doc = toggleFixture();
+  const before = JSON.stringify(doc);
+  assert.deepEqual(validateComponentsDoc(doc, { tokens }).errors, []);
+  const scope = { window: {} };
+  vm.runInNewContext(await readFile(new URL("./shape-geometry.js", import.meta.url), "utf8"), scope);
+  vm.runInNewContext(await readFile(new URL("./components-runtime.js", import.meta.url), "utf8"), scope);
+  for (const name of ["Toggle", "On"]) {
+    const spec = expandInstance(doc, name);
+    assert.deepEqual(JSON.parse(JSON.stringify(scope.window.DSComp.expandInstance(doc, name))), spec);
+    assert.equal(spec.state.checked, name === "On");
+    assert.equal(spec.children[0].style.transition, "width 83ms cubic-bezier(0,0,0,1), height 83ms cubic-bezier(0,0,0,1)");
+    assert.deepEqual(spec.children[0].when[0].style, { "background-color": "var(--color-accent)", translate: "20px 0px" });
+    assert.deepEqual(spec.children[0].states.pressed, { width: "17px", height: "14px" });
+  }
+  assert.equal(JSON.stringify(doc), before);
+});
+
+test("invalid state, geometry, conditional and transition contracts are rejected", () => {
+  for (const [key, value, pattern] of [
+    ["state", {}, /state: must be a non-empty object/],
+    ["state", { checked: "false" }, /state.checked: requires a literal boolean/],
+    ["state", { "bad-name": false }, /state.bad-name/],
+    ["state", { other: true }, /undeclared boolean state "checked"/],
+    ["on", { click: { toggle: "{checked}" } }, /\.on: expected/],
+    ["on", { click: { toggle: "checked", open: "On" } }, /\.on: expected/],
+    ["on", { click: { toggle: "missing" } }, /on.click.toggle: references undeclared/],
+    ["geometry", { width: -1 }, /geometry.width/],
+    ["geometry", { height: Infinity }, /geometry.height/],
+    ["geometry", { translateX: "20px" }, /geometry.translateX/],
+    ["geometry", { transform: "translateX(20px)" }, /geometry: unknown property/],
+    ["when", {}, /when: must be an array/],
+    ["when", [{ state: { missing: true }, style: {} }], /when\[0\].state: references undeclared/],
+    ["when", [{ state: { checked: 1 }, style: {} }], /requires a literal boolean/],
+    ["when", [{ state: { checked: true }, interaction: "focus", style: {} }], /unknown interaction state/],
+    ["when", [{ state: { checked: true }, style: { geometry: { width: -2 } } }], /when\[0\].style.geometry.width/],
+    ["when", [{ state: { checked: true }, style: { background: "missing" } }], /unknown colors token/],
+    ["when", [{ state: { checked: true }, style: {}, script: "alert(1)" }], /unknown condition field/],
+    ["transitions", "all .1s", /transitions: must be an array/],
+    ["transitions", [{ properties: ["all"], duration: 83, easing: "linear" }], /unsupported or duplicate property/],
+    ["transitions", [{ properties: ["width", "width"], duration: 83, easing: "linear" }], /duplicate property/],
+    ["transitions", [{ properties: ["width"], duration: -1, easing: "linear" }], /duration/],
+    ["transitions", [{ properties: ["width"], duration: 83, easing: [2, 0, 0, 1] }], /easing/],
+    ["transitions", [{ properties: ["width"], duration: 83, easing: "var(--motion)" }], /easing/],
+  ]) {
+    const doc = toggleFixture();
+    doc.components[0].root[key] = value;
+    assert.match(validateComponentsDoc(doc, { tokens }).errors.join("\n"), pattern, key + JSON.stringify(value));
+  }
+  for (const el of ["input", "textarea", "a"]) {
+    const doc = toggleFixture();
+    doc.components[0].root.el = el;
+    assert.match(validateComponentsDoc(doc, { tokens }).errors.join("\n"), /on.click.toggle: use a button/);
+  }
+  const doc = toggleFixture();
+  doc.components[0].root.children[0].state = { own: false };
+  assert.match(validateComponentsDoc(doc, { tokens }).errors.join("\n"), /undeclared boolean state "checked"/, "nested declarations start an independent scope");
+});
+
+test("the repository and bundled switch use identical declarative platform geometry", async () => {
+  const sample = parseComponents(await readFile(new URL("./sample/components.jsonc", import.meta.url), "utf8"));
+  const repo = parseComponents(await readFile(new URL("../../.agents/design/components.jsonc", import.meta.url), "utf8"));
+  const from = (doc) => doc.components.find((component) => component.name === "ToggleSwitch");
+  assert.deepEqual(from(repo), from(sample));
+  const root = from(sample).root;
+  assert.deepEqual(root.state, { checked: false });
+  const carrier = root.children[0], thumb = carrier.children[0];
+  assert.equal(carrier.when[0].style.geometry.translateX, 20);
+  assert.deepEqual(carrier.transitions, [{ properties: ["translate"], duration: 367, easing: [0.1, 0.9, 0.2, 1] }]);
+  assert.deepEqual(thumb.layout, { width: 12, height: 12 });
+  assert.deepEqual(thumb.states.hover.geometry, { width: 14, height: 14 });
+  assert.deepEqual(thumb.states.pressed.geometry, { width: 17, height: 14 });
+  assert.equal(thumb.transitions[0].duration, 83);
+  assert.equal(thumb.states.disabled.transitions[0].duration, 250);
 });

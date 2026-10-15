@@ -126,7 +126,23 @@
   }
 
   function nodeStyle(node) {
-    return { ...autoLayoutStyle(node), ...appearanceStyle(node), ...globalThis.ShapeGeometry.style(node) };
+    return { ...autoLayoutStyle(node), ...appearanceStyle(node), ...motionStyle(node), ...globalThis.ShapeGeometry.style(node) };
+  }
+
+  function motionStyle(node) {
+    const style = {};
+    const geometry = node.geometry || {};
+    for (const key of ["width", "height"]) if (geometry[key] != null) style[key] = `${geometry[key]}px`;
+    if (geometry.translateX != null || geometry.translateY != null) style.translate = `${geometry.translateX ?? 0}px ${geometry.translateY ?? 0}px`;
+    if (node.transitions != null) {
+      style.transition = node.transitions.flatMap(({ properties, duration, easing }) =>
+        properties.map((property) => `${property} ${duration}ms ${Array.isArray(easing) ? `cubic-bezier(${easing.join(",")})` : easing}`)).join(", ") || "none";
+    }
+    return style;
+  }
+
+  function stateStyle(style) {
+    return { ...appearanceStyle({ appearance: style }), ...motionStyle(style) };
   }
 
   function mergeNodeStyle(spec, node, source) {
@@ -139,9 +155,12 @@
     if (node.states != null) {
       result.states = { ...base.states };
       for (const [state, appearance] of Object.entries(node.states)) {
-        result.states[state] = { ...base.states?.[state], ...appearanceStyle({ appearance }) };
+        result.states[state] = { ...base.states?.[state], ...stateStyle(appearance) };
       }
     }
+    if (node.state != null) result.state = { ...base.state, ...node.state };
+    if (node.when != null) result.when = [...base.when || [], ...node.when.map((rule) => ({ ...rule, style: stateStyle(rule.style) }))];
+    for (const key of ["geometry", "transitions"]) if (node[key] != null) result[key] = node[key];
     if (node.on != null) result.on = node.on;
     if (node.control != null) result.control = { ...base.control, ...node.control };
     return result;
@@ -194,7 +213,7 @@
     return globalThis.ShapeGeometry.applyToSpec(spec, node);
   }
 
-  function specToDom(spec, inSvg = false, context = null) {
+  function specToDom(spec, inSvg = false, context = null, scope = null) {
     if (!context) {
       const ctx = window.DSInteractions.createContext(() => { throw new Error("Flyouts require renderComponent with a component document."); });
       return window.DSInteractions.mount(specToDom(spec, inSvg, ctx), ctx);
@@ -215,11 +234,11 @@
       if (spec.source.nodeId) node.dataset.dsNodeId = spec.source.nodeId;
       else delete node.dataset.dsNodeId;
     }
+    const childScope = !svg ? window.DSInteractions.attach(node, spec, context, scope) : scope;
     for (const child of spec.children || []) {
-      const childNode = specToDom(child, svg, context);
+      const childNode = specToDom(child, svg, context, childScope);
       if (childNode) node.append(childNode);
     }
-    if (!svg) window.DSInteractions.attach(node, spec, context);
     return node;
   }
 

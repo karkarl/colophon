@@ -31,6 +31,14 @@ editorial tool — calm, exact, a little warm — not a dashboard template.
 - Use the serif display face for headlines, sans for everything else, mono for data.
 - Keep motion to 120–200ms ease-out. Animate to explain, not to impress.
 
+The ToggleSwitch platform-reference pattern is an intentional motion exception.
+Its 42 by 22 track uses `paper`, `line`, `muted`, `accent`, and `accentInk`, a
+`pill` radius, and an `accent` focus outline. A 20 by 20 carrier travels 20px.
+The thumb is 12 by 12 at rest, 14 by 14 on hover, and 17 by 14 while pressed.
+Resize uses 83ms cubic-bezier(0,0,0,1), or 250ms when becoming disabled.
+Slide uses the independent WinUI reposition reference: 367ms
+cubic-bezier(0.1,0.9,0.2,1). Reduced motion suppresses both transitions.
+
 ## Don't
 - Don't put gray text on a colored background.
 - Don't nest cards inside cards, or wrap every block in a card.
