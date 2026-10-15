@@ -100,9 +100,13 @@ not literal YAML source paths.
 
 #### Choosing the built-in Components previews
 
-The component registry and page previews are independent. Keep every reusable
-definition in `.agents/design/components.jsonc`; select the built-in **Components**
-previews with an entry whose `id` is `components` in `x-colophon.tokens.pages`:
+The component registry and page previews are independent. Open **Components** in
+the canvas and use its checkboxes to choose which previews appear, just as on a
+custom page. Changes appear immediately; **Save to repo** persists the selection.
+Unchecked definitions stay in `.agents/design/components.jsonc` for reuse.
+
+The picker creates or updates the entry whose `id` is `components` in
+`x-colophon.tokens.pages`. You can also edit it directly:
 
 ```yaml
 x-colophon:
@@ -123,8 +127,10 @@ metadata or custom pages. Legacy `.agents/design/design.json` uses the same
 
 The `components` entry configures the existing built-in page; it does not create
 a second page or change its title. Use `name: Components` to satisfy the existing
-page contract. Author this selection in the file; the built-in page does not add
-custom-page editing controls.
+page contract. The built-in page has the shared preview picker, but not custom-page
+title, notes, or deletion controls. Merely viewing it does not create configuration
+or mark the document as changed. Changing a checkbox preserves the order of the
+remaining selections and appends newly selected names.
 
 - No entry, or an entry without `components`: show every registered definition.
 - `components: [Name, ...]`: show only those previews, in the listed order.

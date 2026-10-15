@@ -251,6 +251,16 @@ fully rounded ends and a 4px leading inset. Reserve 16px of leading row padding
 in every state so labels do not shift on selection.
 Keep Northlight tokens in the authored preview.
 
+### Page preview selection
+
+The built-in Components page and custom pages share the same labeled-checkbox
+picker above their previews. Reuse the existing `page-organization`,
+`page-component-list`, and `page-component-option` styles, including their token
+bindings. Unchecking a name hides only its standalone preview on that page, not
+the registered definition or its nested uses. Update the preview immediately,
+keep keyboard focus on the changed checkbox, and persist the selection only when
+the user saves. The built-in page retains its fixed title and has no delete action.
+
 ### Inspect workspace
 
 Both Colophon and Prototype Inspect use a Layers rail of four spacing-8 units and a Properties

@@ -1269,7 +1269,7 @@ function whenDSComp(timeoutMs = 3000) {
   });
 }
 
-async function renderComponents(t, doc, { names, heading = "Components" } = {}) {
+function renderComponents(t, doc, { names, heading = "Components" } = {}) {
   const section = el("section", { class: "block" }, el("h2", {}, heading));
   if (names !== undefined && (!Array.isArray(names) || names.some((name) => typeof name !== "string" || !name.trim()))) {
     section.append(el("div", { class: "err" }, "Page components must be an array of component names."));
@@ -1369,10 +1369,7 @@ const BUILTIN_PAGES = Object.freeze([
     id: "components",
     label: "Components",
     description: "Live patterns and definitions",
-    render: (tokens) => {
-      const page = Array.isArray(tokens.pages) ? tokens.pages.find((page) => page?.id === "components") : null;
-      return renderComponents(tokens, state.componentsDoc || null, { names: page?.components });
-    },
+    render: (tokens) => renderComponentsPage(tokens),
   },
 ]);
 
@@ -1412,6 +1409,57 @@ function availableComponentNames() {
 
 function selectedPageComponents(page, names) {
   return Array.isArray(page.components) ? page.components : names;
+}
+
+function renderPageComponentSelection(page, onChange) {
+  const names = availableComponentNames();
+  const selectedSet = new Set(selectedPageComponents(page, names));
+  const choices = el("div", { class: "page-component-list" });
+  if (names.length) {
+    for (const name of names) {
+      const box = el("input", {
+        type: "checkbox",
+        value: name,
+        checked: selectedSet.has(name) ? "checked" : undefined,
+        onchange: async (event) => {
+          const next = new Set(selectedPageComponents(page, names));
+          if (event.target.checked) next.add(name);
+          else next.delete(name);
+          onChange([...next]);
+          markDirty();
+          await render();
+          $(`.page-component-option input[value="${CSS.escape(name)}"]`)?.focus({ preventScroll: true });
+        },
+      });
+      choices.append(el("label", { class: "page-component-option" }, box, el("span", {}, name)));
+    }
+  } else {
+    choices.append(el("div", { class: "muted" }, "Add component patterns to components.jsonc to organize them here."));
+  }
+  return el("section", { class: "page-organization" },
+    el("h2", {}, "Components"),
+    el("p", { class: "muted" }, "Choose which previews appear on this page. Unchecked components remain available elsewhere. Save to repo to keep your selection."),
+    choices,
+  );
+}
+
+function renderComponentsPage(t) {
+  const pages = t.pages ?? [];
+  if (!Array.isArray(pages)) return el("div", { class: "err" }, "pages must be an array when provided.");
+  const page = pages.find((page) => page?.id === "components") || { id: "components", name: "Components" };
+  const content = document.createDocumentFragment();
+  content.append(renderPageComponentSelection(page, (names) => {
+    page.components = names;
+    if (!pages.includes(page)) {
+      pages.push(page);
+      t.pages = pages;
+    }
+  }));
+  content.append(renderComponents(t, state.componentsDoc || null, {
+    names: page.components,
+    heading: "Selected previews",
+  }));
+  return content;
 }
 
 function pageId() {
@@ -1482,9 +1530,6 @@ function renderPageNavigation() {
 
 async function renderUserPage(t, page) {
   const content = document.createDocumentFragment();
-  const names = availableComponentNames();
-  const selected = selectedPageComponents(page, names);
-  const selectedSet = new Set(selected);
   const title = el("input", {
     type: "text",
     class: "page-title-input",
@@ -1506,27 +1551,6 @@ async function renderUserPage(t, page) {
     oninput: (event) => { page.content = event.target.value; markDirty(); },
   });
   notes.value = page.content || "";
-  const choices = el("div", { class: "page-component-list" });
-  if (names.length) {
-    for (const name of names) {
-      const box = el("input", {
-        type: "checkbox",
-        checked: selectedSet.has(name) ? "checked" : undefined,
-        onchange: (event) => {
-          const next = new Set(selectedPageComponents(page, names));
-          if (event.target.checked) next.add(name);
-          else next.delete(name);
-          page.components = names.filter((component) => next.has(component));
-          markDirty();
-          render();
-        },
-      });
-      choices.append(el("label", { class: "page-component-option" }, box, el("span", {}, name)));
-    }
-  } else {
-    choices.append(el("div", { class: "muted" }, "Add component patterns to components.jsonc to organize them here."));
-  }
-
   content.append(
     el("section", { class: "page-editor" },
       el("div", { class: "page-editor-head" },
@@ -1536,11 +1560,7 @@ async function renderUserPage(t, page) {
       el("div", { class: "editable" }, el("label", {}, "Description"), description),
       el("div", { class: "editable" }, el("label", {}, "Notes"), notes),
     ),
-    el("section", { class: "page-organization" },
-      el("h2", {}, "Components"),
-      el("p", { class: "muted" }, "Choose the component previews this page should collect. Changes appear when you save the design system."),
-      choices,
-    ),
+    renderPageComponentSelection(page, (names) => { page.components = names; }),
   );
   content.append(await renderComponents(t, state.componentsDoc || null, {
     names: page.components,

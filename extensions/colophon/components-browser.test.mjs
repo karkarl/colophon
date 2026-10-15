@@ -547,6 +547,36 @@ async function shellBehavior(kind) {
     const buttonIndex = registry.indexOf("Button");
     check(document.querySelectorAll(".page-content .preview")[1].dataset.designPath === JSON.stringify(["components", buttonIndex]),
       "filtered previews retain original registry inspection paths");
+    const checkbox = (name) => document.querySelector(`.page-component-option input[value="${CSS.escape(name)}"]`);
+    const toggle = async (name) => {
+      const before = checkbox(name);
+      check(!!before, `checkbox exists for ${name}`);
+      before.click();
+      await waitUntil(() => checkbox(name) && checkbox(name) !== before && document.activeElement === checkbox(name),
+        `checkbox ${name} rerenders and retains keyboard focus`);
+    };
+    const builtin = () => state.tokens.pages.find((page) => page.id === "components");
+    const customBefore = JSON.stringify(state.tokens.pages.find((page) => page.id === "publishing"));
+    check(document.querySelectorAll(".page-component-option input").length === registry.length, "built-in picker offers the full registry");
+    check(registry.every((name) => checkbox(name).checked === ["Badge", "Button"].includes(name)), "checkboxes reflect configured selection");
+    check(!state.dirty && document.querySelector("#save-btn").disabled, "viewing configured Components does not dirty tokens");
+    await toggle("ToggleSwitch");
+    expectPreviews(["Badge", "Button", "ToggleSwitch"], "new selections append without reordering authored names");
+    await toggle("Button");
+    expectPreviews(["Badge", "ToggleSwitch"], "unchecking hides only that top-level preview");
+    check(state.dirty && !document.querySelector("#save-btn").disabled, "checkbox changes enable Save to repo");
+    check(JSON.stringify(state.tokens.pages.find((page) => page.id === "publishing")) === customBefore, "built-in picker does not alter custom pages");
+    await toggle("Badge");
+    await toggle("ToggleSwitch");
+    expectPreviews([], "unchecking every control shows no previews");
+    check(document.querySelector(".page-content").textContent.includes("No components selected for this page."), "empty selection has an explicit message");
+    await doSave();
+    await load();
+    check(Array.isArray(builtin().components) && !builtin().components.length &&
+      registry.every((name) => !checkbox(name).checked), "empty checkbox selection saves and reloads as empty");
+    await toggle("Badge");
+    await toggle("Button");
+    expectPreviews(["Badge", "Button"], "controls can be reselected from an empty page");
 
     for (const selection of [{}, { components: [] }, { components: ["Badge", "Button"] }]) {
       state.tokens.pages[0] = { id: "components", name: "Components", ...selection };
@@ -563,21 +593,49 @@ async function shellBehavior(kind) {
     state.tokens.pages = configuredPages.slice(1);
     await render();
     expectPreviews(registry, "no built-in entry retains all-components behavior");
+    check(!state.dirty && state.tokens.pages.length === 1 && registry.every((name) => checkbox(name).checked),
+      "viewing an unconfigured picker keeps all checked without creating configuration");
+    await toggle("SubtlePicker");
+    expectPreviews(registry.filter((name) => name !== "SubtlePicker"), "first edit creates selection from default all");
+    await toggle("Button");
+    check(state.tokens.pages.filter((page) => page.id === "components").length === 1, "subsequent edits reuse the same built-in entry");
+    check(JSON.stringify(state.tokens.pages[0]) === customBefore, "creating the built-in entry preserves existing custom pages");
+    await doSave();
+    await load();
+    expectPreviews(registry.filter((name) => !["SubtlePicker", "Button"].includes(name)), "UI-created entry survives save/reload");
+    state.tokens.pages = structuredClone(configuredPages);
+    markDirty();
+    await doSave();
+    await load();
     state.tokens.pages = structuredClone(configuredPages);
     state.tokens.pages[0].components = ["Missing", "Button"];
     await render();
     expectPreviews(["Button"], "unknown names do not cause unrelated previews to appear");
     check(document.querySelector(".page-content .banner.warn")?.textContent.includes("Missing"), "unknown name is reported on the page");
+    await toggle("Badge");
+    check(builtin().components.join("|") === "Missing|Button|Badge", "picker edits preserve unknown selections for diagnosis");
     state.tokens.pages[0].components = null;
     await render();
     expectPreviews([], "malformed selection never falls back to all components");
     check(document.querySelector(".page-content .err")?.textContent.includes("array"), "malformed selection has a visible diagnostic");
     state.tokens.pages = configuredPages;
+    state.dirty = false;
     await render();
 
     pageButton("Publishing").click();
     await waitFor(".page-title-input");
     expectPreviews(["ExampleScreen", "SubtlePicker"], "omitted feature previews still render on their custom page");
+    await toggle("ExampleScreen");
+    expectPreviews(["SubtlePicker"], "custom pages reuse the checkbox picker");
+    await toggle("ExampleScreen");
+    expectPreviews(["SubtlePicker", "ExampleScreen"], "custom selections retain order and append reselected names");
+    await toggle("SubtlePicker");
+    await toggle("SubtlePicker");
+    expectPreviews(["ExampleScreen", "SubtlePicker"], "custom picker can restore the authored selection");
+    check(builtin().components.join("|") === "Badge|Button", "custom checkbox edits do not change the built-in selection");
+    await doSave();
+    await load();
+    expectPreviews(["ExampleScreen", "SubtlePicker"], "custom checkbox selections also survive save/reload");
     check(!!document.querySelector('[data-ds-node-id="example-screen-field"] input') &&
       document.querySelector('[data-ds-node-id="example-screen-deploys"]')?.textContent.includes("Deploys"), "nested references resolve omitted controls");
     check(document.querySelector('[data-ds-node-id="example-screen-submit"]')?.textContent === "Send invite", "shared controls still render inside compositions");
@@ -1306,6 +1364,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ["brand-narrow", `http://127.0.0.1:${server.address().port}/brand`],
       ["gallery", `http://127.0.0.1:${server.address().port}`],
       ["component-pages", `http://127.0.0.1:${server.address().port}/component-pages`],
+      ["component-pages-narrow", `http://127.0.0.1:${server.address().port}/component-pages`],
       ["inspect", `http://127.0.0.1:${server.address().port}/inspect`],
       ["inspect-narrow", `http://127.0.0.1:${server.address().port}/inspect`],
       ["prototype", `http://127.0.0.1:${server.address().port}/prototype`],
@@ -1323,10 +1382,10 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
       let design = structuredClone(bundle.design);
-      if (name.startsWith("brand") || name === "component-pages") {
+      if (name.startsWith("brand") || name.startsWith("component-pages")) {
         brandWorkspace = prototypeWorkspace;
         const initialTokens = structuredClone(tokens);
-        if (name === "component-pages") initialTokens.pages = [
+        if (name.startsWith("component-pages")) initialTokens.pages = [
           { id: "components", name: "Components", components: ["Badge", "Button"] },
           { id: "publishing", name: "Publishing", components: ["ExampleScreen", "SubtlePicker"] },
         ];
@@ -1351,7 +1410,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ], { timeout: 25000, maxBuffer: 4 * 1024 * 1024 });
       const result = stdout.match(/<pre id="browser-result">([\s\S]*?)<\/pre>/)?.[1];
       assert.equal(result, "PASS", `${name}: ${result}; ${stdout.match(/<body[^>]*>/)?.[0]}`);
-      if (name === "component-pages") {
+      if (name.startsWith("component-pages")) {
         const persisted = await loadDesign(brandWorkspace);
         assert.deepEqual(persisted.tokens.pages, [
           { id: "components", name: "Components", components: ["Badge", "Button"] },
