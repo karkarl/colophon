@@ -510,13 +510,11 @@ function renderComponentProperties() {
       type: "text",
       inputmode: "decimal",
       placeholder: "Unset, hug, fill, or px",
-      value: layout.width ?? "",
+      value: node.geometry?.width ?? layout.width ?? "",
       onchange: (event) => commitComponentMutation(() => {
         const raw = event.target.value.trim();
         const selected = selectedComponentNode();
-        selected.layout ||= {};
-        if (!raw) delete selected.layout.width;
-        else selected.layout.width = raw === "hug" || raw === "fill" ? raw : Number(raw);
+        window.EditorGeometry.setDimensions(selected, { width: !raw ? undefined : raw === "hug" || raw === "fill" ? raw : Number(raw) }, "component");
         if (typeof selected.layout.width === "number" && Number.isFinite(selected.layout.width)) ensureComponentSchemaV3();
       }),
     })),
@@ -524,13 +522,11 @@ function renderComponentProperties() {
       type: "text",
       inputmode: "decimal",
       placeholder: "Unset, hug, fill, or px",
-      value: layout.height ?? "",
+      value: node.geometry?.height ?? layout.height ?? "",
       onchange: (event) => commitComponentMutation(() => {
         const raw = event.target.value.trim();
         const selected = selectedComponentNode();
-        selected.layout ||= {};
-        if (!raw) delete selected.layout.height;
-        else selected.layout.height = raw === "hug" || raw === "fill" ? raw : Number(raw);
+        window.EditorGeometry.setDimensions(selected, { height: !raw ? undefined : raw === "hug" || raw === "fill" ? raw : Number(raw) }, "component");
         if (typeof selected.layout.height === "number" && Number.isFinite(selected.layout.height)) ensureComponentSchemaV3();
       }),
     })),

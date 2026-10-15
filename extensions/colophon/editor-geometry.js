@@ -1,6 +1,16 @@
 /* Geometry shared by both editors; no DOM or renderer dependencies. */
 (function (root) {
   const dimensions = (node, schema) => schema === "component" ? (node.layout ||= {}) : node;
+  function setDimensions(node, values, schema = "prototype") {
+    const size = dimensions(node, schema);
+    for (const key of ["width", "height"]) {
+      if (!Object.hasOwn(values, key)) continue;
+      if (values[key] === undefined) delete size[key];
+      else size[key] = values[key];
+      if (node.geometry) delete node.geometry[key];
+    }
+    if (node.geometry && !Object.keys(node.geometry).length) delete node.geometry;
+  }
   function scale(node, factor, bounds, schema = "prototype") {
     if (!Number.isFinite(factor) || factor < 0.1 || factor > 10) throw new Error("Scale geometry requires a multiplier from 0.1 to 10.");
     if (!node || typeof node !== "object" || !Number.isFinite(bounds?.width) || !Number.isFinite(bounds?.height) || bounds.width <= 0 || bounds.height <= 0) {
@@ -14,9 +24,16 @@
     };
     const visit = (value, first = false) => {
       if (!value || typeof value !== "object") return;
+      if (first) setDimensions(value, { width: bounds.width, height: bounds.height }, schema);
       const size = first ? dimensions(value, schema) : schema === "component" ? value.layout || {} : value;
-      if (first) Object.assign(size, { width: bounds.width, height: bounds.height });
       for (const key of ["width", "height"]) if (typeof size[key] === "number") size[key] = multiply(size[key]);
+      const motion = [value.geometry, ...Object.values(value.states || {}).map((state) => state.geometry),
+        ...(value.when || []).map((rule) => rule.style?.geometry)];
+      for (const geometry of motion) {
+        for (const key of ["width", "height", "translateX", "translateY"]) {
+          if (typeof geometry?.[key] === "number") geometry[key] = multiply(geometry[key]);
+        }
+      }
       if (!first && value.position) {
         value.position.x = multiply(value.position.x);
         value.position.y = multiply(value.position.y);
@@ -24,6 +41,7 @@
       for (const child of Array.isArray(value.children) ? value.children : []) visit(child);
     };
     visit(scaled, true);
+    if (!Object.hasOwn(scaled, "geometry")) delete node.geometry;
     Object.assign(node, scaled);
   }
   function template(kind, tokens, schema = "prototype") {
@@ -72,5 +90,5 @@
     }
     return result;
   }
-  root.EditorGeometry = { scale, template, dimensions, creationBounds };
+  root.EditorGeometry = { scale, template, dimensions, setDimensions, creationBounds };
 })(globalThis);

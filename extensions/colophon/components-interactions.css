@@ -41,7 +41,7 @@ textarea[data-ds-chrome="none"] { resize: none; }
   font: inherit;
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-ds-states] { transition: none; }
+  [data-ds-states], [data-ds-motion] { transition: none !important; }
 }
 @media (forced-colors: active) {
   [data-ds-focus]:focus-visible,

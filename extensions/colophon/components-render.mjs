@@ -22,7 +22,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // Render a normalized spec ({ tag, class, attrs, children } | string) into a DOM node.
 // SVG elements must be created in the SVG namespace (document.createElement would make
 // an inert HTML element), so once we enter an <svg> we keep creating descendants there.
-function specToDom(spec, inSvg = false, context = null) {
+function specToDom(spec, inSvg = false, context = null, scope = null) {
   if (!context) {
     const ctx = window.DSInteractions.createContext(() => { throw new Error("Flyouts require renderComponent with a component document."); });
     return window.DSInteractions.mount(specToDom(spec, inSvg, ctx), ctx);
@@ -49,11 +49,11 @@ function specToDom(spec, inSvg = false, context = null) {
     if (spec.source.nodeId) node.dataset.dsNodeId = spec.source.nodeId;
     else delete node.dataset.dsNodeId;
   }
+  const childScope = !svg ? window.DSInteractions.attach(node, spec, context, scope) : scope;
   for (const kid of spec.children || []) {
-    const dom = specToDom(kid, svg, context);
+    const dom = specToDom(kid, svg, context, childScope);
     if (dom) node.append(dom);
   }
-  if (!svg) window.DSInteractions.attach(node, spec, context);
   return node;
 }
 

@@ -29,7 +29,237 @@ async function browserPath() {
   return null;
 }
 
+async function switchBehavior(DS, doc, motionOnly = false) {
+  const check = (condition, message) => { if (!condition) throw new Error(`Switch: ${message}`); };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const host = document.createElement("div");
+  document.body.append(host);
+  const before = JSON.stringify(doc);
+  const render = (name = "ToggleSwitch", source = doc) => {
+    const node = DS.renderComponent(source, name);
+    host.append(node);
+    return node;
+  };
+  const toggle = render(), second = render();
+  const carrier = toggle.querySelector('[data-ds-node-id="toggle-carrier"]');
+  const thumb = toggle.querySelector('[data-ds-node-id="toggle-thumb"]');
+  const fire = (node, type, options = {}) => node.dispatchEvent(new PointerEvent(type, {
+    bubbles: true, cancelable: true, pointerId: 7, button: 0, isPrimary: true, ...options,
+  }));
+  const key = (node, type, options = {}) => node.dispatchEvent(new KeyboardEvent(type, {
+    bubbles: true, cancelable: true, key: " ", ...options,
+  }));
+  const checked = (node = toggle) => node.getAttribute("aria-checked") === "true";
+  const settle = () => {
+    getComputedStyle(thumb).width;
+    for (const animation of host.getAnimations({ subtree: true })) animation.finish();
+  };
+  const size = (width, height) => {
+    check(thumb.style.width === `${width}px` && thumb.style.height === `${height}px`, `target size ${width}x${height}`);
+    settle();
+    const rect = thumb.getBoundingClientRect();
+    check(Math.abs(rect.width - width) < .01 && Math.abs(rect.height - height) < .01, `rendered size ${width}x${height}: ${rect.width}x${rect.height}`);
+  };
+  try {
+    await tick();
+    check(!checked() && !checked(second) && toggle.getAttribute("role") === "switch", "initial accessible state");
+    size(12, 12);
+    if (motionOnly) {
+      check(matchMedia("(prefers-reduced-motion: reduce)").matches, "reduced motion preference");
+      for (const node of [toggle, carrier, thumb]) check(getComputedStyle(node).transitionProperty === "none", "explicit and legacy motion disabled");
+      toggle.click();
+      fire(toggle, "pointerenter");
+      check(checked() && getComputedStyle(carrier).translate === "20px", "reduced-motion slide reaches target immediately");
+      size(14, 14);
+      check(host.getAnimations({ subtree: true }).length === 0, "no reduced-motion geometry animations");
+      toggle.disabled = true;
+      await tick();
+      size(12, 12);
+      check(getComputedStyle(thumb).transitionProperty === "none", "disabled resize also respects reduced motion");
+      return;
+    }
+    check(getComputedStyle(carrier).transitionDuration === "0.367s" &&
+      getComputedStyle(carrier).transitionTimingFunction === "cubic-bezier(0.1, 0.9, 0.2, 1)", "independent WinUI reposition curve");
+    check(getComputedStyle(thumb).transitionDuration === "0.083s, 0.083s" &&
+      getComputedStyle(thumb).transitionTimingFunction === "cubic-bezier(0, 0, 0, 1), cubic-bezier(0, 0, 0, 1)", "resize duration and curve");
+    toggle.focus();
+    const off = carrier.getBoundingClientRect().left;
+    for (let count = 0; count < 4; count++) {
+      const on = !checked();
+      fire(toggle, "pointerdown");
+      size(17, 14);
+      fire(toggle, "pointerup");
+      fire(toggle, "click", { detail: 1 });
+      check(checked() === on && !checked(second), "repeated pointer activation stays instance-local");
+      settle();
+      check(Math.abs(carrier.getBoundingClientRect().left - off - (on ? 20 : 0)) < .01, "exact 20px travel");
+      check(document.activeElement === toggle, "click preserves keyboard focus");
+      fire(toggle, "pointerenter");
+      size(14, 14);
+      check(checked() === on && (on ? toggle.style.backgroundColor === "var(--color-accent)" : toggle.style.backgroundColor === "var(--color-line)"), "on/off plus hover");
+      fire(toggle, "pointerdown");
+      size(17, 14);
+      check(toggle.style.backgroundColor === (on ? "var(--color-accent)" : "var(--color-surface)"), "on/off plus pressed");
+      fire(toggle, "pointerleave");
+      size(17, 14);
+      fire(document, "pointerup");
+      size(12, 12);
+      check(checked() === on, "release outside and hover leave preserve position");
+    }
+    check(!key(toggle, "keydown"), "Space default prevented on native button");
+    size(17, 14);
+    key(toggle, "keydown", { repeat: true });
+    check(!checked(), "Space held does not toggle");
+    key(toggle, "keyup");
+    check(checked() && document.activeElement === toggle, "Space release activates once and retains focus");
+    check(getComputedStyle(toggle).outlineStyle !== "none", "visible keyboard focus treatment");
+    key(toggle, "keyup");
+    check(checked(), "unmatched keyup does not activate");
+    key(toggle, "keydown");
+    key(toggle, "keyup");
+    check(!checked(), "Space toggles off");
+
+    fire(toggle, "pointerenter");
+    fire(toggle, "pointerdown");
+    toggle.disabled = true;
+    await tick();
+    check(getComputedStyle(thumb).transitionDuration === "0.25s, 0.25s", "disabled resize uses 250ms");
+    size(12, 12);
+    toggle.click();
+    key(toggle, "keydown");
+    key(toggle, "keyup");
+    check(!checked(), "native disabled blocks activation");
+    toggle.disabled = false;
+    await tick();
+    fire(document, "pointerup");
+    fire(toggle, "pointerleave");
+    size(12, 12);
+    check(getComputedStyle(thumb).transitionDuration === "0.083s, 0.083s", "reenable restores resize duration");
+    for (const attr of ["aria-disabled", "inert"]) {
+      key(toggle, "keydown");
+      host.setAttribute(attr, "true");
+      await tick();
+      size(12, 12);
+      toggle.click();
+      check(!checked(), `${attr} ancestor blocks click`);
+      host.removeAttribute(attr);
+      await tick();
+      key(toggle, "keyup");
+      check(!checked(), `${attr} cancels a held key`);
+    }
+    toggle.click();
+    DSInteractions.forceState(toggle, "hover");
+    size(14, 14);
+    DSInteractions.forceState(toggle, "disabled");
+    size(12, 12);
+    toggle.click();
+    check(checked() && toggle.disabled, "forced disabled preserves on");
+    DSInteractions.forceState(toggle, "live");
+    check(checked() && !toggle.disabled && !toggle.hasAttribute("inert"), "forced state reset preserves on");
+    key(toggle, "keydown");
+    host.classList.add("inspect-mode");
+    await tick();
+    size(12, 12);
+    toggle.click();
+    key(toggle, "keyup");
+    check(checked(), "Inspect blocks click and keyboard");
+    DSInteractions.resetTree(host);
+    check(checked(), "Inspect transient reset preserves boolean");
+    host.classList.remove("inspect-mode");
+    await tick();
+    key(toggle, "keyup");
+    check(checked(), "leaving Inspect cannot activate an interrupted key");
+
+    for (const interrupt of ["pointercancel", "lostpointercapture", "blur", "remove"]) {
+      fire(toggle, "pointerdown");
+      if (interrupt === "blur") window.dispatchEvent(new Event("blur"));
+      else if (interrupt === "remove") { toggle.remove(); await tick(); host.append(toggle); }
+      else fire(toggle, interrupt);
+      size(12, 12);
+      fire(toggle, "click", { detail: 1 });
+      check(checked(), `${interrupt} cannot activate after cancellation`);
+    }
+    fire(toggle, "pointerdown", { button: 2 });
+    size(12, 12);
+    fire(toggle, "pointerdown", { isPrimary: false });
+    size(12, 12);
+    fire(toggle, "pointerdown");
+    fire(document, "pointerup", { pointerId: 99 });
+    size(17, 14);
+    fire(document, "pointercancel");
+    size(12, 12);
+
+    const extra = { components: [...doc.components,
+      { name: "Pair", root: { el: "div", children: [{ component: "ToggleSwitch" }, { component: "ToggleSwitch", state: { checked: true } }] } },
+      { name: "Custom", root: { el: "div", state: { enabled: false }, on: { click: { toggle: "enabled" } }, children: ["Custom control"] } },
+      { name: "Scoped", root: { el: "div", state: { enabled: false }, children: [
+        { el: "span", states: { pressed: { color: "accent" } } },
+        { el: "div", on: { click: { toggle: "enabled" } },
+          states: { hover: { color: "accent" }, pressed: { background: "accent" } }, children: ["Nested control"] },
+        { el: "span", states: { pressed: { color: "accent" } }, when: [{ state: { enabled: true }, style: { background: "accent" } }] },
+        { el: "div", on: { click: { toggle: "enabled" } },
+          states: { hover: { color: "accent" }, pressed: { background: "accent" } }, children: ["Other control"] },
+      ] } },
+      { name: "EditableToggle", root: { el: "div", state: { enabled: false }, on: { click: { toggle: "enabled" } },
+        children: [{ el: "input", attrs: { type: "text", "aria-label": "Editable child" } }] } },
+    ] };
+    const pair = render("Pair", extra).querySelectorAll('[role="switch"]');
+    pair[0].click();
+    check(checked(pair[0]) && checked(pair[1]), "nested reference defaults and independent scopes");
+    pair[1].click();
+    check(checked(pair[0]) && !checked(pair[1]), "nested reference toggling stays independent");
+    const custom = render("Custom", extra);
+    check(custom.tabIndex === 0 && custom.getAttribute("role") === "switch", "custom toggle keyboard semantics");
+    key(custom, "keydown"); key(custom, "keyup");
+    check(checked(custom), "custom toggle Space activation");
+    const scoped = render("Scoped", extra);
+    const [beforePart, action, afterPart, otherAction] = scoped.children;
+    fire(scoped, "pointerenter");
+    check(!action.style.color && !otherAction.style.color, "container hover does not hover nested controls");
+    fire(action, "pointerenter");
+    check(action.style.color === "var(--color-accent)" && !otherAction.style.color, "controls own their hover");
+    for (const source of ["keyboard", "pointer"]) {
+      if (source === "keyboard") key(action, "keydown");
+      else fire(action, "pointerdown");
+      check([beforePart, afterPart].every((part) => part.style.color === "var(--color-accent)"), `${source} drives parts before and after action`);
+      check(action.style.backgroundColor === "var(--color-accent)" && !otherAction.style.backgroundColor, "controls own their press");
+      action.setAttribute("aria-disabled", "true");
+      await tick();
+      check([beforePart, afterPart].every((part) => !part.style.color), `${source} disabling cancels all dependent parts before rendering`);
+      action.removeAttribute("aria-disabled");
+      await tick();
+      if (source === "keyboard") key(action, "keyup");
+      else fire(document, "pointerup");
+      check(!checked(action), "re-enabling never activates an interrupted nested action");
+    }
+    key(action, "keydown"); key(action, "keyup");
+    check(checked(action) && afterPart.style.backgroundColor === "var(--color-accent)" && !afterPart.style.color,
+      "nested action updates state and restores sparse part styling");
+    fire(action, "pointerleave");
+    fire(otherAction, "pointerenter");
+    fire(otherAction, "pointerdown");
+    check(!action.style.backgroundColor && otherAction.style.backgroundColor === "var(--color-accent)", "second control owns press after first was active");
+    fire(document, "pointerup");
+    const editable = render("EditableToggle", extra);
+    const input = editable.querySelector("input");
+    input.focus();
+    for (const name of [" ", "Enter"]) {
+      check(key(input, "keydown", { key: name }), `${name} default remains available to editable descendants`);
+      key(input, "keyup", { key: name });
+      check(!checked(editable), `${name} in editable descendant does not activate its toggle ancestor`);
+    }
+    check(JSON.stringify(doc) === before, "persistent control state does not mutate authored defaults");
+    DSInteractions.disposeTree(host);
+    toggle.click();
+    check(checked(), "disposed toggle no longer responds");
+  } finally {
+    DSInteractions.disposeTree(host);
+    host.remove();
+  }
+}
+
 async function behavior(DS, doc, motionOnly = false) {
+  await switchBehavior(DS, doc, motionOnly);
   const check = (condition, message) => { if (!condition) throw new Error(message); };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
   const host = document.createElement("div");
@@ -241,6 +471,7 @@ test("real Chromium behavior: classic and ESM component previews", { timeout: 45
     </style><body><script src="./shape-geometry.js"></script><script>${interactions}</script><script>${classic}</script><script type="module">
     const result = document.createElement("pre"); result.id = "browser-result";
     try {
+      const switchBehavior = ${switchBehavior.toString()};
       const behavior = ${behavior.toString()};
       const doc = ${JSON.stringify(parseComponents(sample)).replace(/</g, "\\u003c")};
       await behavior(window.DSComp, doc, location.search === "?motion");
@@ -281,6 +512,25 @@ async function shellBehavior(kind) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     throw new Error(message);
+  };
+  const verifySwitch = async () => {
+    const node = await waitFor('[data-ds-node-id="toggle-switch"]');
+    const thumb = node.querySelector('[data-ds-node-id="toggle-thumb"]');
+    const carrier = node.querySelector('[data-ds-node-id="toggle-carrier"]');
+    check(node.getAttribute("aria-checked") === "false", `${kind} switch starts off`);
+    node.focus();
+    node.click();
+    check(node.getAttribute("aria-checked") === "true" && document.activeElement === node, `${kind} switch toggles on without replacing focus`);
+    node.dispatchEvent(new PointerEvent("pointerenter"));
+    check(thumb.style.width === "14px" && parseFloat(carrier.style.translate) === 20, `${kind} on plus hover geometry`);
+    for (const type of ["keydown", "keyup"]) node.dispatchEvent(new KeyboardEvent(type, { key: " ", bubbles: true, cancelable: true }));
+    check(node.getAttribute("aria-checked") === "false" && parseFloat(carrier.style.translate) === 0, `${kind} Space toggles off`);
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      check(getComputedStyle(thumb).transitionProperty === "none" && getComputedStyle(carrier).transitionProperty === "none", `${kind} reduced motion disables authored transitions`);
+    }
+    node.dispatchEvent(new PointerEvent("pointerleave"));
+    node.click();
+    return node;
   };
   if (kind === "brand") {
     await waitFor("#brand-name");
@@ -596,6 +846,7 @@ async function shellBehavior(kind) {
     components.click();
     let select = await waitFor('select[aria-label="SubtlePicker preview state"]');
     let picker = await waitFor('[data-ds-node-id="subtle-picker"]');
+    const originalSwitch = await verifySwitch();
     select.value = "hover";
     select.dispatchEvent(new Event("change"));
     check(picker.style.backgroundColor === "var(--color-line)", "gallery selector forces hover");
@@ -606,6 +857,11 @@ async function shellBehavior(kind) {
     select = await waitFor('select[aria-label="SubtlePicker preview state"]');
     picker = await waitFor('[data-ds-node-id="subtle-picker"]');
     check(!picker.disabled && select.disabled && select.value === "live", "Inspect restores temporary disabled state");
+    const inspectedSwitch = document.querySelector('[data-ds-node-id="toggle-switch"]');
+    check(!originalSwitch.isConnected && inspectedSwitch.getAttribute("aria-checked") === "false", "first gallery Inspect render starts from authored defaults");
+    const wasChecked = inspectedSwitch.getAttribute("aria-checked");
+    inspectedSwitch.click();
+    check(inspectedSwitch.getAttribute("aria-checked") === wasChecked, "gallery Inspect does not activate toggle");
     picker.click();
     check(!document.querySelector(".ds-flyout"), "Inspect selects instead of opening");
     check(document.querySelector("#design-inspector").hidden === false, "inspector remains usable");
@@ -662,6 +918,7 @@ async function shellBehavior(kind) {
     check(getComputedStyle(document.querySelector(".ds-flyout").firstElementChild).backgroundColor === "rgb(34, 30, 26)", "dark gallery token fidelity");
   } else {
     let picker = await waitFor('[data-ds-node-id="subtle-picker"]');
+    await verifySwitch();
     check(getComputedStyle(picker).borderTopWidth === "4px" && getComputedStyle(picker).borderTopStyle === "solid", "prototype and standalone export preserve instance border thickness");
     const screenList = document.querySelector("#screen-list");
     const current = () => screenList.querySelector('[aria-current="page"]');
@@ -843,6 +1100,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       { id: "preview", name: "Preview", device: "responsive", root: { id: "preview-root", layout: "stack", children: [
         { id: "picker", component: "SubtlePicker", appearance: { borderWidth: 4, borderColor: "accent" } },
         { id: "next-screen", text: "Next", on: { tap: { navigate: "second" } } },
+        { id: "switch", component: "ToggleSwitch" },
+        { id: "other-switch", component: "ToggleSwitch" },
       ] } },
       { id: "second", root: { id: "composer", component: "BorderlessComposer" } },
       ...Array.from({ length: 30 }, (_, index) => ({
@@ -963,7 +1222,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       </script>`);
     await writeFile(path.join(dir, "export.html"), exported);
     await writeFile(path.join(dir, "compact-export.html"), inject(await buildPrototypeExportHtml(compactBundle(true)), "compact"));
-    for (const [name, url] of [
+    const scenarios = [
       ["brand", `http://127.0.0.1:${server.address().port}/brand`],
       ["brand-narrow", `http://127.0.0.1:${server.address().port}/brand`],
       ["gallery", `http://127.0.0.1:${server.address().port}`],
@@ -972,10 +1231,15 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ["prototype", `http://127.0.0.1:${server.address().port}/prototype`],
       ["prototype-narrow", `http://127.0.0.1:${server.address().port}/prototype`],
       ["export", pathToFileURL(path.join(dir, "export.html")).href],
+      ["export-reduced-motion", pathToFileURL(path.join(dir, "export.html")).href],
       ["compact-flat", `http://127.0.0.1:${server.address().port}/compact`],
       ["compact-section", `http://127.0.0.1:${server.address().port}/compact`],
       ["compact-export", pathToFileURL(path.join(dir, "compact-export.html")).href],
-    ]) {
+    ];
+    const selected = process.env.COLOPHON_BROWSER_CASES?.split(",");
+    if (selected) assert.ok(selected.every((name) => scenarios.some(([scenario]) => scenario === name)), "COLOPHON_BROWSER_CASES contains an unknown scenario.");
+    for (const [name, url] of scenarios) {
+      if (selected && !selected.includes(name)) continue;
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
       let design = structuredClone(bundle.design);
@@ -996,6 +1260,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       resources.set("/api/design", ["application/json", JSON.stringify({ design })]);
       const { stdout } = await promisify(execFile)(browser, [
         "--headless=new", "--disable-gpu", "--disable-extensions", "--disable-background-networking", "--no-first-run", "--no-default-browser-check",
+        ...(name === "export-reduced-motion" ? ["--force-prefers-reduced-motion=reduce"] : []),
         `--window-size=${name.endsWith("-narrow") ? "700,900" : "1400,1000"}`,
         `--user-data-dir=${path.join(dir, name)}`, "--dump-dom", "--virtual-time-budget=8000", url,
       ], { timeout: 25000, maxBuffer: 4 * 1024 * 1024 });

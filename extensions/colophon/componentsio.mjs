@@ -259,25 +259,87 @@ const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const APPEARANCE_NONE = "$none";
 const STATE_NAMES = new Set(["hover", "pressed", "hoverPressed", "disabled"]);
 const object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const STATE_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
+const TRANSITION_PROPERTIES = new Set(["color", "background-color", "border-color", "border-width", "border-radius", "box-shadow", "width", "height", "translate"]);
+
+function validateBooleanState(value, where, errors) {
+  if (!object(value) || !Object.keys(value).length) {
+    errors.push(`${where}: must be a non-empty object of named booleans.`);
+    return;
+  }
+  for (const [key, initial] of Object.entries(value)) {
+    if (!STATE_KEY.test(key) || typeof initial !== "boolean") errors.push(`${where}.${key}: requires a literal boolean and an alphanumeric state name starting with a letter.`);
+  }
+}
+
+function validateMotion(node, where, errors) {
+  if (node.geometry != null) {
+    if (!object(node.geometry)) errors.push(`${where}.geometry: must be an object.`);
+    else for (const [key, value] of Object.entries(node.geometry)) {
+      if (!["width", "height", "translateX", "translateY"].includes(key)) errors.push(`${where}.geometry: unknown property "${key}".`);
+      else if (typeof value !== "number" || !Number.isFinite(value) || (["width", "height"].includes(key) && value < 0)) {
+        errors.push(`${where}.geometry.${key}: must be a finite pixel number${["width", "height"].includes(key) ? " >= 0" : ""}.`);
+      }
+    }
+  }
+  if (node.transitions != null) {
+    if (!Array.isArray(node.transitions)) { errors.push(`${where}.transitions: must be an array.`); return; }
+    const properties = new Set();
+    for (const [index, transition] of node.transitions.entries()) {
+      const path = `${where}.transitions[${index}]`;
+      if (!object(transition)) { errors.push(`${path}: must be an object.`); continue; }
+      if (Object.keys(transition).some((key) => !["properties", "duration", "easing"].includes(key))) errors.push(`${path}: unknown transition field.`);
+      if (!Array.isArray(transition.properties) || !transition.properties.length) errors.push(`${path}.properties: requires an explicit non-empty property list.`);
+      else for (const property of transition.properties) {
+        if (!TRANSITION_PROPERTIES.has(property) || properties.has(property)) errors.push(`${path}.properties: unsupported or duplicate property "${property}".`);
+        properties.add(property);
+      }
+      if (typeof transition.duration !== "number" || !Number.isFinite(transition.duration) || transition.duration < 0) errors.push(`${path}.duration: must be non-negative finite milliseconds.`);
+      const easing = transition.easing;
+      const bezier = Array.isArray(easing) && easing.length === 4 && easing.every((value) => typeof value === "number" && Number.isFinite(value))
+        && easing[0] >= 0 && easing[0] <= 1 && easing[2] >= 0 && easing[2] <= 1;
+      if (!bezier && !["linear", "ease", "ease-in", "ease-out", "ease-in-out"].includes(easing)) errors.push(`${path}.easing: must be a standard easing name or [x1, y1, x2, y2] with x values in [0, 1].`);
+    }
+  }
+}
+
+function validateStateStyle(style, where, errors, tokens) {
+  if (!object(style)) { errors.push(`${where}: must be an appearance object.`); return; }
+  const { geometry, transitions, ...appearance } = style;
+  const stateErrors = [];
+  validateAppearance({ appearance }, where, stateErrors, tokens);
+  errors.push(...stateErrors.map((error) => error.replace(`${where}.appearance`, where)));
+  validateMotion({ geometry, transitions }, where, errors);
+}
 
 function validateInteraction(node, where, errors, tokens, map) {
+  validateMotion(node, where, errors);
+  if (node.state != null) validateBooleanState(node.state, `${where}.state`, errors);
+  if (node.when != null) {
+    if (!Array.isArray(node.when)) errors.push(`${where}.when: must be an array.`);
+    else for (const [index, rule] of node.when.entries()) {
+      const path = `${where}.when[${index}]`;
+      if (!object(rule)) { errors.push(`${path}: must be an object.`); continue; }
+      if (Object.keys(rule).some((key) => !["state", "interaction", "style"].includes(key))) errors.push(`${path}: unknown condition field.`);
+      validateBooleanState(rule.state, `${path}.state`, errors);
+      if (rule.interaction != null && !STATE_NAMES.has(rule.interaction)) errors.push(`${path}.interaction: unknown interaction state.`);
+      validateStateStyle(rule.style, `${path}.style`, errors, tokens);
+    }
+  }
   if (node.states != null) {
     if (!object(node.states)) errors.push(`${where}.states: must be an object.`);
     else for (const [state, appearance] of Object.entries(node.states)) {
       if (!STATE_NAMES.has(state)) errors.push(`${where}.states: unknown state "${state}".`);
-      if (!object(appearance)) errors.push(`${where}.states.${state}: must be an appearance object.`);
-      else {
-        const stateErrors = [];
-        validateAppearance({ appearance }, where, stateErrors, tokens);
-        errors.push(...stateErrors.map((error) => error.replace(`${where}.appearance`, `${where}.states.${state}`)));
-      }
+      validateStateStyle(appearance, `${where}.states.${state}`, errors, tokens);
     }
   }
   if (node.on != null) {
+    const action = node.on?.click;
     if (!object(node.on) || Object.keys(node.on).some((key) => key !== "click")
-      || !object(node.on.click) || Object.keys(node.on.click).some((key) => key !== "open")
-      || typeof node.on.click.open !== "string" || !Object.hasOwn(map, node.on.click.open)) {
-      errors.push(`${where}.on: expected { click: { open: "DefinedComponentName" } } with a literal component name.`);
+      || !object(action) || Object.keys(action).length !== 1
+      || !(typeof action.open === "string" && Object.hasOwn(map, action.open)
+        || typeof action.toggle === "string" && STATE_KEY.test(action.toggle))) {
+      errors.push(`${where}.on: expected { click: { open: "DefinedComponentName" } } or { click: { toggle: "stateName" } } with a literal target.`);
     }
   }
   if (node.control == null) return;
@@ -299,11 +361,23 @@ function validateInteraction(node, where, errors, tokens, map) {
   }
 }
 
-function validateResolvedInteractions(spec, where, errors, inSvg = false) {
+function validateResolvedInteractions(spec, where, errors, inSvg = false, parentState = null) {
   if (!spec || typeof spec === "string") return;
+  const state = spec.state || parentState;
+  const requireState = (key, path) => {
+    if (!state || !Object.hasOwn(state, key)) errors.push(`${path}: references undeclared boolean state "${key}".`);
+  };
+  if (spec.on?.click?.toggle) {
+    requireState(spec.on.click.toggle, `${where}.on.click.toggle`);
+    if (!["button", "div", "span"].includes(spec.tag) || spec.attrs?.contenteditable != null) errors.push(`${where}.on.click.toggle: use a button, div, or span control, not a native input or editable element.`);
+    if (spec.attrs?.role && !["switch", "checkbox"].includes(spec.attrs.role)) errors.push(`${where}.on.click.toggle: role must be switch or checkbox.`);
+  }
+  for (const [index, rule] of (spec.when || []).entries()) {
+    for (const key of Object.keys(rule.state)) requireState(key, `${where}.when[${index}].state`);
+  }
   const svg = inSvg || spec.tag === "svg";
   if (svg) {
-    for (const key of ["states", "on", "control"]) {
+    for (const key of ["states", "on", "control", "state", "when", "geometry", "transitions"]) {
       if (spec[key] != null) errors.push(`${where}.${key}: interaction metadata is not supported in SVG subtrees.`);
     }
   } else if (spec.control) {
@@ -315,7 +389,7 @@ function validateResolvedInteractions(spec, where, errors, inSvg = false) {
     }
   }
   for (const [index, child] of (spec.children || []).entries()) {
-    validateResolvedInteractions(child, `${where}.children[${index}]`, errors, svg);
+    validateResolvedInteractions(child, `${where}.children[${index}]`, errors, svg, state);
   }
 }
 
@@ -661,7 +735,23 @@ export function appearanceStyle(node) {
 }
 
 function nodeStyle(node) {
-  return { ...autoLayoutStyle(node), ...appearanceStyle(node), ...globalThis.ShapeGeometry.style(node) };
+  return { ...autoLayoutStyle(node), ...appearanceStyle(node), ...motionStyle(node), ...globalThis.ShapeGeometry.style(node) };
+}
+
+function motionStyle(node) {
+  const style = {};
+  const geometry = node.geometry || {};
+  for (const key of ["width", "height"]) if (geometry[key] != null) style[key] = `${geometry[key]}px`;
+  if (geometry.translateX != null || geometry.translateY != null) style.translate = `${geometry.translateX ?? 0}px ${geometry.translateY ?? 0}px`;
+  if (node.transitions != null) {
+    style.transition = node.transitions.flatMap(({ properties, duration, easing }) =>
+      properties.map((property) => `${property} ${duration}ms ${Array.isArray(easing) ? `cubic-bezier(${easing.join(",")})` : easing}`)).join(", ") || "none";
+  }
+  return style;
+}
+
+function stateStyle(style) {
+  return { ...appearanceStyle({ appearance: style }), ...motionStyle(style) };
 }
 
 function mergeNodeStyle(spec, node, source) {
@@ -679,9 +769,12 @@ function interactionSpec(node, base = {}) {
   if (node.states != null) {
     result.states = { ...base.states };
     for (const [state, appearance] of Object.entries(node.states)) {
-      result.states[state] = { ...base.states?.[state], ...appearanceStyle({ appearance }) };
+      result.states[state] = { ...base.states?.[state], ...stateStyle(appearance) };
     }
   }
+  if (node.state != null) result.state = { ...base.state, ...node.state };
+  if (node.when != null) result.when = [...base.when || [], ...node.when.map((rule) => ({ ...rule, style: stateStyle(rule.style) }))];
+  for (const key of ["geometry", "transitions"]) if (node[key] != null) result[key] = node[key];
   if (node.on != null) result.on = node.on;
   if (node.control != null) result.control = { ...base.control, ...node.control };
   return result;

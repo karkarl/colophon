@@ -324,6 +324,21 @@ referenced component definition.
 Reuse [component patterns](.agents/design/components.jsonc); these describe design intent, not shipping code.
 Optional click-through flows live in `.agents/design/prototypes.jsonc`.
 
+### ToggleSwitch geometry and motion
+
+The switch uses Northlight's `paper`, `line`, `muted`, `accent`, and `accentInk`
+colors, `pill` radius, and an `accent` focus outline. Its 42 by 22 track contains
+a centered thumb in a 20 by 20 carrier. These are control geometry, not spacing
+tokens. The carrier travels 20px; the thumb is 12 by 12 at rest, 14 by 14 on
+hover, and 17 by 14 while pressed in either position.
+
+This platform-reference pattern deliberately differs from the general 120-200ms
+motion guidance: width and height resize over 83ms with cubic-bezier(0,0,0,1),
+or 250ms when becoming disabled. Slide the carrier independently over 367ms with
+cubic-bezier(0.1,0.9,0.2,1), matching the WinUI RepositionThemeAnimation reference.
+Do not apply the resize duration to the slide. Reduced motion removes both
+transitions. State belongs to each rendered instance, never the design document.
+
 ## Do's and Don'ts
 
 - Hierarchy over decoration — size, weight, and space do the work before color does.

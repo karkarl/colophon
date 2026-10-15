@@ -93,7 +93,7 @@ window.EditorWorkspace = { create(adapter) {
     try {
       destination ||= selectedDestination();
       const node = template(kind);
-      if (geometry) Object.assign(window.EditorGeometry.dimensions(node, adapter.schema), { width: geometry.width, height: geometry.height });
+      if (geometry) window.EditorGeometry.setDimensions(node, { width: geometry.width, height: geometry.height }, adapter.schema);
       if (geometry?.endpoints) node.endpoints = geometry.endpoints;
       return adapter.commit(() => {
         adapter.prepare(adapter.doc(), { kind, geometry: !!geometry });
@@ -414,7 +414,7 @@ window.EditorWorkspace = { create(adapter) {
       Promise.resolve(adapter.commit(() => {
         adapter.prepare(adapter.doc(), { geometry: true });
         const node = adapter.value(adapter.doc(), gesture.path);
-        Object.assign(window.EditorGeometry.dimensions(node, adapter.schema), gesture.next);
+        window.EditorGeometry.setDimensions(node, gesture.next, adapter.schema);
       })).then((committed) => {
         if (committed) announce("Layer resized. Undo is available.");
       });
@@ -459,7 +459,7 @@ window.EditorWorkspace = { create(adapter) {
     slot.append(el("div", { class: "geometry-scale" },
       propertyField("Geometry multiplier", multiplier),
       el("button", { type: "button", class: "btn", onclick: () => scale(multiplier.valueAsNumber) }, "Scale geometry")),
-    el("p", { class: "property-help" }, "Scales fixed dimensions and child positions only. Type, spacing, radii, and effects keep their tokens."));
+    el("p", { class: "property-help" }, "Scales fixed dimensions, child positions, and state geometry. Type, spacing, radii, and effects keep their tokens."));
   }
 
   window.addEventListener("DOMContentLoaded", () => {

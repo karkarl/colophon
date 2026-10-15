@@ -5,7 +5,7 @@
   let overlay = null;
   const focusable = 'button,input,textarea,select,a[href],[tabindex],[contenteditable]';
   const inspecting = (node) => !!node.closest(".inspect-mode");
-  const disabled = (node) => !!node.closest(':disabled,[aria-disabled="true"],[data-ds-forced-disabled]');
+  const disabled = (node) => !!node.closest(':disabled,[aria-disabled="true"],[data-ds-forced-disabled],[inert]');
 
   function closeOverlay(restore = false) {
     if (!overlay) return;
@@ -107,6 +107,10 @@
     const context = {
       render, overlay: !!options.overlay, id: ++nextId, records: [], abort,
       forced: "live", observer: null,
+      update() {
+        for (const record of context.records) record.prepare();
+        for (const record of context.records) record.update();
+      },
       on(target, type, listener, capture = false) {
         target.addEventListener(type, listener, { signal: abort.signal, capture });
       },
@@ -114,7 +118,7 @@
     return context;
   }
 
-  function attach(node, spec, context) {
+  function attach(node, spec, context, scope = null) {
     if (node.matches('input[type="radio"]') && node.name) node.name = `ds-${context.id}-${node.name}`;
     if (spec.control) {
       if (spec.control.chrome === "none") node.dataset.dsChrome = "none";
@@ -123,12 +127,23 @@
         node.style.setProperty("--ds-focus-color", `var(--color-${spec.control.focus.color})`);
       }
     }
-    if (!spec.states && !spec.on && !spec.control) return;
+    if (spec.transitions || spec.geometry) node.dataset.dsMotion = "";
+    if (!spec.states && !spec.on && !spec.control && !spec.state && !spec.when) return scope;
     const states = spec.states || {};
-    if (spec.states) node.dataset.dsStates = "";
-    const keys = new Set(Object.values(states).flatMap((style) => Object.keys(style)));
+    const conditions = spec.when || [];
+    if (spec.states || spec.state || spec.when) node.dataset.dsStates = "";
+    const keys = new Set([...Object.values(states), ...conditions.map((rule) => rule.style)].flatMap((style) => Object.keys(style)));
     const base = new Map([...keys].map((key) => [key, [node.style.getPropertyValue(key), node.style.getPropertyPriority(key)]]));
-    const record = { node, hover: false, pointer: null, keyboard: false, release: null, saved: null };
+    const record = { node, hover: false, pointer: null, keyboard: false, release: null, saved: null, cancelled: false };
+    if (spec.state) {
+      record.state = { ...spec.state };
+      scope = record;
+    }
+    const interactive = !!spec.on || node.matches(focusable);
+    const driver = interactive ? record : scope || record;
+    const toggle = spec.on?.click?.toggle;
+    if (toggle && (!scope?.state || !Object.hasOwn(scope.state, toggle))) throw new Error(`Undeclared toggle state "${toggle}".`);
+    if (conditions.some((rule) => Object.keys(rule.state).some((key) => !scope?.state || !Object.hasOwn(scope.state, key)))) throw new Error("Conditional styling requires declared boolean state.");
     context.records.push(record);
     const restoreDisabled = () => {
       if (!record.saved) return;
@@ -139,8 +154,14 @@
       record.saved = null;
       delete node.dataset.dsForcedDisabled;
     };
-    record.update = () => {
-      const forcedDisabled = !!spec.states && context.forced === "disabled";
+    record.clearPress = () => {
+      if (record.pointer !== null || record.keyboard) record.cancelled = true;
+      record.pointer = null;
+      record.keyboard = false;
+      record.release?.();
+    };
+    record.prepare = () => {
+      const forcedDisabled = !!(spec.states || spec.state || spec.when || spec.on) && context.forced === "disabled";
       if (forcedDisabled && !record.saved) {
         record.saved = {};
         // Native disabled preserves form semantics; inert covers editable descendants.
@@ -151,64 +172,96 @@
         }
         node.dataset.dsForcedDisabled = "";
       } else if (!forcedDisabled) restoreDisabled();
+      if (disabled(node) || inspecting(node) || !node.isConnected) record.clearPress();
+    };
+    record.update = () => {
       const isDisabled = disabled(node);
+      const inspect = inspecting(node);
       const live = context.forced === "live";
-      const hover = live ? record.hover : ["hover", "hoverPressed"].includes(context.forced);
-      const pressed = live ? record.pointer !== null || record.keyboard : ["pressed", "hoverPressed"].includes(context.forced);
-      const style = isDisabled ? states.disabled : {
-        ...(hover ? states.hover : {}),
-        ...(pressed ? states.pressed : {}),
-        ...(hover && pressed ? states.hoverPressed : {}),
+      const input = interactive ? record : driver.active || driver;
+      const hover = !inspect && !disabled(input.node) && (live ? input.hover : ["hover", "hoverPressed"].includes(context.forced));
+      const pressed = !inspect && (live ? input.pointer !== null || input.keyboard : ["pressed", "hoverPressed"].includes(context.forced));
+      const style = {};
+      const applyConditions = (interaction) => {
+        for (const rule of conditions) {
+          if ((rule.interaction ?? null) === interaction && Object.entries(rule.state).every(([key, value]) => scope.state[key] === value)) Object.assign(style, rule.style);
+        }
       };
+      applyConditions(null);
+      const active = isDisabled ? ["disabled"] : [
+        ...(hover ? ["hover"] : []), ...(pressed ? ["pressed"] : []), ...(hover && pressed ? ["hoverPressed"] : []),
+      ];
+      for (const interaction of active) {
+        Object.assign(style, states[interaction]);
+        applyConditions(interaction);
+      }
       for (const [key, [value, priority]] of base) {
         if (style && Object.hasOwn(style, key)) node.style.setProperty(key, style[key]);
         else if (value) node.style.setProperty(key, value, priority);
         else node.style.removeProperty(key);
       }
+      if (toggle) node.setAttribute("aria-checked", String(scope.state[toggle]));
     };
     record.reset = () => {
       record.hover = false;
-      record.pointer = null;
-      record.keyboard = false;
-      record.release?.();
-      record.update();
+      record.active = null;
+      record.clearPress();
     };
-    context.on(node, "pointerenter", () => { if (!inspecting(node)) { record.hover = true; record.update(); } });
-    context.on(node, "pointerleave", () => { record.hover = false; record.update(); });
+    const update = () => context.update();
+    const reset = () => { record.reset(); update(); };
+    const ownsEvent = (event) => !spec.on || event.target.closest("[data-ds-action]") === node;
+    // Passive parts follow the scope's current toggle; controls own their input.
+    context.on(node, "pointerenter", () => {
+      if (!inspecting(node)) {
+        record.hover = true;
+        if (toggle) scope.active = record;
+        update();
+      }
+    });
+    context.on(node, "pointerleave", () => { record.hover = false; update(); });
     context.on(node, "pointerdown", (event) => {
-      if (event.button !== 0 || event.isPrimary === false || disabled(node) || inspecting(node)) return;
+      if (!ownsEvent(event) || event.button !== 0 || event.isPrimary === false || disabled(node) || inspecting(node)) return;
+      record.cancelled = false;
       record.pointer = event.pointerId;
-      record.update();
+      if (toggle) scope.active = record;
+      update();
       record.release?.();
       const press = new AbortController();
       record.release = () => { press.abort(); record.release = null; };
       const end = (up) => {
         if (up.pointerId !== record.pointer) return;
+        if (up.type === "pointercancel" || !node.contains(up.target)) record.cancelled = true;
         record.pointer = null;
         record.release?.();
-        record.update();
+        update();
       };
       document.addEventListener("pointerup", end, { signal: press.signal, capture: true });
       document.addEventListener("pointercancel", end, { signal: press.signal, capture: true });
     });
-    context.on(node, "lostpointercapture", record.reset);
-    context.on(node, "blur", record.reset);
-    const button = node.matches('button,[role="button"]') || !!spec.on?.click?.open;
+    context.on(node, "lostpointercapture", reset);
+    context.on(node, "blur", reset);
+    const button = node.matches('button,[role="button"]') || !!spec.on;
     context.on(node, "keydown", (event) => {
-      if (!button || !["Enter", " "].includes(event.key) || inspecting(node)) return;
+      if (!button || !ownsEvent(event) || (toggle && event.target !== node) || !["Enter", " "].includes(event.key)) return;
+      if (inspecting(node)) { event.preventDefault(); return; }
       if (disabled(node)) { event.preventDefault(); event.stopPropagation(); return; }
+      if (toggle) {
+        event.preventDefault(); // Own native button activation too: one toggle per key cycle.
+        if (event.repeat) return;
+      }
       record.keyboard = true;
-      record.update();
-      if (node.localName !== "button") {
+      if (toggle) scope.active = record;
+      update();
+      if (toggle || node.localName !== "button") {
         event.preventDefault();
         if (event.key === "Enter" && !event.repeat) node.click();
       }
     });
     context.on(node, "keyup", (event) => {
-      if (!button || !["Enter", " "].includes(event.key)) return;
-      const activate = record.keyboard && event.key === " " && node.localName !== "button";
+      if (!button || !ownsEvent(event) || (toggle && event.target !== node) || !["Enter", " "].includes(event.key)) return;
+      const activate = record.keyboard && event.key === " " && (toggle || node.localName !== "button");
       record.keyboard = false;
-      record.update();
+      update();
       if (activate && !disabled(node) && !inspecting(node)) { event.preventDefault(); node.click(); }
     });
     context.on(node, "beforeinput", (event) => {
@@ -226,9 +279,23 @@
       node.setAttribute("aria-haspopup", "true");
       node.setAttribute("aria-expanded", "false");
     }
+    if (spec.on) node.dataset.dsAction = "";
+    if (toggle) {
+      if (!node.hasAttribute("role")) node.setAttribute("role", "switch");
+      if (node.localName === "button" && !node.hasAttribute("type")) node.setAttribute("type", "button");
+      if (node.localName !== "button" && !node.hasAttribute("tabindex")) node.tabIndex = 0;
+    }
     context.on(node, "click", (event) => {
-      if (inspecting(node)) return;
+      if (!ownsEvent(event)) return;
+      if (inspecting(node)) { if (spec.on) event.preventDefault(); return; }
       if (disabled(node)) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+      if (spec.on && event.detail > 0 && record.cancelled) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+      if (toggle) {
+        event.preventDefault();
+        event.stopPropagation();
+        scope.state[toggle] = !scope.state[toggle];
+        update();
+      }
       if (spec.on?.click?.open) {
         event.preventDefault();
         event.stopPropagation();
@@ -239,26 +306,32 @@
     context.on(node, "click", (event) => {
       if (!inspecting(node) && disabled(node)) { event.preventDefault(); event.stopImmediatePropagation(); }
     }, true);
+    record.prepare();
     record.update();
+    return scope;
   }
 
   function mount(root, context) {
     if (!root || root.nodeType !== 1 || !context.records.length) return root;
     roots.set(root, context);
-    context.observer = new MutationObserver(() => {
-      for (const record of context.records) record.update();
+    context.observer = new MutationObserver((changes) => {
+      if (!root.isConnected || changes.some(({ target }) => root.contains(target) || target.contains(root))) context.update();
     });
-    context.observer.observe(root, { attributes: true, subtree: true, attributeFilter: ["disabled", "aria-disabled"] });
+    // Ancestor disabling, Inspect entry, and removal must cancel a held key/pointer.
+    context.observer.observe(document.documentElement, { childList: true, attributes: true, subtree: true, attributeFilter: ["disabled", "aria-disabled", "inert", "class"] });
     context.on(window, "blur", () => {
       for (const record of context.records) record.reset();
+      context.update();
       closeOverlay();
     });
     context.on(document, "visibilitychange", () => {
       if (document.hidden) {
         for (const record of context.records) record.reset();
+        context.update();
         closeOverlay();
       }
     });
+    context.update();
     return root;
   }
 
@@ -282,7 +355,8 @@
       const context = roots.get(node);
       if (!context) continue;
       context.forced = state;
-      for (const record of context.records) record.update();
+      for (const record of context.records) record.reset();
+      context.update();
     }
   }
 
@@ -293,6 +367,7 @@
       if (!context) continue;
       context.forced = "live";
       for (const record of context.records) record.reset();
+      context.update();
     }
   }
 
