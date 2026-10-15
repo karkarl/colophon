@@ -532,6 +532,81 @@ async function shellBehavior(kind) {
     node.click();
     return node;
   };
+  if (kind === "component-pages") {
+    await waitFor(".page-nav-link");
+    const registry = DSComp.componentNames(state.componentsDoc);
+    const previews = () => [...document.querySelectorAll(".page-content .preview .cname")].map((node) => node.textContent);
+    const expectPreviews = (names, message) => check(JSON.stringify(previews()) === JSON.stringify(names), message);
+    const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
+      .find((node) => node.querySelector(".page-nav-label")?.textContent === name);
+    pageButton("Components").click();
+    await waitFor(".page-content .preview");
+    expectPreviews(["Badge", "Button"], "built-in previews follow selection order, not registry order");
+    check(document.querySelectorAll(".page-nav-link").length === 3, "built-in configuration does not create a duplicate page");
+    check(!document.querySelector(".page-editor"), "built-in selection does not expose custom-page editors");
+    const buttonIndex = registry.indexOf("Button");
+    check(document.querySelectorAll(".page-content .preview")[1].dataset.designPath === JSON.stringify(["components", buttonIndex]),
+      "filtered previews retain original registry inspection paths");
+
+    for (const selection of [{}, { components: [] }, { components: ["Badge", "Button"] }]) {
+      state.tokens.pages[0] = { id: "components", name: "Components", ...selection };
+      markDirty();
+      await doSave();
+      check(!state.dirty, "page configuration saves through the canvas");
+      await load();
+      check(JSON.stringify(state.tokens.pages[0]) === JSON.stringify({ id: "components", name: "Components", ...selection }),
+        "page configuration survives canvas reload");
+      expectPreviews(selection.components ?? registry, "absent and explicit empty selections remain distinct after reload");
+      check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "save/reload never filters definitions");
+    }
+    const configuredPages = structuredClone(state.tokens.pages);
+    state.tokens.pages = configuredPages.slice(1);
+    await render();
+    expectPreviews(registry, "no built-in entry retains all-components behavior");
+    state.tokens.pages = structuredClone(configuredPages);
+    state.tokens.pages[0].components = ["Missing", "Button"];
+    await render();
+    expectPreviews(["Button"], "unknown names do not cause unrelated previews to appear");
+    check(document.querySelector(".page-content .banner.warn")?.textContent.includes("Missing"), "unknown name is reported on the page");
+    state.tokens.pages[0].components = null;
+    await render();
+    expectPreviews([], "malformed selection never falls back to all components");
+    check(document.querySelector(".page-content .err")?.textContent.includes("array"), "malformed selection has a visible diagnostic");
+    state.tokens.pages = configuredPages;
+    await render();
+
+    pageButton("Publishing").click();
+    await waitFor(".page-title-input");
+    expectPreviews(["ExampleScreen", "SubtlePicker"], "omitted feature previews still render on their custom page");
+    check(!!document.querySelector('[data-ds-node-id="example-screen-field"] input') &&
+      document.querySelector('[data-ds-node-id="example-screen-deploys"]')?.textContent.includes("Deploys"), "nested references resolve omitted controls");
+    check(document.querySelector('[data-ds-node-id="example-screen-submit"]')?.textContent === "Send invite", "shared controls still render inside compositions");
+    const picker = await waitFor('[data-ds-node-id="subtle-picker"]');
+    picker.click();
+    const flyout = await waitFor(".ds-flyout");
+    check(!!flyout.querySelector('[data-ds-node-id="picker-options"]'), "flyout resolves an omitted registry definition");
+    flyout.querySelector('input[value="essay"]').click();
+    check(!document.querySelector(".ds-flyout"), "omitted flyout interactions remain live");
+
+    document.querySelector("#inspect-btn").click();
+    await waitFor(".component-layer-group");
+    check(document.querySelectorAll(".component-layer-group").length === registry.length, "Inspect retains the entire registry");
+    const fieldGroup = [...document.querySelectorAll(".component-layer-group")]
+      .find((group) => group.querySelector(".component-layer-name").textContent === "Field");
+    fieldGroup.querySelector(".component-layer-row button").click();
+    await waitUntil(() => state.selection?.path?.[1] === registry.indexOf("Field"), "omitted definition is selectable in Inspect");
+    document.querySelector("#json-tab").click();
+    const draft = JSON.parse(document.querySelector("#inspect-json").value);
+    draft.attrs = { ...draft.attrs, title: "Edited omitted field" };
+    document.querySelector("#inspect-json").value = JSON.stringify(draft);
+    document.querySelector("#inspect-apply-btn").click();
+    await waitUntil(() => selectedComponentNode()?.attrs?.title === "Edited omitted field", "omitted definition remains editable");
+    expectPreviews(["Badge", "Button"], "editing an omitted definition does not add it to the gallery");
+    document.querySelector("#layers-undo-btn").click();
+    await waitUntil(() => !selectedComponentNode()?.attrs?.title, "omitted definition edit supports undo");
+    check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "full registry survives inspection and editing");
+    return;
+  }
   if (kind === "brand") {
     await waitFor("#brand-name");
     const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
@@ -1136,6 +1211,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   const resources = new Map([
     ["/", ["text/html", inject(renderShell(), "gallery")]],
     ["/brand", ["text/html", inject(renderShell(), "brand")]],
+    ["/component-pages", ["text/html", inject(renderShell(), "component-pages")]],
     ["/inspect", ["text/html", inject(renderShell(), "inspect")]],
     ["/prototype", ["text/html", inject(renderProtoShell(), "prototype")]],
     ["/compact", ["text/html", inject(renderProtoShell(), "compact")]],
@@ -1216,7 +1292,10 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   });
   try {
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const exported = inject(await buildPrototypeExportHtml(bundle), "export").replace("<body>", `<body><script>
+    const exportBundle = { ...bundle, design: { ...bundle.design, tokens: {
+      ...tokens, pages: [{ id: "components", name: "Components", components: [] }],
+    } } };
+    const exported = inject(await buildPrototypeExportHtml(exportBundle), "export").replace("<body>", `<body><script>
       window.addEventListener("error", event => document.body.dataset.testError = event.message);
       window.addEventListener("unhandledrejection", event => document.body.dataset.testError = String(event.reason));
       </script>`);
@@ -1226,6 +1305,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ["brand", `http://127.0.0.1:${server.address().port}/brand`],
       ["brand-narrow", `http://127.0.0.1:${server.address().port}/brand`],
       ["gallery", `http://127.0.0.1:${server.address().port}`],
+      ["component-pages", `http://127.0.0.1:${server.address().port}/component-pages`],
       ["inspect", `http://127.0.0.1:${server.address().port}/inspect`],
       ["inspect-narrow", `http://127.0.0.1:${server.address().port}/inspect`],
       ["prototype", `http://127.0.0.1:${server.address().port}/prototype`],
@@ -1243,9 +1323,14 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
       let design = structuredClone(bundle.design);
-      if (name.startsWith("brand")) {
+      if (name.startsWith("brand") || name === "component-pages") {
         brandWorkspace = prototypeWorkspace;
-        await saveTokens(brandWorkspace, tokens);
+        const initialTokens = structuredClone(tokens);
+        if (name === "component-pages") initialTokens.pages = [
+          { id: "components", name: "Components", components: ["Badge", "Button"] },
+          { id: "publishing", name: "Publishing", components: ["ExampleScreen", "SubtlePicker"] },
+        ];
+        await saveTokens(brandWorkspace, initialTokens);
         design = await loadDesign(brandWorkspace);
       }
       savedPrototype = false;
@@ -1266,6 +1351,14 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ], { timeout: 25000, maxBuffer: 4 * 1024 * 1024 });
       const result = stdout.match(/<pre id="browser-result">([\s\S]*?)<\/pre>/)?.[1];
       assert.equal(result, "PASS", `${name}: ${result}; ${stdout.match(/<body[^>]*>/)?.[0]}`);
+      if (name === "component-pages") {
+        const persisted = await loadDesign(brandWorkspace);
+        assert.deepEqual(persisted.tokens.pages, [
+          { id: "components", name: "Components", components: ["Badge", "Button"] },
+          { id: "publishing", name: "Publishing", components: ["ExampleScreen", "SubtlePicker"] },
+        ]);
+        assert.deepEqual(persisted.componentsDoc, componentsDoc);
+      }
       if (name.startsWith("brand")) {
         const persisted = await loadDesign(brandWorkspace);
         assert.equal(persisted.format, "markdown");

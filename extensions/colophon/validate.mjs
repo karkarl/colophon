@@ -74,7 +74,7 @@ export function validateTokens(tokens, { allowMissingColors = false } = {}) {
         if (typeof page.name !== "string" || !page.name.trim()) errors.push(`${where} needs a non-empty name.`);
         if (page.description != null && typeof page.description !== "string") errors.push(`${where} description must be a string.`);
         if (page.content != null && typeof page.content !== "string") errors.push(`${where} content must be a string.`);
-        if (page.components != null) {
+        if (Object.hasOwn(page, "components")) {
           if (!Array.isArray(page.components) || page.components.some((name) => typeof name !== "string" || !name.trim())) {
             errors.push(`${where} components must be an array of component names.`);
           } else if (new Set(page.components).size !== page.components.length) {

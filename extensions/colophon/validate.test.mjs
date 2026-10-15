@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { validateDesignDir, validatePageComponents, validateTokens } from "./validate.mjs";
+import { validateDesignDir, validateLoaded, validatePageComponents, validateTokens } from "./validate.mjs";
 
 const base = {
   brand: { name: "Test system" },
@@ -45,6 +45,36 @@ test("pages reject duplicate IDs and invalid editor fields", () => {
   assert.match(result.errors.join("\n"), /non-empty name/);
   assert.match(result.errors.join("\n"), /content must be a string/);
   assert.match(result.errors.join("\n"), /duplicate names/);
+});
+
+test("built-in Components selection uses the page contract without filtering registry validation", () => {
+  for (const selection of [{}, { components: [] }, { components: ["Badge", "Button"] }]) {
+    const tokens = { ...base, pages: [{ id: "components", name: "Components", ...selection }] };
+    assert.deepEqual(validateTokens(tokens), { ok: true, errors: [], warnings: [] });
+    assert.deepEqual(validatePageComponents(tokens, ["Button", "Badge"]), []);
+  }
+  const tokens = { ...base, pages: [{ id: "components", name: "Components", components: ["Missing"] }] };
+  const validation = validateLoaded({ tokens, componentsSource: '{"components":[]}' });
+  assert.equal(validation.ok, true);
+  assert.ok(validation.warnings.includes('Page "Components" selects component(s) not defined in components.jsonc: Missing.'));
+
+  tokens.pages[0].components = [];
+  const invalidRegistry = validateLoaded({
+    tokens,
+    componentsSource: JSON.stringify({ components: [{ name: "Hidden", root: { component: "Undefined" } }] }),
+  });
+  assert.equal(invalidRegistry.ok, false, "omitted definitions are still validated");
+  assert.match(invalidRegistry.errors.join("\n"), /Undefined/);
+});
+
+test("built-in Components rejects malformed selections and duplicate configuration entries", () => {
+  for (const components of [null, "Button", {}, 1, false, [null], [1], [""], ["  "], ["Button", "Button"]]) {
+    const result = validateTokens({ ...base, pages: [{ id: "components", name: "Components", components }] });
+    assert.equal(result.ok, false, JSON.stringify(components));
+    assert.match(result.errors.join("\n"), /components (must be an array of component names|contains duplicate names)/);
+  }
+  const page = { id: "components", name: "Components", components: [] };
+  assert.match(validateTokens({ ...base, pages: [page, page] }).errors.join("\n"), /Duplicate page id: "components"/);
 });
 
 test("standalone legacy directories remain supported by validation", async (t) => {

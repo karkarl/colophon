@@ -98,6 +98,49 @@ DESIGN.md-backed systems project to the same canvas model in memory, without
 writing a second design.json. Inspector JSON paths address this normalized model,
 not literal YAML source paths.
 
+#### Choosing the built-in Components previews
+
+The component registry and page previews are independent. Keep every reusable
+definition in `.agents/design/components.jsonc`; select the built-in **Components**
+previews with an entry whose `id` is `components` in `x-colophon.tokens.pages`:
+
+```yaml
+x-colophon:
+  version: 1
+  tokens:
+    pages:
+      - id: components
+        name: Components
+        components: [Button, Field, Badge]
+      - id: publishing
+        name: Publishing
+        components: [ExampleScreen, SubtlePicker]
+```
+
+Merge these entries into the existing `pages` array rather than replacing other
+metadata or custom pages. Legacy `.agents/design/design.json` uses the same
+`pages` array at the token document's top level.
+
+The `components` entry configures the existing built-in page; it does not create
+a second page or change its title. Use `name: Components` to satisfy the existing
+page contract. Author this selection in the file; the built-in page does not add
+custom-page editing controls.
+
+- No entry, or an entry without `components`: show every registered definition.
+- `components: [Name, ...]`: show only those previews, in the listed order.
+- `components: []`: show no previews.
+
+Selections must be arrays of unique, non-empty component names; `null` is not an
+empty selection. Validation rejects malformed selections and duplicate page IDs,
+and warns about names absent from the registry. Missing names also appear as a
+warning on the page. Unselected definitions remain available to custom pages,
+nested component references, flyouts, Inspect, and editing.
+
+Token saves and reloads preserve the selection in the active document format.
+Standalone prototype exports (including the artifact used by Publish) preserve
+the page metadata and full registry; they render prototype screens, not the
+Colophon page gallery. Filtering the gallery never filters a prototype's components.
+
 | File | What it is |
 | --- | --- |
 | `DESIGN.md` (repo root) | New-system authority: portable tokens, design rationale, and Colophon metadata |

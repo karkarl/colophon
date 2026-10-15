@@ -1269,10 +1269,18 @@ function whenDSComp(timeoutMs = 3000) {
   });
 }
 
-async function renderComponents(t, doc, { names = null, heading = "Components" } = {}) {
+async function renderComponents(t, doc, { names, heading = "Components" } = {}) {
   const section = el("section", { class: "block" }, el("h2", {}, heading));
+  if (names !== undefined && (!Array.isArray(names) || names.some((name) => typeof name !== "string" || !name.trim()))) {
+    section.append(el("div", { class: "err" }, "Page components must be an array of component names."));
+    return section;
+  }
   const DS = window.DSComp;
   const availableNames = DS && doc ? DS.componentNames(doc) : [];
+  const unknown = (names || []).filter((name) => !availableNames.includes(name));
+  if (unknown.length) {
+    section.append(el("div", { class: "banner warn" }, "Components not defined in components.jsonc: " + unknown.join(", ") + "."));
+  }
   if (!doc || !availableNames.length) {
     section.append(el("div", { class: "muted" }, "No components.jsonc yet."));
     return section;
@@ -1361,13 +1369,16 @@ const BUILTIN_PAGES = Object.freeze([
     id: "components",
     label: "Components",
     description: "Live patterns and definitions",
-    render: (tokens) => renderComponents(tokens, state.componentsDoc || null),
+    render: (tokens) => {
+      const page = Array.isArray(tokens.pages) ? tokens.pages.find((page) => page?.id === "components") : null;
+      return renderComponents(tokens, state.componentsDoc || null, { names: page?.components });
+    },
   },
 ]);
 
 function userPages() {
   return Array.isArray(state.tokens?.pages)
-    ? state.tokens.pages.filter((page) => page && typeof page === "object" && typeof page.id === "string" && page.id && typeof page.name === "string")
+    ? state.tokens.pages.filter((page) => page && typeof page === "object" && typeof page.id === "string" && page.id && page.id !== "components" && typeof page.name === "string")
     : [];
 }
 
@@ -1532,7 +1543,7 @@ async function renderUserPage(t, page) {
     ),
   );
   content.append(await renderComponents(t, state.componentsDoc || null, {
-    names: selectedPageComponents(page, names),
+    names: page.components,
     heading: "Selected previews",
   }));
   return content;
