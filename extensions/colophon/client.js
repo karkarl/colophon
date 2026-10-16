@@ -1417,7 +1417,7 @@ function renderPageHeader(page) {
         state.editingPage = editing ? null : page.id;
         await render();
         const focus = editing ? $(".page-edit-toggle")
-          : $(".page-title-input") || $(".page-component-option input") || $(".page-edit-toggle");
+          : $(".page-title-input") || $(".page-component-move") || $(".page-edit-toggle");
         focus?.focus({ preventScroll: true });
       },
     }, editing ? "Done" : "Edit"),
@@ -1430,40 +1430,145 @@ function availableComponentNames() {
   return DS && doc ? DS.componentNames(doc) : [];
 }
 
-function selectedPageComponents(page, names) {
-  return Array.isArray(page.components) ? page.components : names;
-}
-
-function renderPageComponentSelection(page, onChange) {
+function renderPageComponentOrganization() {
   const names = availableComponentNames();
-  const selectedSet = new Set(selectedPageComponents(page, names));
-  const choices = el("div", { class: "page-component-list" });
-  if (names.length) {
-    for (const name of names) {
-      const box = el("input", {
-        type: "checkbox",
-        value: name,
-        checked: selectedSet.has(name) ? "checked" : undefined,
-        onchange: async (event) => {
-          const next = new Set(selectedPageComponents(page, names));
-          if (event.target.checked) next.add(name);
-          else next.delete(name);
-          onChange([...next]);
-          markDirty();
-          await render();
-          $(`.page-component-option input[value="${CSS.escape(name)}"]`)?.focus({ preventScroll: true });
-        },
-      });
-      choices.append(el("label", { class: "page-component-option" }, box, el("span", {}, name)));
-    }
-  } else {
-    choices.append(el("div", { class: "muted" }, "Add component patterns to components.jsonc to organize them here."));
+  const section = el("section", { class: "page-organization", "aria-label": "Organize component previews" },
+    el("h2", {}, "Organize previews"),
+    el("p", { class: "muted" }, "Drag between pages to choose a single home, or within a page to reorder. Move to and Up/Down work without dragging. Nested uses stay unchanged. Save to repo to keep changes."));
+  let board;
+  try { board = PageComponents.snapshot(state.tokens, names); }
+  catch (error) {
+    section.append(el("div", { class: "err", role: "alert" }, "Cannot organize previews: " + error.message));
+    return section;
   }
-  return el("section", { class: "page-organization" },
-    el("h2", {}, "Components"),
-    el("p", { class: "muted" }, "Choose which previews appear on this page. Unchecked components remain available elsewhere. Save to repo to keep your selection."),
-    choices,
-  );
+  const groups = [...board.groups, { id: null, name: "Unassigned", components: board.unassigned }];
+  section.append(el("p", { class: "page-coverage" },
+    `${names.length - board.unassigned.length} of ${names.length} components on pages. ${board.unassigned.length} unassigned. ${board.duplicates.length} on multiple pages.`));
+  if (board.duplicates.length) section.append(el("p", { class: "page-placement-warning" },
+    "Existing duplicates are kept until you choose a single home. Reordering alone does not remove other placements."));
+  const status = el("div", { class: "page-organizer-status muted", role: "status", "aria-live": "polite" });
+  const errorBox = el("div", { class: "err", role: "alert" });
+  const grid = el("div", { class: "page-component-groups" });
+  section.append(status, errorBox, grid);
+  let drag = null;
+  const clearDrop = () => {
+    for (const node of section.querySelectorAll("[data-drop]")) node.removeAttribute("data-drop");
+  };
+  const cancelDrag = () => { drag = null; clearDrop(); status.textContent = ""; };
+  section.addEventListener("keydown", (event) => { if (event.key === "Escape") cancelDrag(); });
+
+  const commit = async (name, targetId, before = null, orderOnly = false) => {
+    try {
+      const changed = orderOnly
+        ? PageComponents.reorder(state.tokens, names, name, targetId, before)
+        : PageComponents.assign(state.tokens, names, name, targetId, before);
+      cancelDrag();
+      if (changed) markDirty();
+      await render();
+      const row = [...document.querySelectorAll(".page-component-row")].find((node) =>
+        node.dataset.component === name && node.dataset.pageId === (targetId ?? ""));
+      $(".page-component-move", row || $(".page-organization"))?.focus({ preventScroll: true });
+      const target = groups.find((group) => group.id === targetId);
+      const message = targetId === null ? `${name} has no standalone page placement.`
+        : `${name} ${orderOnly ? "reordered on" : "now placed only on"} ${target.name}.`;
+      const live = $(".page-organizer-status");
+      if (live) live.textContent = message;
+    } catch (error) {
+      cancelDrag();
+      errorBox.textContent = "Cannot move preview: " + error.message;
+    }
+  };
+
+  for (const group of groups) {
+    const heading = el("h3", {}, `${group.name} (${group.components.length})`);
+    const list = el("ol", { class: "page-component-list", "aria-label": `${group.name} previews` });
+    const column = el("section", { class: "page-component-group", "data-page-id": group.id ?? "" }, heading, list);
+    if (group.id === null) column.append(el("p", { class: "muted" }, "Not shown on any page. Definitions and nested uses are retained."));
+    grid.append(column);
+    if (!group.components.length) list.append(el("li", { class: "page-component-empty muted" },
+      group.id === null ? "Every component has a page." : "Drop a component here."));
+    for (const [index, name] of group.components.entries()) {
+      const homes = board.homes.get(name) || [];
+      const missing = !names.includes(name);
+      const row = el("li", {
+        class: "page-component-row", draggable: "true",
+        "data-component": name, "data-page-id": group.id ?? "",
+        ondragstart: (event) => {
+          if (event.target.closest("select, button")) { event.preventDefault(); return; }
+          drag = { name, pageId: group.id };
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("application/x-colophon-preview", name);
+          status.textContent = `Moving ${name}. Drop on a page or press Escape to cancel.`;
+        },
+        ondragend: cancelDrag,
+      });
+      row.append(el("div", { class: "page-component-label" },
+        el("span", { class: "page-component-grip", "aria-hidden": "true" }, "::"),
+        el("strong", { class: "page-component-name" }, name)));
+      if (homes.length > 1) row.append(el("span", { class: "page-placement-warning" },
+        "On multiple pages: " + homes.map((id) => board.groups.find((page) => page.id === id).name).join(", ")));
+      if (missing) row.append(el("span", { class: "page-placement-warning" }, "Missing from components.jsonc"));
+      const move = el("select", {
+        class: "page-component-move", "aria-label": `Move ${name} from ${group.name}`,
+        onchange: (event) => {
+          const targetId = JSON.parse(event.target.value);
+          commit(name, targetId, targetId === group.id ? name : null);
+        },
+      }, el("option", { value: "", disabled: "", selected: "" }, "Move to..."));
+      for (const target of groups) {
+        if (target.id === group.id && homes.length < 2) continue;
+        move.append(el("option", { value: JSON.stringify(target.id) },
+          target.id === group.id ? `Keep only on ${target.name}`
+            : target.id === null && missing ? "Remove missing reference" : target.name));
+      }
+      const controls = el("div", { class: "page-component-controls" }, move);
+      if (group.id !== null) {
+        controls.append(
+          el("button", {
+            type: "button", class: "btn", "aria-label": `Move ${name} up on ${group.name}`,
+            disabled: index === 0 ? "" : undefined,
+            onclick: () => commit(name, group.id, group.components[index - 1], true),
+          }, "Up"),
+          el("button", {
+            type: "button", class: "btn", "aria-label": `Move ${name} down on ${group.name}`,
+            disabled: index === group.components.length - 1 ? "" : undefined,
+            onclick: () => commit(name, group.id, group.components[index + 2] ?? null, true),
+          }, "Down"),
+        );
+      }
+      row.append(controls);
+      list.append(row);
+    }
+    const destination = (event) => {
+      const row = event.target.closest(".page-component-row");
+      if (!row || !list.contains(row) || group.id === null) return { before: null, node: list, edge: "inside" };
+      const after = event.clientY >= row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+      const index = group.components.indexOf(row.dataset.component);
+      return {
+        before: after ? group.components[index + 1] ?? null : row.dataset.component,
+        node: row, edge: after ? "after" : "before",
+      };
+    };
+    list.addEventListener("dragover", (event) => {
+      if (!drag) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      clearDrop();
+      const target = destination(event);
+      target.node.dataset.drop = target.edge;
+      status.textContent = `${drag.name}: ${group.name}${target.before ? `, before ${target.before}` : ", at end"}.`;
+    });
+    list.addEventListener("dragleave", (event) => {
+      if (!list.contains(event.relatedTarget)) clearDrop();
+    });
+    list.addEventListener("drop", (event) => {
+      if (!drag) return;
+      event.preventDefault();
+      const { name, pageId } = drag;
+      commit(name, group.id, destination(event).before, pageId === group.id && group.id !== null);
+    });
+  }
+  return section;
 }
 
 function renderComponentsPage(t) {
@@ -1474,13 +1579,7 @@ function renderComponentsPage(t) {
   const editing = state.editingPage === page.id && !state.inspectMode;
   content.append(renderPageHeader(page));
   if (editing) {
-    content.append(renderPageComponentSelection(page, (names) => {
-      page.components = names;
-      if (!pages.includes(page)) {
-        pages.push(page);
-        t.pages = pages;
-      }
-    }));
+    content.append(renderPageComponentOrganization());
   }
   content.append(renderComponents(t, state.componentsDoc || null, {
     names: page.components,
@@ -1505,7 +1604,7 @@ function createPage() {
     name: `Untitled page ${number}`,
     description: "",
     content: "",
-    components: availableComponentNames(),
+    components: [],
   });
   state.page = id;
   state.editingPage = id;
@@ -1514,7 +1613,7 @@ function createPage() {
 }
 
 function deletePage(page) {
-  if (!window.confirm(`Delete "${page.name || "this page"}"? This change will be saved with your next save.`)) return;
+  if (!window.confirm(`Delete "${page.name || "this page"}"? Previews with no other page will become Unassigned; definitions are kept. This change will be saved with your next save.`)) return;
   const pages = Array.isArray(state.tokens.pages) ? state.tokens.pages : [];
   const index = pages.indexOf(page);
   if (index < 0) return;
@@ -1531,6 +1630,7 @@ function updateCurrentPageNavigation(page) {
   const description = $(".page-nav-description", link);
   if (label) label.textContent = page.name || "Untitled page";
   if (description) description.textContent = page.description || "Custom design-system page";
+  $(".page-organization")?.replaceWith(renderPageComponentOrganization());
 }
 
 function renderPageNavigation() {
@@ -1562,7 +1662,7 @@ function renderUserPage(t, page) {
   const editing = state.editingPage === page.id && !state.inspectMode;
   content.append(renderPageHeader(page));
   if (editing) {
-    content.append(renderUserPageEditor(page), renderPageComponentSelection(page, (names) => { page.components = names; }));
+    content.append(renderUserPageEditor(page), renderPageComponentOrganization());
   }
   content.append(renderComponents(t, state.componentsDoc || null, {
     names: page.components,

@@ -102,16 +102,32 @@ not literal YAML source paths.
 
 The component registry and page previews are independent. Open **Components** in
 the canvas, hover over or keyboard-focus its title's **Edit** button, then activate
-it to choose which previews appear. The button is always visible on touch devices.
+it to organize previews across all pages. The button is always visible on touch devices.
 Custom pages use the same edit mode; their title field, description, notes, and
 **Delete page** action are also hidden until editing.
 
 **Done** hides the editing controls without discarding changes. Navigation, reload,
 and Inspect return to viewing mode; new pages start in edit mode. Changes appear
-immediately; **Save to repo** persists them. Unchecked definitions stay in
+immediately; **Save to repo** persists them. Definitions stay in
 `.agents/design/components.jsonc` for reuse.
 
-The picker creates or updates the entry whose `id` is `components` in
+The organizer shows ordered lists for Components and every custom page, plus
+**Unassigned**. Coverage counts show how many registered components have a page,
+how many are unassigned, and how many have multiple homes. Missing references are
+also labeled.
+
+- Drag between pages to move a preview, not copy it. A cross-page move removes
+  that component's other standalone placements; nested uses are unchanged.
+- Drag above or below a row to set its position. **Up** and **Down** offer the
+  same ordering without dragging; **Move to** works with keyboard and touch.
+- Existing duplicates are flagged, not automatically migrated. Choose **Keep
+  only on [page]** to resolve one in place. Reordering within a page preserves
+  its existing placements elsewhere.
+- Move to **Unassigned** to remove all standalone placements without deleting
+  the definition. New pages start empty. Deleting a page leaves its components
+  unassigned if they have no other page.
+
+The organizer creates or updates the entry whose `id` is `components` in
 `x-colophon.tokens.pages`. You can also edit it directly:
 
 ```yaml
@@ -133,10 +149,11 @@ metadata or custom pages. Legacy `.agents/design/design.json` uses the same
 
 The `components` entry configures the existing built-in page; it does not create
 a second page or change its title. Use `name: Components` to satisfy the existing
-page contract. The built-in page has the shared preview picker, but not custom-page
+page contract. The built-in page has the shared organizer, but not custom-page
 title, notes, or deletion controls. Merely viewing it does not create configuration
-or mark the document as changed. Changing a checkbox preserves the order of the
-remaining selections and appends newly selected names.
+or mark the document as changed. A move preserves unrelated selections and their
+order. Only affected default-all selections are made explicit; there is no
+automatic migration when opening the organizer.
 
 - No entry, or an entry without `components`: show every registered definition.
 - `components: [Name, ...]`: show only those previews, in the listed order.
