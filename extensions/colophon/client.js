@@ -1417,10 +1417,15 @@ function renderPageHeader(page) {
         state.editingPage = editing ? null : page.id;
         await render();
         const focus = editing ? $(".page-edit-toggle")
-          : $(".page-title-input") || $(".page-component-move") || $(".page-edit-toggle");
+          : $(".page-title-input") || $(".page-organize-btn") || $(".page-edit-toggle");
         focus?.focus({ preventScroll: true });
       },
     }, editing ? "Done" : "Edit"),
+    editing ? el("button", {
+      type: "button", class: "btn page-organize-btn",
+      "aria-haspopup": "dialog", "aria-controls": "page-organization-dialog",
+      onclick: openPageComponentOrganization,
+    }, "Re-organize components") : null,
   );
 }
 
@@ -1430,10 +1435,57 @@ function availableComponentNames() {
   return DS && doc ? DS.componentNames(doc) : [];
 }
 
+function openPageComponentOrganization() {
+  if ($("#page-organization-dialog") || state.editingPage !== state.page || state.inspectMode) return;
+  const dialog = el("dialog", {
+    id: "page-organization-dialog", class: "page-organization-dialog",
+    "data-page-id": state.page, "aria-labelledby": "page-organization-title",
+    oncancel: (event) => {
+      event.preventDefault();
+      // A drag consumes Escape before the modal, even when Close has focus.
+      if ($(".page-organization", dialog).dispatchEvent(new Event("cancel", { cancelable: true }))) {
+        closePageComponentOrganization();
+      }
+    },
+  },
+  el("header", { class: "page-organization-header" },
+    el("h2", { id: "page-organization-title" }, "Re-organize components"),
+    el("button", {
+      type: "button", class: "btn page-organization-close",
+      "aria-label": "Close component organizer", autofocus: "",
+      onclick: closePageComponentOrganization,
+    }, "Close")),
+  el("div", { class: "page-organization-body" }, renderPageComponentOrganization()));
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+function closePageComponentOrganization() {
+  const dialog = $("#page-organization-dialog");
+  if (!dialog) return;
+  dialog.close();
+  dialog.remove();
+  if (dialog.dataset.pageId === state.page && state.editingPage === state.page && !state.inspectMode) {
+    $(".page-organize-btn")?.focus({ preventScroll: true });
+  }
+}
+
+function refreshPageComponentOrganization() {
+  const dialog = $("#page-organization-dialog");
+  if (!dialog) return;
+  if (dialog.dataset.pageId !== state.page || state.editingPage !== state.page || state.inspectMode) {
+    closePageComponentOrganization();
+    return;
+  }
+  const body = $(".page-organization-body", dialog);
+  const scrollTop = body.scrollTop;
+  body.replaceChildren(renderPageComponentOrganization());
+  body.scrollTop = scrollTop;
+}
+
 function renderPageComponentOrganization() {
   const names = availableComponentNames();
   const section = el("section", { class: "page-organization", "aria-label": "Organize component previews" },
-    el("h2", {}, "Organize previews"),
     el("p", { class: "muted" }, "Drag between pages to choose a single home, or within a page to reorder. Move to and Up/Down work without dragging. Nested uses stay unchanged. Save to repo to keep changes."));
   let board;
   try { board = PageComponents.snapshot(state.tokens, names); }
@@ -1455,7 +1507,16 @@ function renderPageComponentOrganization() {
     for (const node of section.querySelectorAll("[data-drop]")) node.removeAttribute("data-drop");
   };
   const cancelDrag = () => { drag = null; clearDrop(); status.textContent = ""; };
-  section.addEventListener("keydown", (event) => { if (event.key === "Escape") cancelDrag(); });
+  const cancelActiveDrag = (event) => {
+    if (!drag) return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancelDrag();
+  };
+  section.addEventListener("cancel", cancelActiveDrag);
+  section.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") cancelActiveDrag(event);
+  });
 
   const commit = async (name, targetId, before = null, orderOnly = false) => {
     try {
@@ -1578,9 +1639,6 @@ function renderComponentsPage(t) {
   const content = document.createDocumentFragment();
   const editing = state.editingPage === page.id && !state.inspectMode;
   content.append(renderPageHeader(page));
-  if (editing) {
-    content.append(renderPageComponentOrganization());
-  }
   content.append(renderComponents(t, state.componentsDoc || null, {
     names: page.components,
     heading: editing ? "Selected previews" : null,
@@ -1630,7 +1688,7 @@ function updateCurrentPageNavigation(page) {
   const description = $(".page-nav-description", link);
   if (label) label.textContent = page.name || "Untitled page";
   if (description) description.textContent = page.description || "Custom design-system page";
-  $(".page-organization")?.replaceWith(renderPageComponentOrganization());
+  refreshPageComponentOrganization();
 }
 
 function renderPageNavigation() {
@@ -1662,7 +1720,7 @@ function renderUserPage(t, page) {
   const editing = state.editingPage === page.id && !state.inspectMode;
   content.append(renderPageHeader(page));
   if (editing) {
-    content.append(renderUserPageEditor(page), renderPageComponentOrganization());
+    content.append(renderUserPageEditor(page));
   }
   content.append(renderComponents(t, state.componentsDoc || null, {
     names: page.components,
@@ -1969,6 +2027,7 @@ async function render() {
   else if (selected.bottom > bounds.bottom) list.scrollTop += selected.bottom - bounds.bottom;
   state.pageNavScrollTop = list.scrollTop;
   renderInspector();
+  refreshPageComponentOrganization();
 }
 
 async function doInit(mode) {

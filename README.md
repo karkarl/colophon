@@ -102,13 +102,18 @@ not literal YAML source paths.
 
 The component registry and page previews are independent. Open **Components** in
 the canvas, hover over or keyboard-focus its title's **Edit** button, then activate
-it to organize previews across all pages. The button is always visible on touch devices.
-Custom pages use the same edit mode; their title field, description, notes, and
-**Delete page** action are also hidden until editing.
+it to reveal **Re-organize components**. That button opens the shared organizer
+in a modal; editing alone does not show the component lists. **Edit** is always
+visible on touch devices. Custom pages use the same edit mode; their title field,
+description, notes, and **Delete page** action are also hidden until editing.
 
-**Done** hides the editing controls without discarding changes. Navigation, reload,
-and Inspect return to viewing mode; new pages start in edit mode. Changes appear
-immediately; **Save to repo** persists them. Definitions stay in
+**Close** or Escape dismisses the organizer and returns focus to its button,
+keeping the page in edit mode and retaining changes. During a drag, Escape
+only cancels the drag. **Done** hides the page editing controls without
+discarding changes. Navigation, reload, and Inspect close the modal and return
+to viewing mode; new pages start in edit mode with the organizer closed.
+Changes appear immediately; close the organizer and **Save to repo** to persist
+them. Definitions stay in
 `.agents/design/components.jsonc` for reuse.
 
 The organizer shows ordered lists for Components and every custom page, plus

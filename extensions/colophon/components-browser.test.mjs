@@ -540,6 +540,7 @@ async function shellBehavior(kind) {
     const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
       .find((node) => node.querySelector(".page-nav-label")?.textContent === name);
     const editPage = async (editing = true) => {
+      if (!editing && document.querySelector("#page-organization-dialog")?.open) await closeOrganizer();
       const button = document.querySelector(".page-edit-toggle");
       if (button.getAttribute("aria-expanded") === String(editing)) return;
       button.click();
@@ -547,12 +548,28 @@ async function shellBehavior(kind) {
         "page edit mode changes");
       if (!editing) check(document.activeElement === document.querySelector(".page-edit-toggle"), "Done restores focus to Edit");
     };
+    const openOrganizer = async () => {
+      await editPage();
+      if (document.querySelector("#page-organization-dialog")?.open) return;
+      document.querySelector(".page-organize-btn").click();
+      await waitUntil(() => document.querySelector("#page-organization-dialog")?.open, "organizer opens separately from page editing");
+      check(document.activeElement === document.querySelector(".page-organization-close"), "modal initially focuses Close");
+    };
+    const closeOrganizer = async (escape = false) => {
+      const dialog = document.querySelector("#page-organization-dialog");
+      if (escape) dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+      else dialog.querySelector(".page-organization-close").click();
+      await waitUntil(() => !dialog.isConnected, "closing removes the modal");
+      check(document.activeElement === document.querySelector(".page-organize-btn"), "closing restores focus to the current organizer button");
+      check(state.editingPage === state.page, "closing the organizer leaves the page in edit mode");
+    };
     pageButton("Components").click();
     await waitFor(".page-content .preview");
     expectPreviews(["Badge", "Button"], "built-in previews follow selection order, not registry order");
     check(document.querySelectorAll(".page-nav-link").length === 3, "built-in configuration does not create a duplicate page");
     check(!document.querySelector(".page-editor"), "built-in selection does not expose custom-page editors");
-    check(!document.querySelector(".page-organization") && !document.querySelector(".page-delete"), "Components starts with no editing controls");
+    check(!document.querySelector(".page-organization") && !document.querySelector(".page-delete") &&
+      !document.querySelector(".page-organize-btn"), "Components starts with no editing controls");
     check(document.querySelector(".page-title").textContent === "Components", "Components has a read-only title");
     const edit = document.querySelector(".page-edit-toggle");
     edit.style.transition = "none";
@@ -560,11 +577,23 @@ async function shellBehavior(kind) {
     edit.focus();
     check(getComputedStyle(edit).opacity === "1", "keyboard focus reveals page Edit");
     await editPage();
-    check(document.activeElement === document.querySelector(".page-component-move"), "Components edit focuses its first Move to control");
+    check(document.activeElement === document.querySelector(".page-organize-btn") &&
+      !document.querySelector(".page-organization"), "Components edit focuses the organizer button without opening its lists");
+    await openOrganizer();
+    const initialDialog = document.querySelector("#page-organization-dialog");
+    check(initialDialog.matches(":modal") && !document.querySelector(".page-content .page-organization"), "organization is modal, not inline page content");
+    check(initialDialog.getAttribute("aria-labelledby") === "page-organization-title" &&
+      document.querySelector("#page-organization-title").textContent === "Re-organize components", "modal has an accessible title");
+    document.querySelector(".page-edit-toggle").focus();
+    check(initialDialog.contains(document.activeElement), "modal prevents background focus");
+    openPageComponentOrganization();
+    check(document.querySelectorAll("#page-organization-dialog").length === 1, "reopening does not duplicate the modal");
+    await closeOrganizer(true);
+    check(!state.dirty, "Escape without changes does not dirty the document");
     await editPage(false);
     check(!state.dirty && document.querySelector("#save-btn").disabled && !document.querySelector(".page-organization"),
       "entering and leaving edit mode alone does not dirty the document");
-    await editPage();
+    await openOrganizer();
     const buttonIndex = registry.indexOf("Button");
     check(document.querySelectorAll(".page-content .preview")[1].dataset.designPath === JSON.stringify(["components", buttonIndex]),
       "filtered previews retain original registry inspection paths");
@@ -573,16 +602,18 @@ async function shellBehavior(kind) {
     const group = (id) => [...document.querySelectorAll(".page-component-group")]
       .find((node) => node.dataset.pageId === (id ?? ""));
     const moveTo = async (name, from, to) => {
-      await editPage();
+      await openOrganizer();
+      const dialog = document.querySelector("#page-organization-dialog");
       const select = row(name, from)?.querySelector(".page-component-move");
       check(!!select, `Move to exists for ${name} on ${from}`);
       select.value = JSON.stringify(to);
       select.dispatchEvent(new Event("change", { bubbles: true }));
       await waitUntil(() => !select.isConnected && document.activeElement === row(name, to)?.querySelector(".page-component-move"),
         `moving ${name} rerenders and focuses its new placement`);
+      check(dialog.isConnected && dialog.matches(":modal"), "placement updates keep the same modal open");
     };
     const toggle = async (name) => {
-      await editPage();
+      await openOrganizer();
       const from = row(name) ? state.page : PageComponents.snapshot(state.tokens, registry).homes.get(name)?.[0] ?? null;
       await moveTo(name, from, from === state.page ? null : state.page);
     };
@@ -609,7 +640,7 @@ async function shellBehavior(kind) {
     await doSave();
     await load();
     check(!document.querySelector(".page-organization"), "reload returns to viewing mode");
-    await editPage();
+    await openOrganizer();
     check(Array.isArray(builtin().components) && !builtin().components.length &&
       registry.every((name) => !row(name)), "empty selection saves and reloads as empty");
     await toggle("Badge");
@@ -636,7 +667,7 @@ async function shellBehavior(kind) {
     state.dirty = false;
     await render();
     const beforeOpening = JSON.stringify(state.tokens);
-    await editPage();
+    await openOrganizer();
     check(JSON.stringify(state.tokens) === beforeOpening && !state.dirty, "opening the board does not resolve existing duplicates");
     check(document.querySelector(".page-coverage").textContent.includes("2 on multiple pages"), "coverage explicitly counts duplicate components");
     check(row("Button").textContent.includes("Components, Publishing"), "duplicate rows identify every existing home");
@@ -682,9 +713,18 @@ async function shellBehavior(kind) {
     row("Button", "publishing").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
     const emptyTarget = group("workspace").querySelector(".page-component-list");
     emptyTarget.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    document.querySelector(".page-organization").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    const cancelDrag = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.querySelector(".page-organization").dispatchEvent(cancelDrag);
     emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    check(JSON.stringify(state.tokens) === beforeCancel && !document.querySelector("[data-drop]"), "Escape cancels drag without changing placements");
+    check(JSON.stringify(state.tokens) === beforeCancel && !document.querySelector("[data-drop]") &&
+      cancelDrag.defaultPrevented && document.querySelector("#page-organization-dialog").open, "Escape cancels drag without closing the modal or changing placements");
+    document.querySelector(".page-organization-close").focus();
+    row("Button", "publishing").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+    emptyTarget.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    document.querySelector("#page-organization-dialog").dispatchEvent(new Event("cancel", { cancelable: true }));
+    emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    check(JSON.stringify(state.tokens) === beforeCancel && !document.querySelector("[data-drop]") &&
+      document.querySelector("#page-organization-dialog").open, "modal cancellation also cancels a drag when focus is outside the lists");
     emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
     check(JSON.stringify(state.tokens) === beforeCancel, "external drops cannot mutate page assignments");
     await moveTo("Button", "publishing", null);
@@ -696,9 +736,23 @@ async function shellBehavior(kind) {
     await waitUntil(() => !down.isConnected, "Down works without dragging");
     check(state.tokens.pages[2].components.join() === "SubtlePicker,Button", "Down preserves page ordering");
     check(document.documentElement.scrollWidth <= innerWidth, "organizer fits the desktop and narrow viewport");
+    const dialog = document.querySelector("#page-organization-dialog");
+    const bounds = dialog.getBoundingClientRect();
+    const body = dialog.querySelector(".page-organization-body");
+    check(bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight,
+      "modal fits the viewport in both dimensions");
+    check(body.scrollWidth <= body.clientWidth && body.scrollHeight > body.clientHeight, "long organizer scrolls internally without horizontal overflow");
+    const headerTop = dialog.querySelector(".page-organization-header").getBoundingClientRect().top;
+    body.scrollTop = 100;
+    check(dialog.querySelector(".page-organization-header").getBoundingClientRect().top === headerTop, "Close stays visible when lists scroll");
     const assignments = JSON.stringify(state.tokens.pages);
+    await closeOrganizer(true);
+    check(JSON.stringify(state.tokens.pages) === assignments && state.dirty, "Escape keeps placement drafts");
+    await openOrganizer();
+    check(JSON.stringify(state.tokens.pages) === assignments, "reopening retains placement drafts");
     await doSave();
     await load();
+    check(!document.querySelector("#page-organization-dialog"), "reload closes the modal and does not reopen it");
     check(JSON.stringify(state.tokens.pages) === assignments, "cross-page moves and order persist through save/reload");
     check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "organizing preserves every definition");
     state.tokens.pages = structuredClone(configuredPages);
@@ -708,7 +762,7 @@ async function shellBehavior(kind) {
     state.tokens.pages = structuredClone(configuredPages.slice(1));
     await render();
     expectPreviews(registry, "no built-in entry retains all-components behavior");
-    await editPage();
+    await openOrganizer();
     check(!state.dirty && state.tokens.pages.length === 1 && registry.every((name) => row(name)),
       "viewing an unconfigured organizer keeps default-all without creating configuration");
     await toggle("SubtlePicker");
@@ -746,6 +800,8 @@ async function shellBehavior(kind) {
     expectPreviews(["ExampleScreen", "SubtlePicker"], "omitted feature previews still render on their custom page");
     await editPage();
     check(document.activeElement === document.querySelector(".page-title-input"), "custom edit mode focuses its title field");
+    check(!document.querySelector(".page-organization") && document.querySelector(".page-organize-btn"),
+      "custom Edit exposes text editing and a separate organizer button");
     check(!!document.querySelector(".page-delete"), "Delete page is available only in custom edit mode");
     const setField = (selector, value) => {
       const input = document.querySelector(selector);
@@ -766,6 +822,8 @@ async function shellBehavior(kind) {
       document.querySelector(".page-notes-input").value === "Draft publishing notes", "reentering edit mode retains text drafts");
     setField(".page-title-input", "Publishing");
     await toggle("ExampleScreen");
+    check(document.querySelector(".page-description-input").value === "Publishing guidance" &&
+      document.querySelector(".page-notes-input").value === "Draft publishing notes", "modal moves retain page text drafts behind the dialog");
     expectPreviews(["SubtlePicker"], "custom pages reuse the organizer");
     await toggle("ExampleScreen");
     expectPreviews(["SubtlePicker", "ExampleScreen"], "custom selections retain order and append reselected names");
@@ -791,10 +849,12 @@ async function shellBehavior(kind) {
     document.querySelector(".page-add").click();
     await waitFor(".page-title-input");
     check(document.querySelector(".page-edit-toggle").getAttribute("aria-expanded") === "true" &&
-      document.querySelector(".page-delete") && document.querySelector(".page-organization"), "new pages start in edit mode");
+      document.querySelector(".page-delete") && document.querySelector(".page-organize-btn") &&
+      !document.querySelector(".page-organization"), "new pages start in text edit mode with the organizer closed");
     const newPageId = state.page;
     check(!state.tokens.pages.find((page) => page.id === newPageId).components.length, "new pages start empty instead of duplicating the registry");
     await moveTo("Field", null, newPageId);
+    await closeOrganizer();
     const confirm = window.confirm;
     try {
       window.confirm = () => false;
@@ -809,7 +869,12 @@ async function shellBehavior(kind) {
     await doSave();
     pageButton("Components").click();
     await waitFor(".page-edit-toggle");
-    await editPage();
+    await openOrganizer();
+    pageButton("Publishing").click();
+    await waitUntil(() => state.page === "publishing" && !document.querySelector("#page-organization-dialog"), "navigation closes the organizer");
+    pageButton("Components").click();
+    await waitFor(".page-edit-toggle");
+    await openOrganizer();
     document.querySelector("#inspect-btn").click();
     await waitFor(".component-layer-group");
     check(!document.querySelector(".page-organization") && !state.editingPage, "entering Inspect closes page editing");
@@ -829,7 +894,7 @@ async function shellBehavior(kind) {
     await waitUntil(() => !selectedComponentNode()?.attrs?.title, "omitted definition edit supports undo");
     check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "full registry survives inspection and editing");
     document.querySelector("#inspect-btn").click();
-    await editPage();
+    await openOrganizer();
     document.querySelector("#inspect-btn").click();
     await waitUntil(() => !document.querySelector(".page-organization"), "Inspect closes page editing with an existing layer selection too");
     document.querySelector("#inspect-btn").click();
