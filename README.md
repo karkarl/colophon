@@ -101,9 +101,15 @@ not literal YAML source paths.
 #### Choosing the built-in Components previews
 
 The component registry and page previews are independent. Open **Components** in
-the canvas and use its checkboxes to choose which previews appear, just as on a
-custom page. Changes appear immediately; **Save to repo** persists the selection.
-Unchecked definitions stay in `.agents/design/components.jsonc` for reuse.
+the canvas, hover over or keyboard-focus its title's **Edit** button, then activate
+it to choose which previews appear. The button is always visible on touch devices.
+Custom pages use the same edit mode; their title field, description, notes, and
+**Delete page** action are also hidden until editing.
+
+**Done** hides the editing controls without discarding changes. Navigation, reload,
+and Inspect return to viewing mode; new pages start in edit mode. Changes appear
+immediately; **Save to repo** persists them. Unchecked definitions stay in
+`.agents/design/components.jsonc` for reuse.
 
 The picker creates or updates the entry whose `id` is `components` in
 `x-colophon.tokens.pages`. You can also edit it directly:

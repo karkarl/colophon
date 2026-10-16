@@ -319,6 +319,12 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 .page-content { min-width: 0; max-width: 1160px; margin: 0 auto; padding: var(--space-5, 24px) 0 var(--space-7, 48px); }
 
 /* User-authored pages keep writing and component selection in one calm working surface. */
+.page-header { align-items: center; width: fit-content; max-width: 100%; margin-bottom: var(--space-5, 24px); }
+.page-header .page-title {
+  margin: 0; color: var(--color-ink, #1c1a17);
+  font: var(--text-title-weight, 600) var(--text-title-size, 28px)/var(--text-title-line-height, 34px) var(--text-title-family, var(--font-display, serif));
+  letter-spacing: var(--text-title-tracking, -.01em);
+}
 .page-editor { display: grid; gap: 16px; max-width: 760px; padding-bottom: 32px; border-bottom: 1px solid var(--color-line, #e4ddd0); }
 .page-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .page-editor-heading { min-width: 0; flex: 1; }

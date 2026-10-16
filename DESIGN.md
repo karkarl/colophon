@@ -253,13 +253,21 @@ Keep Northlight tokens in the authored preview.
 
 ### Page preview selection
 
-The built-in Components page and custom pages share the same labeled-checkbox
-picker above their previews. Reuse the existing `page-organization`,
-`page-component-list`, and `page-component-option` styles, including their token
-bindings. Unchecking a name hides only its standalone preview on that page, not
-the registered definition or its nested uses. Update the preview immediately,
-keep keyboard focus on the changed checkbox, and persist the selection only when
-the user saves. The built-in page retains its fixed title and has no delete action.
+The built-in Components page and custom pages show a title and previews by
+default. Use the `title` typography and spacing `5` below the heading. Reveal a
+subtle Edit button beside the title on hover or keyboard focus, reusing
+`inline-text-edit`; keep it visible on touch devices. Edit opens the shared
+labeled-checkbox picker and, for custom pages, the title field, description,
+notes, and Delete page action. These controls are absent in viewing mode.
+
+Reuse the existing `page-organization`, `page-component-list`, and
+`page-component-option` styles, including their token bindings. Unchecking a name
+hides only its standalone preview on that page, not the registered definition or
+its nested uses. Update previews immediately and keep focus on the changed
+checkbox. Done returns to viewing without discarding drafts; Save to repo is
+still the persistence action. Navigation, reload, and Inspect close page editing.
+New pages start in edit mode. The built-in page retains its fixed title and has
+no delete action.
 
 ### Inspect workspace
 

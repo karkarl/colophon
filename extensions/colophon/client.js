@@ -18,7 +18,7 @@ const el = (tag, attrs = {}, ...kids) => {
 let state = {
   design: null, tokens: null, componentsDoc: null,
   dirty: false, componentsDirty: false, mode: "normal", proposal: null,
-  theme: "light", validation: null, page: "brand", pageNavScrollTop: 0,
+  theme: "light", validation: null, page: "brand", pageNavScrollTop: 0, editingPage: null,
   inspectMode: false, selection: null,
   inspectorTab: "properties", componentPast: [], componentFuture: [], dragPath: null,
   freeformDrag: null, suppressInspectClickUntil: 0,
@@ -1270,7 +1270,8 @@ function whenDSComp(timeoutMs = 3000) {
 }
 
 function renderComponents(t, doc, { names, heading = "Components" } = {}) {
-  const section = el("section", { class: "block" }, el("h2", {}, heading));
+  const section = el("section", { class: "block" });
+  if (heading) section.append(el("h2", {}, heading));
   if (names !== undefined && (!Array.isArray(names) || names.some((name) => typeof name !== "string" || !name.trim()))) {
     section.append(el("div", { class: "err" }, "Page components must be an array of component names."));
     return section;
@@ -1398,7 +1399,29 @@ function activePage() {
 function selectPage(id) {
   if (!pageRegistry().some((page) => page.id === id) || state.page === id) return;
   state.page = id;
+  state.editingPage = null;
   render();
+}
+
+function renderPageHeader(page) {
+  const editing = state.editingPage === page.id && !state.inspectMode;
+  return el("header", { class: "page-header inline-text-field inline-text-row" },
+    el("h2", { class: "page-title" }, page.id === "components" ? "Components" : page.name || "Untitled page"),
+    el("button", {
+      type: "button",
+      class: `btn page-edit-toggle${editing ? "" : " inline-text-edit"}`,
+      "aria-label": editing ? "Finish editing page" : "Edit page",
+      "aria-expanded": String(editing),
+      onclick: async () => {
+        if (state.inspectMode) return;
+        state.editingPage = editing ? null : page.id;
+        await render();
+        const focus = editing ? $(".page-edit-toggle")
+          : $(".page-title-input") || $(".page-component-option input") || $(".page-edit-toggle");
+        focus?.focus({ preventScroll: true });
+      },
+    }, editing ? "Done" : "Edit"),
+  );
 }
 
 function availableComponentNames() {
@@ -1448,16 +1471,20 @@ function renderComponentsPage(t) {
   if (!Array.isArray(pages)) return el("div", { class: "err" }, "pages must be an array when provided.");
   const page = pages.find((page) => page?.id === "components") || { id: "components", name: "Components" };
   const content = document.createDocumentFragment();
-  content.append(renderPageComponentSelection(page, (names) => {
-    page.components = names;
-    if (!pages.includes(page)) {
-      pages.push(page);
-      t.pages = pages;
-    }
-  }));
+  const editing = state.editingPage === page.id && !state.inspectMode;
+  content.append(renderPageHeader(page));
+  if (editing) {
+    content.append(renderPageComponentSelection(page, (names) => {
+      page.components = names;
+      if (!pages.includes(page)) {
+        pages.push(page);
+        t.pages = pages;
+      }
+    }));
+  }
   content.append(renderComponents(t, state.componentsDoc || null, {
     names: page.components,
-    heading: "Selected previews",
+    heading: editing ? "Selected previews" : null,
   }));
   return content;
 }
@@ -1481,6 +1508,7 @@ function createPage() {
     components: availableComponentNames(),
   });
   state.page = id;
+  state.editingPage = id;
   markDirty();
   render();
 }
@@ -1492,6 +1520,7 @@ function deletePage(page) {
   if (index < 0) return;
   pages.splice(index, 1);
   state.page = "brand";
+  state.editingPage = null;
   markDirty();
   render();
 }
@@ -1528,8 +1557,21 @@ function renderPageNavigation() {
   return nav;
 }
 
-async function renderUserPage(t, page) {
+function renderUserPage(t, page) {
   const content = document.createDocumentFragment();
+  const editing = state.editingPage === page.id && !state.inspectMode;
+  content.append(renderPageHeader(page));
+  if (editing) {
+    content.append(renderUserPageEditor(page), renderPageComponentSelection(page, (names) => { page.components = names; }));
+  }
+  content.append(renderComponents(t, state.componentsDoc || null, {
+    names: page.components,
+    heading: editing ? "Selected previews" : null,
+  }));
+  return content;
+}
+
+function renderUserPageEditor(page) {
   const title = el("input", {
     type: "text",
     class: "page-title-input",
@@ -1540,6 +1582,7 @@ async function renderUserPage(t, page) {
   const description = el("textarea", {
     class: "page-description-input",
     rows: "2",
+    "aria-label": "Page description",
     placeholder: "Describe what this page helps the team understand.",
     oninput: (event) => { page.description = event.target.value; updateCurrentPageNavigation(page); markDirty(); },
   });
@@ -1547,26 +1590,19 @@ async function renderUserPage(t, page) {
   const notes = el("textarea", {
     class: "page-notes-input",
     rows: "8",
+    "aria-label": "Page notes",
     placeholder: "Add decisions, guidance, links, or other working notes for this page.",
     oninput: (event) => { page.content = event.target.value; markDirty(); },
   });
   notes.value = page.content || "";
-  content.append(
-    el("section", { class: "page-editor" },
-      el("div", { class: "page-editor-head" },
-        el("div", { class: "page-editor-heading" }, title),
-        el("button", { type: "button", class: "btn page-delete", onclick: () => deletePage(page) }, "Delete page"),
-      ),
-      el("div", { class: "editable" }, el("label", {}, "Description"), description),
-      el("div", { class: "editable" }, el("label", {}, "Notes"), notes),
+  return el("section", { class: "page-editor" },
+    el("div", { class: "page-editor-head" },
+      el("div", { class: "page-editor-heading" }, title),
+      el("button", { type: "button", class: "btn page-delete", onclick: () => deletePage(page) }, "Delete page"),
     ),
-    renderPageComponentSelection(page, (names) => { page.components = names; }),
+    el("div", { class: "editable" }, el("label", {}, "Description"), description),
+    el("div", { class: "editable" }, el("label", {}, "Notes"), notes),
   );
-  content.append(await renderComponents(t, state.componentsDoc || null, {
-    names: page.components,
-    heading: "Selected previews",
-  }));
-  return content;
 }
 
 // Pretty-print just one component's JSON definition for the collapsible source view.
@@ -1817,6 +1853,7 @@ async function render() {
   renderValidation();
   const page = activePage();
   state.page = page.id;
+  if (state.editingPage !== page.id) state.editingPage = null;
   const content = el("div", { class: "page-content", tabindex: "-1" });
   const pageContent = await page.render(t);
   if (gen !== renderSeq) { window.DSInteractions?.disposeTree(pageContent); return; }
@@ -1918,6 +1955,7 @@ async function load() {
   if (!pageRegistry().some((page) => page.id === state.page)) state.page = "brand";
   state.dirty = false;
   state.componentsDirty = false;
+  state.editingPage = null;
   state.selection = null;
   state.componentPast = [];
   state.componentFuture = [];
@@ -1949,6 +1987,8 @@ window.addEventListener("DOMContentLoaded", () => {
     window.InspectWorkspace?.cancel();
     cancelFreeformDrag();
     state.inspectMode = !state.inspectMode;
+    const wasPageEditing = state.editingPage !== null;
+    if (state.inspectMode) state.editingPage = null;
     if (state.inspectMode && document.activeElement?.matches(".inline-text-input")) document.activeElement.blur();
     window.DSInteractions?.resetTree($("#app"));
     for (const select of document.querySelectorAll(".preview-state select")) {
@@ -1973,7 +2013,8 @@ window.addEventListener("DOMContentLoaded", () => {
       await render();
       postDesignSelection();
     } else {
-      renderInspector();
+      if (wasPageEditing) await render();
+      else renderInspector();
     }
     positionValidationSlot();
   });

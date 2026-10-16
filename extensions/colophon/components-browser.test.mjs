@@ -539,16 +539,38 @@ async function shellBehavior(kind) {
     const expectPreviews = (names, message) => check(JSON.stringify(previews()) === JSON.stringify(names), message);
     const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
       .find((node) => node.querySelector(".page-nav-label")?.textContent === name);
+    const editPage = async (editing = true) => {
+      const button = document.querySelector(".page-edit-toggle");
+      if (button.getAttribute("aria-expanded") === String(editing)) return;
+      button.click();
+      await waitUntil(() => document.querySelector(".page-edit-toggle")?.getAttribute("aria-expanded") === String(editing),
+        "page edit mode changes");
+      if (!editing) check(document.activeElement === document.querySelector(".page-edit-toggle"), "Done restores focus to Edit");
+    };
     pageButton("Components").click();
     await waitFor(".page-content .preview");
     expectPreviews(["Badge", "Button"], "built-in previews follow selection order, not registry order");
     check(document.querySelectorAll(".page-nav-link").length === 3, "built-in configuration does not create a duplicate page");
     check(!document.querySelector(".page-editor"), "built-in selection does not expose custom-page editors");
+    check(!document.querySelector(".page-organization") && !document.querySelector(".page-delete"), "Components starts with no editing controls");
+    check(document.querySelector(".page-title").textContent === "Components", "Components has a read-only title");
+    const edit = document.querySelector(".page-edit-toggle");
+    edit.style.transition = "none";
+    check(getComputedStyle(edit).opacity === (matchMedia("(hover: none)").matches ? "1" : "0"), "page Edit is quiet at rest except on touch devices");
+    edit.focus();
+    check(getComputedStyle(edit).opacity === "1", "keyboard focus reveals page Edit");
+    await editPage();
+    check(document.activeElement === document.querySelector(".page-component-option input"), "Components edit focuses its first checkbox");
+    await editPage(false);
+    check(!state.dirty && document.querySelector("#save-btn").disabled && !document.querySelector(".page-organization"),
+      "entering and leaving edit mode alone does not dirty the document");
+    await editPage();
     const buttonIndex = registry.indexOf("Button");
     check(document.querySelectorAll(".page-content .preview")[1].dataset.designPath === JSON.stringify(["components", buttonIndex]),
       "filtered previews retain original registry inspection paths");
     const checkbox = (name) => document.querySelector(`.page-component-option input[value="${CSS.escape(name)}"]`);
     const toggle = async (name) => {
+      await editPage();
       const before = checkbox(name);
       check(!!before, `checkbox exists for ${name}`);
       before.click();
@@ -565,6 +587,9 @@ async function shellBehavior(kind) {
     await toggle("Button");
     expectPreviews(["Badge", "ToggleSwitch"], "unchecking hides only that top-level preview");
     check(state.dirty && !document.querySelector("#save-btn").disabled, "checkbox changes enable Save to repo");
+    await editPage(false);
+    expectPreviews(["Badge", "ToggleSwitch"], "Done retains draft preview selection");
+    check(state.dirty && !document.querySelector(".page-organization"), "Done hides controls without saving or discarding");
     check(JSON.stringify(state.tokens.pages.find((page) => page.id === "publishing")) === customBefore, "built-in picker does not alter custom pages");
     await toggle("Badge");
     await toggle("ToggleSwitch");
@@ -572,6 +597,8 @@ async function shellBehavior(kind) {
     check(document.querySelector(".page-content").textContent.includes("No components selected for this page."), "empty selection has an explicit message");
     await doSave();
     await load();
+    check(!document.querySelector(".page-organization"), "reload returns to viewing mode");
+    await editPage();
     check(Array.isArray(builtin().components) && !builtin().components.length &&
       registry.every((name) => !checkbox(name).checked), "empty checkbox selection saves and reloads as empty");
     await toggle("Badge");
@@ -593,6 +620,7 @@ async function shellBehavior(kind) {
     state.tokens.pages = configuredPages.slice(1);
     await render();
     expectPreviews(registry, "no built-in entry retains all-components behavior");
+    await editPage();
     check(!state.dirty && state.tokens.pages.length === 1 && registry.every((name) => checkbox(name).checked),
       "viewing an unconfigured picker keeps all checked without creating configuration");
     await toggle("SubtlePicker");
@@ -623,8 +651,31 @@ async function shellBehavior(kind) {
     await render();
 
     pageButton("Publishing").click();
-    await waitFor(".page-title-input");
+    await waitUntil(() => document.querySelector(".page-title")?.textContent === "Publishing", "custom page opens");
+    check(!document.querySelector(".page-editor") && !document.querySelector(".page-organization") &&
+      !document.querySelector(".page-delete"), "navigating to a custom page hides all editing controls");
     expectPreviews(["ExampleScreen", "SubtlePicker"], "omitted feature previews still render on their custom page");
+    await editPage();
+    check(document.activeElement === document.querySelector(".page-title-input"), "custom edit mode focuses its title field");
+    check(!!document.querySelector(".page-delete"), "Delete page is available only in custom edit mode");
+    const setField = (selector, value) => {
+      const input = document.querySelector(selector);
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    setField(".page-title-input", "Publishing guide");
+    setField(".page-description-input", "Publishing guidance");
+    setField(".page-notes-input", "Draft publishing notes");
+    await editPage(false);
+    check(document.querySelector(".page-title").textContent === "Publishing guide" &&
+      pageButton("Publishing guide") && state.dirty, "Done updates the title and navigation without losing drafts");
+    check(!document.querySelector(".page-editor") && !document.querySelector(".page-organization") &&
+      !document.querySelector(".page-delete") && !document.querySelector(".page-content").textContent.includes("Draft publishing notes"),
+      "custom title field, description, notes, Delete, and checkboxes are absent in viewing mode");
+    await editPage();
+    check(document.querySelector(".page-description-input").value === "Publishing guidance" &&
+      document.querySelector(".page-notes-input").value === "Draft publishing notes", "reentering edit mode retains text drafts");
+    setField(".page-title-input", "Publishing");
     await toggle("ExampleScreen");
     expectPreviews(["SubtlePicker"], "custom pages reuse the checkbox picker");
     await toggle("ExampleScreen");
@@ -636,6 +687,8 @@ async function shellBehavior(kind) {
     await doSave();
     await load();
     expectPreviews(["ExampleScreen", "SubtlePicker"], "custom checkbox selections also survive save/reload");
+    check(!document.querySelector(".page-editor") && !document.querySelector(".page-organization"), "custom page reload hides its editors");
+    check(state.tokens.pages.find((page) => page.id === "publishing").content === "Draft publishing notes", "hidden custom notes persist after saving");
     check(!!document.querySelector('[data-ds-node-id="example-screen-field"] input') &&
       document.querySelector('[data-ds-node-id="example-screen-deploys"]')?.textContent.includes("Deploys"), "nested references resolve omitted controls");
     check(document.querySelector('[data-ds-node-id="example-screen-submit"]')?.textContent === "Send invite", "shared controls still render inside compositions");
@@ -646,8 +699,27 @@ async function shellBehavior(kind) {
     flyout.querySelector('input[value="essay"]').click();
     check(!document.querySelector(".ds-flyout"), "omitted flyout interactions remain live");
 
+    document.querySelector(".page-add").click();
+    await waitFor(".page-title-input");
+    check(document.querySelector(".page-edit-toggle").getAttribute("aria-expanded") === "true" &&
+      document.querySelector(".page-delete") && document.querySelector(".page-organization"), "new pages start in edit mode");
+    const confirm = window.confirm;
+    try {
+      window.confirm = () => false;
+      document.querySelector(".page-delete").click();
+      check(state.tokens.pages.length === 3, "canceling deletion keeps the page and edit mode");
+      window.confirm = () => true;
+      document.querySelector(".page-delete").click();
+      await waitFor("#brand-name");
+      check(state.tokens.pages.length === 2 && !state.editingPage, "deleting a page exits edit mode");
+    } finally { window.confirm = confirm; }
+    await doSave();
+    pageButton("Components").click();
+    await waitFor(".page-edit-toggle");
+    await editPage();
     document.querySelector("#inspect-btn").click();
     await waitFor(".component-layer-group");
+    check(!document.querySelector(".page-organization") && !state.editingPage, "entering Inspect closes page editing");
     check(document.querySelectorAll(".component-layer-group").length === registry.length, "Inspect retains the entire registry");
     const fieldGroup = [...document.querySelectorAll(".component-layer-group")]
       .find((group) => group.querySelector(".component-layer-name").textContent === "Field");
@@ -663,6 +735,12 @@ async function shellBehavior(kind) {
     document.querySelector("#layers-undo-btn").click();
     await waitUntil(() => !selectedComponentNode()?.attrs?.title, "omitted definition edit supports undo");
     check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "full registry survives inspection and editing");
+    document.querySelector("#inspect-btn").click();
+    await editPage();
+    document.querySelector("#inspect-btn").click();
+    await waitUntil(() => !document.querySelector(".page-organization"), "Inspect closes page editing with an existing layer selection too");
+    document.querySelector("#inspect-btn").click();
+    check(document.querySelector(".page-edit-toggle").getAttribute("aria-expanded") === "false", "leaving Inspect does not reopen page editing");
     return;
   }
   if (kind === "brand") {
@@ -1414,7 +1492,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
         const persisted = await loadDesign(brandWorkspace);
         assert.deepEqual(persisted.tokens.pages, [
           { id: "components", name: "Components", components: ["Badge", "Button"] },
-          { id: "publishing", name: "Publishing", components: ["ExampleScreen", "SubtlePicker"] },
+          { id: "publishing", name: "Publishing", components: ["ExampleScreen", "SubtlePicker"], description: "Publishing guidance", content: "Draft publishing notes" },
         ]);
         assert.deepEqual(persisted.componentsDoc, componentsDoc);
       }
