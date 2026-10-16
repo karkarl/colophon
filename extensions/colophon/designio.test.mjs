@@ -81,6 +81,35 @@ test("legacy systems continue loading and saving without migration or replaced p
   await assert.rejects(fs.access(path.join(workspace, "DESIGN.md")), { code: "ENOENT" });
 });
 
+for (const format of ["markdown", "json"]) {
+  test(`${format} saves and reloads preserve built-in preview selection and the full registry`, async (t) => {
+    const workspace = await workspaceFor(t);
+    const sample = await loadDesign(null);
+    const dir = path.join(workspace, ".agents", "design");
+    if (format === "json") {
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, "design.json"), JSON.stringify(sample.tokens));
+    } else {
+      await initDesign(workspace);
+    }
+    await saveComponents(workspace, sample.componentsDoc);
+    const componentsSource = await fs.readFile(path.join(dir, "components.jsonc"), "utf8");
+    const custom = { id: "publishing", name: "Publishing", components: ["ExampleScreen", "SubtlePicker"] };
+    for (const selection of [{ components: ["Badge", "Button"] }, { components: [] }, {}]) {
+      const loaded = await loadDesign(workspace);
+      loaded.tokens.pages = [{ id: "components", name: "Components", ...selection }, custom];
+      const saved = await saveTokens(workspace, loaded.tokens, { revision: loaded.revision });
+      const reloaded = await loadDesign(workspace);
+      assert.equal(reloaded.format, format);
+      assert.deepEqual(saved.tokens.pages, loaded.tokens.pages);
+      assert.deepEqual(reloaded.tokens.pages, loaded.tokens.pages);
+      assert.deepEqual(reloaded.componentsDoc, sample.componentsDoc);
+      assert.equal(await fs.readFile(path.join(dir, "components.jsonc"), "utf8"), componentsSource);
+      assert.equal((await validateDesignDir(workspace)).ok, true);
+    }
+  });
+}
+
 test("existing prose-only DESIGN.md remains untouched and receives no starter components", async (t) => {
   const workspace = await workspaceFor(t);
   const file = path.join(workspace, "DESIGN.md");

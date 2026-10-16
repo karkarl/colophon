@@ -98,6 +98,83 @@ DESIGN.md-backed systems project to the same canvas model in memory, without
 writing a second design.json. Inspector JSON paths address this normalized model,
 not literal YAML source paths.
 
+#### Choosing the built-in Components previews
+
+The component registry and page previews are independent. Open **Components** in
+the canvas, hover over or keyboard-focus its title's **Edit** button, then activate
+it to reveal **Re-organize components**. That button opens the shared organizer
+in a modal; editing alone does not show the component lists. **Edit** is always
+visible on touch devices. Custom pages use the same edit mode; their title field,
+description, notes, and **Delete page** action are also hidden until editing.
+
+**Close** or Escape dismisses the organizer and returns focus to its button,
+keeping the page in edit mode and retaining changes. During a drag, Escape
+only cancels the drag. **Done** hides the page editing controls without
+discarding changes. Navigation, reload, and Inspect close the modal and return
+to viewing mode; new pages start in edit mode with the organizer closed.
+Changes appear immediately; close the organizer and **Save to repo** to persist
+them. Definitions stay in
+`.agents/design/components.jsonc` for reuse.
+
+The organizer shows ordered lists for Components and every custom page, plus
+**Unassigned**. Coverage counts show how many registered components have a page,
+how many are unassigned, and how many have multiple homes. Missing references are
+also labeled.
+
+- Drag between pages to move a preview, not copy it. A cross-page move removes
+  that component's other standalone placements; nested uses are unchanged.
+- Drag above or below a row to set its position. **Up** and **Down** offer the
+  same ordering without dragging; **Move to** works with keyboard and touch.
+- Existing duplicates are flagged, not automatically migrated. Choose **Keep
+  only on [page]** to resolve one in place. Reordering within a page preserves
+  its existing placements elsewhere.
+- Move to **Unassigned** to remove all standalone placements without deleting
+  the definition. New pages start empty. Deleting a page leaves its components
+  unassigned if they have no other page.
+
+The organizer creates or updates the entry whose `id` is `components` in
+`x-colophon.tokens.pages`. You can also edit it directly:
+
+```yaml
+x-colophon:
+  version: 1
+  tokens:
+    pages:
+      - id: components
+        name: Components
+        components: [Button, Field, Badge]
+      - id: publishing
+        name: Publishing
+        components: [ExampleScreen, SubtlePicker]
+```
+
+Merge these entries into the existing `pages` array rather than replacing other
+metadata or custom pages. Legacy `.agents/design/design.json` uses the same
+`pages` array at the token document's top level.
+
+The `components` entry configures the existing built-in page; it does not create
+a second page or change its title. Use `name: Components` to satisfy the existing
+page contract. The built-in page has the shared organizer, but not custom-page
+title, notes, or deletion controls. Merely viewing it does not create configuration
+or mark the document as changed. A move preserves unrelated selections and their
+order. Only affected default-all selections are made explicit; there is no
+automatic migration when opening the organizer.
+
+- No entry, or an entry without `components`: show every registered definition.
+- `components: [Name, ...]`: show only those previews, in the listed order.
+- `components: []`: show no previews.
+
+Selections must be arrays of unique, non-empty component names; `null` is not an
+empty selection. Validation rejects malformed selections and duplicate page IDs,
+and warns about names absent from the registry. Missing names also appear as a
+warning on the page. Unselected definitions remain available to custom pages,
+nested component references, flyouts, Inspect, and editing.
+
+Token saves and reloads preserve the selection in the active document format.
+Standalone prototype exports (including the artifact used by Publish) preserve
+the page metadata and full registry; they render prototype screens, not the
+Colophon page gallery. Filtering the gallery never filters a prototype's components.
+
 | File | What it is |
 | --- | --- |
 | `DESIGN.md` (repo root) | New-system authority: portable tokens, design rationale, and Colophon metadata |

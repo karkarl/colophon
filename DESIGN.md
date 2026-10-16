@@ -251,6 +251,50 @@ fully rounded ends and a 4px leading inset. Reserve 16px of leading row padding
 in every state so labels do not shift on selection.
 Keep Northlight tokens in the authored preview.
 
+### Page preview selection
+
+The built-in Components page and custom pages show a title and previews by
+default. Use the `title` typography and spacing `5` below the heading. Reveal a
+subtle Edit button beside the title on hover or keyboard focus, reusing
+`inline-text-edit`; keep it visible on touch devices. Edit reveals a
+Re-organize components button and, for custom pages, the title field,
+description, notes, and Delete page action. These controls are absent in viewing
+mode. Editing page text does not open the organizer.
+
+Re-organize components opens a labeled native modal dialog, keeping the page
+inert and keyboard focus inside it. Use `surface`, a `line` border, `lg` radius
+and shadow, with a 32% `ink` backdrop. The dialog is eighteen spacing-8 units
+wide, bounded by the viewport with spacing `4` outside. Use spacing `5` for
+body padding, `heading` typography for the title, and a fixed header with a
+Close button above the scrolling organizer. Close receives initial focus;
+closing restores focus to Re-organize components. Escape closes the modal,
+except during a drag, when it only cancels the drag. Closing keeps drafts
+and leaves the page in edit mode; there is no separate Apply or Cancel step.
+
+Use ordered page groups plus Unassigned, with coverage and duplicate counts.
+Groups have a minimum width of five spacing-8 units, bounded by the viewport,
+and spacing `5` between groups. Stack them on narrow canvases. Use `small`
+typography, spacing `1`-`3` for rows and controls, `sm` control radii, and `line`
+dividers rather than nested cards. Reuse subtle Button and Field patterns for
+Move to and Up/Down. Pair `warning` text with explicit missing/duplicate labels.
+Show all existing homes for duplicates; never silently choose one.
+
+Dragging between pages chooses one standalone home. Dragging within a page
+only reorders; it does not resolve duplicates elsewhere. Move to includes
+Keep only on this page for explicit resolution, plus Unassigned for removing
+standalone placement without deleting the definition. Use `selection` insertion
+lines with textual destination feedback. Escape cancels a drag. Move to and
+Up/Down are keyboard and touch alternatives; focus follows the moved row and
+an aria-live status announces its destination.
+
+Update previews immediately without altering nested references or flyouts.
+Done returns to viewing without discarding drafts; Save to repo is still the
+persistence action. Navigation, reload, and Inspect close both the modal and
+page editing. The modal remains open across moves and reordering.
+New pages start empty in edit mode, avoiding automatic duplicates. Deleting a
+page leaves components Unassigned if they have no other home. The built-in page
+retains its fixed title and has no delete action.
+
 ### Inspect workspace
 
 Both Colophon and Prototype Inspect use a Layers rail of four spacing-8 units and a Properties

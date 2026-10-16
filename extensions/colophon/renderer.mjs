@@ -89,6 +89,7 @@ export function renderShell() {
     <script src="/shape-geometry.js"></script>
     <script type="module" src="/components-render.mjs"></script>
     <script src="/property-controls.js"></script>
+    <script src="/page-components.js"></script>
     <script src="/client.js"></script>
     <script src="/editor-geometry.js"></script>
     <script src="/editor-workspace.js"></script>

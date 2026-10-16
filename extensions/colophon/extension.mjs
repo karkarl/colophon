@@ -173,6 +173,7 @@ const servers = new Map(); // instanceId -> { server, url, workdir, sse:Set, wat
 const STATIC = {
   "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "/client.js": { file: "client.js", type: "text/javascript; charset=utf-8" },
+  "/page-components.js": { file: "page-components.js", type: "text/javascript; charset=utf-8" },
   "/inspect-workspace.js": { file: "inspect-workspace.js", type: "text/javascript; charset=utf-8" },
   "/inspect-workspace.css": { file: "inspect-workspace.css", type: "text/css; charset=utf-8" },
   "/editor-workspace.js": { file: "editor-workspace.js", type: "text/javascript; charset=utf-8" },
