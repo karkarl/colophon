@@ -544,6 +544,18 @@ async function shellBehavior(kind) {
     };
     const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
       .find((node) => node.querySelector(".page-nav-label")?.textContent === name);
+    const checkCenteredIcon = (button, title = null) => {
+      const bounds = button.getBoundingClientRect();
+      const icon = button.querySelector("svg").getBoundingClientRect();
+      check(Math.abs(bounds.left + bounds.width / 2 - icon.left - icon.width / 2) < .5 &&
+        Math.abs(bounds.top + bounds.height / 2 - icon.top - icon.height / 2) < .5,
+        "icon is centered inside its button");
+      if (title) {
+        const heading = title.getBoundingClientRect();
+        check(Math.abs(heading.top + heading.height / 2 - icon.top - icon.height / 2) < .5,
+          "title action is centered on the title line box");
+      }
+    };
     const editPage = async (editing = true) => {
       if (!editing && state.organization) await closeOrganizer();
       const button = document.querySelector(".page-edit-toggle");
@@ -558,6 +570,7 @@ async function shellBehavior(kind) {
         toggle.title === (editing ? "Finish editing page" : "Edit page"), "icon buttons keep their accessible names and tooltips");
       check(getComputedStyle(toggle.querySelector("svg")).width === getComputedStyle(document.body).getPropertyValue("--space-4").trim(),
         "page edit icons use the same spacing token as Brand");
+      checkCenteredIcon(toggle, document.querySelector(".page-title"));
       if (!editing) check(document.activeElement === document.querySelector(".page-edit-toggle"), "Done restores focus to Edit");
     };
     const openOrganizer = async () => {
@@ -567,6 +580,7 @@ async function shellBehavior(kind) {
       await waitUntil(() => !!document.querySelector(".page-organization"), "organizer opens separately from page editing");
       check(document.activeElement === (document.querySelector(".page-component-move") || document.querySelector(".page-organization-finish")),
         "organizing focuses its first control or Finish when empty");
+      checkCenteredIcon(document.querySelector(".page-organization-finish"), document.querySelector(".page-title"));
     };
     const closeOrganizer = async () => {
       document.querySelector(".page-organization-finish").click();
@@ -592,6 +606,7 @@ async function shellBehavior(kind) {
       !document.querySelector(".page-organize-btn"), "Components starts with no editing controls");
     check(document.querySelector(".page-title").textContent === "Components", "Components has a read-only title");
     const edit = document.querySelector(".page-edit-toggle");
+    checkCenteredIcon(edit, document.querySelector(".page-title"));
     edit.style.transition = "none";
     check(getComputedStyle(edit).opacity === (matchMedia("(hover: none)").matches ? "1" : "0"), "page Edit is quiet at rest except on touch devices");
     edit.focus();
@@ -621,6 +636,22 @@ async function shellBehavior(kind) {
     await openOrganizer();
     const row = (name, pageId = state.page) => [...document.querySelectorAll(".page-component-row")]
       .find((node) => node.dataset.component === name && node.dataset.pageId === (pageId ?? ""));
+    for (const [index, name] of ["Badge", "Button"].entries()) {
+      const buttons = row(name).querySelectorAll(".page-component-order");
+      check(buttons.length === 2, "each placed component has two ordering icons");
+      for (const [direction, button] of [...buttons].entries()) {
+        check(!button.textContent && button.querySelector('svg[aria-hidden="true"] path')?.getAttribute("d") ===
+          (direction ? "M12 5v14m-7-7 7 7 7-7" : "M12 19V5m-7 7 7-7 7 7"), "ordering buttons show up/down arrow icons, not text");
+        check(button.title === (direction ? "Move down" : "Move up") &&
+          button.getAttribute("aria-label") === `Move ${name} ${direction ? "down" : "up"} on Components`,
+          "ordering icons retain tooltips and contextual accessible names");
+        check(button.disabled === (direction === index), "boundary ordering icons retain disabled states");
+        check(getComputedStyle(button).width === getComputedStyle(document.body).getPropertyValue("--space-6").trim() &&
+          getComputedStyle(button.querySelector("svg")).width === getComputedStyle(document.body).getPropertyValue("--space-4").trim(),
+          "ordering buttons and icons use the documented sizes");
+        checkCenteredIcon(button);
+      }
+    }
     const group = (id) => [...document.querySelectorAll(".page-component-group")]
       .find((node) => node.dataset.pageId === (id ?? ""));
     const moveTo = async (name, from, to) => {

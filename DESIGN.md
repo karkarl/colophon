@@ -258,7 +258,9 @@ default. Use the `title` typography and spacing `5` below the heading. Reveal a
 subtle pencil icon beside the title on hover or keyboard focus, reusing the
 Brand page's `panel-icon-btn` and `inline-text-edit`; keep it visible on touch
 devices. Use the same spacing-4 SVG size for the pencil and the checkmark that
-finishes editing. Keep accessible labels and tooltips for both actions.
+finishes editing. Center the button and its SVG vertically on the title's line
+box, rather than aligning the icon to the text baseline or top edge.
+Keep accessible labels and tooltips for both actions.
 Edit reveals a Re-organize components button and, for custom pages, the title field,
 description, notes, and Delete page action. These controls are absent in viewing
 mode. Editing page text does not open the organizer.
@@ -277,7 +279,9 @@ and textual destination feedback.
 Show coverage and duplicate counts above the selected page's ordered list.
 Use `small` typography, spacing `1`-`3` for rows and controls, `sm` control radii, and `line`
 dividers rather than nested cards. Reuse subtle Button and Field patterns for
-Move to and Up/Down. Pair `warning` text with explicit missing/duplicate labels.
+Move to and Up/Down. Render Up/Down as spacing-4 arrow icons centered in
+spacing-6 square buttons, retaining accessible names, tooltips, and disabled
+states at the ends of the list. Pair `warning` text with explicit missing/duplicate labels.
 Show all existing homes for duplicates; never silently choose one.
 
 Dropping onto a different sidebar page appends and chooses one standalone home.

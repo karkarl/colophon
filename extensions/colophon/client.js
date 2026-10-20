@@ -1000,12 +1000,18 @@ async function attachDesignSelection() {
 
 /* ---------- section renderers ---------- */
 
-function pageEditIcon(done = false) {
+function pageActionIcon(action = "edit") {
+  const paths = {
+    edit: "m16 3 5 5-12 12-6 1 1-6ZM14 5l5 5",
+    done: "m5 12 4 4L19 6",
+    up: "M12 19V5m-7 7 7-7 7 7",
+    down: "M12 5v14m-7-7 7 7 7-7",
+  };
   const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   icon.setAttribute("viewBox", "0 0 24 24");
   icon.setAttribute("aria-hidden", "true");
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", done ? "m5 12 4 4L19 6" : "m16 3 5 5-12 12-6 1 1-6ZM14 5l5 5");
+  path.setAttribute("d", paths[action]);
   icon.append(path);
   return icon;
 }
@@ -1036,7 +1042,7 @@ function inlineTextField(label, input, { preview, showLabel = true } = {}) {
       input.focus();
     },
   });
-  edit.append(pageEditIcon());
+  edit.append(pageActionIcon());
   const finish = () => {
     updatePreview();
     input.readOnly = true;
@@ -1433,7 +1439,7 @@ function renderPageHeader(page) {
           : $(".page-title-input") || $(".page-organize-btn") || $(".page-edit-toggle");
         focus?.focus({ preventScroll: true });
       },
-    }, pageEditIcon(editing)),
+    }, pageActionIcon(editing ? "done" : "edit")),
     editing ? el("button", {
       type: "button", class: "btn page-organize-btn",
       onclick: openPageComponentOrganization,
@@ -1471,7 +1477,7 @@ function renderPageComponentOrganization() {
         type: "button", class: "panel-icon-btn page-organization-finish",
         "aria-label": "Finish organizing", title: "Finish organizing",
         onclick: closePageComponentOrganization,
-      }, pageEditIcon(true))),
+      }, pageActionIcon("done"))),
     el("p", { class: "muted" }, "Drag components onto a page in the left sidebar to move them. Select a page to see its components; drag within this list to reorder. Move to and Up/Down work without dragging. Nested uses stay unchanged. Save to repo to keep changes."));
   let board;
   try { board = PageComponents.snapshot(state.tokens, names); }
@@ -1590,15 +1596,17 @@ function renderPageComponentOrganization() {
       if (group.id !== null) {
         controls.append(
           el("button", {
-            type: "button", class: "btn", "aria-label": `Move ${name} up on ${group.name}`,
+            type: "button", class: "btn page-component-order",
+            "aria-label": `Move ${name} up on ${group.name}`, title: "Move up",
             disabled: index === 0 ? "" : undefined,
             onclick: () => commit(name, group.id, group.components[index - 1], true),
-          }, "Up"),
+          }, pageActionIcon("up")),
           el("button", {
-            type: "button", class: "btn", "aria-label": `Move ${name} down on ${group.name}`,
+            type: "button", class: "btn page-component-order",
+            "aria-label": `Move ${name} down on ${group.name}`, title: "Move down",
             disabled: index === group.components.length - 1 ? "" : undefined,
             onclick: () => commit(name, group.id, group.components[index + 2] ?? null, true),
-          }, "Down"),
+          }, pageActionIcon("down")),
         );
       }
       row.append(controls);

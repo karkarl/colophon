@@ -320,7 +320,7 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 .page-content { min-width: 0; max-width: 1160px; margin: 0 auto; padding: var(--space-5, 24px) 0 var(--space-7, 48px); }
 
 /* Page writing and sidebar organization are separate editing modes. */
-.page-header { align-items: center; flex-wrap: wrap; width: fit-content; max-width: 100%; margin-bottom: var(--space-5, 24px); }
+.page-header.inline-text-row { align-items: center; flex-wrap: wrap; width: fit-content; max-width: 100%; margin-bottom: var(--space-5, 24px); }
 .page-header .page-title {
   margin: 0; color: var(--color-ink, #1c1a17);
   font: var(--text-title-weight, 600) var(--text-title-size, 28px)/var(--text-title-line-height, 34px) var(--text-title-family, var(--font-display, serif));
@@ -372,7 +372,10 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
   flex: 1; min-width: 0; max-width: 100%; padding: var(--space-2); border: 1px solid var(--color-line);
   border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-ink); font: inherit;
 }
-.page-component-controls .btn { padding: var(--space-2); }
+.page-component-order { width: var(--space-6); height: var(--space-6); }
+.page-edit-toggle, .page-organization-finish, .page-component-controls .page-component-order {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; padding: 0;
+}
 .page-component-controls :focus-visible { outline: 2px solid var(--color-ink); outline-offset: 2px; }
 .page-placement-warning { color: var(--color-warning); }
 .page-component-list[data-drop="inside"] { outline: 2px solid var(--color-selection); outline-offset: 2px; }
@@ -402,7 +405,7 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 .inline-text-row > :first-child { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .inline-text-value { color: var(--color-ink, #1c1a17); }
 .inline-text-edit { flex: none; opacity: 0; pointer-events: none; transition: opacity 160ms ease-out; }
-.inline-text-edit svg, .page-edit-toggle svg, .page-organization-finish svg {
+.inline-text-edit svg, .page-edit-toggle svg, .page-organization-finish svg, .page-component-order svg {
   width: var(--space-4, 16px); height: var(--space-4, 16px); fill: none; stroke: currentColor; stroke-width: 1.5;
 }
 .inline-text-field:hover .inline-text-edit,
