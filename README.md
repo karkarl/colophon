@@ -101,30 +101,33 @@ not literal YAML source paths.
 #### Choosing the built-in Components previews
 
 The component registry and page previews are independent. Open **Components** in
-the canvas, hover over or keyboard-focus its title's **Edit** button, then activate
-it to reveal **Re-organize components**. That button opens the shared organizer
-in a modal; editing alone does not show the component lists. **Edit** is always
-visible on touch devices. Custom pages use the same edit mode; their title field,
-description, notes, and **Delete page** action are also hidden until editing.
+the canvas, hover over or keyboard-focus the **Edit** pencil beside its title,
+then activate it to reveal **Re-organize components**. That button switches to
+organization mode using the existing Pages sidebar, not a modal. Editing alone
+does not show the component lists. The pencil is always visible on touch devices.
+Custom pages use the same edit mode; their title field, description, notes, and
+**Delete page** action are also hidden until editing.
 
-**Close** or Escape dismisses the organizer and returns focus to its button,
-keeping the page in edit mode and retaining changes. During a drag, Escape
-only cancels the drag. **Done** hides the page editing controls without
-discarding changes. Navigation, reload, and Inspect close the modal and return
-to viewing mode; new pages start in edit mode with the organizer closed.
-Changes appear immediately; close the organizer and **Save to repo** to persist
-them. Definitions stay in
-`.agents/design/components.jsonc` for reuse.
+The **Finish organizing** checkmark returns to page editing without losing
+changes. Escape cancels an active drag without leaving organization mode.
+The page's **Finish editing page** checkmark hides its editing controls without
+discarding changes. Page navigation stays in organization mode; Brand, reload,
+and Inspect leave it. New pages start in text edit mode.
+Changes appear immediately; **Save to repo** remains available to persist them.
+Definitions stay in `.agents/design/components.jsonc` for reuse.
 
-The organizer shows ordered lists for Components and every custom page, plus
-**Unassigned**. Coverage counts show how many registered components have a page,
-how many are unassigned, and how many have multiple homes. Missing references are
-also labeled.
+The organizer shows the selected page's ordered components. The existing left
+sidebar lists Components, every custom page, and **Unassigned**, with counts.
+Coverage counts show how many registered components have a page, how many are
+unassigned, and how many have multiple homes. Missing references are also labeled.
 
-- Drag between pages to move a preview, not copy it. A cross-page move removes
-  that component's other standalone placements; nested uses are unchanged.
-- Drag above or below a row to set its position. **Up** and **Down** offer the
-  same ordering without dragging; **Move to** works with keyboard and touch.
+- Drag a component onto a different page in the left sidebar to move it, not
+  copy it. The move appends it to that page and keeps the source page selected
+  for further moves. A cross-page move removes that component's other standalone
+  placements; nested uses are unchanged.
+- Select a page, then drag above or below a row to set its position. **Up** and
+  **Down** offer the same ordering without dragging; **Move to** works with
+  keyboard and touch.
 - Existing duplicates are flagged, not automatically migrated. Choose **Keep
   only on [page]** to resolve one in place. Reordering within a page preserves
   its existing placements elsewhere.

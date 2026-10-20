@@ -302,6 +302,7 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 }
 .page-nav-link:hover, .page-nav-link.is-active { background: var(--page-nav-hover); color: var(--page-nav-ink); }
 .page-nav-link:focus-visible { outline: 2px solid var(--page-nav-ink); outline-offset: 2px; }
+.page-nav-link[data-drop="inside"] { outline: 2px solid var(--color-selection); outline-offset: -2px; }
 .page-nav-link.is-active::before {
   content: ""; position: absolute; inset-inline-start: 4px; top: 50%; transform: translateY(-50%);
   width: var(--page-nav-indicator-width); height: var(--page-nav-indicator-height);
@@ -318,7 +319,7 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 .page-add:focus-visible { outline: 2px solid var(--page-nav-ink); outline-offset: 2px; }
 .page-content { min-width: 0; max-width: 1160px; margin: 0 auto; padding: var(--space-5, 24px) 0 var(--space-7, 48px); }
 
-/* Keep page writing separate from the modal preview organizer. */
+/* Page writing and sidebar organization are separate editing modes. */
 .page-header { align-items: center; flex-wrap: wrap; width: fit-content; max-width: 100%; margin-bottom: var(--space-5, 24px); }
 .page-header .page-title {
   margin: 0; color: var(--color-ink, #1c1a17);
@@ -345,38 +346,19 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 }
 .page-delete { flex: none; color: var(--color-critical, #8f2f2a); border-color: color-mix(in srgb, var(--color-critical, #8f2f2a) 32%, var(--color-line, #e4ddd0)); }
 .page-delete:hover { background: color-mix(in srgb, var(--color-critical, #8f2f2a) 8%, var(--color-surface, #fff)); }
-.page-organization-dialog {
-  width: calc(var(--space-8) * 18); max-width: calc(100% - var(--space-4) * 2);
-  max-height: calc(100dvh - var(--space-4) * 2); margin: auto; padding: 0;
-  border: 1px solid var(--color-line); border-radius: var(--radius-lg);
-  background: var(--color-surface); color: var(--color-ink); box-shadow: var(--shadow-lg);
-}
-.page-organization-dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
-.page-organization-dialog::backdrop { background: color-mix(in srgb, var(--color-ink) 32%, transparent); }
-.page-organization-header {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
-  flex: none; padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--color-line);
-}
-.page-organization-header h2 {
-  min-width: 0; margin: 0; overflow-wrap: anywhere;
-  font: var(--text-heading-weight, 600) var(--text-heading-size)/var(--text-heading-line-height) var(--text-heading-family);
-}
-.page-organization-close { flex: none; }
-.page-organization-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: var(--space-5); }
-.page-organization-dialog .btn, button.page-organize-btn {
+.page-organization .btn, button.page-organize-btn {
   border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3);
 }
-.page-organization-close:focus-visible, .page-organize-btn:focus-visible {
+.page-edit-toggle:focus-visible, .page-organization-finish:focus-visible, .page-organize-btn:focus-visible {
   outline: 2px solid var(--color-ink); outline-offset: 2px;
 }
 .page-organization h3 { margin: 0 0 var(--space-2); }
 .page-organization p { margin: 0 0 var(--space-4); max-width: 68ch; }
-.page-organization, .page-organization-dialog .btn, button.page-organize-btn {
+.page-organization, .page-organization .btn, button.page-organize-btn {
   font: var(--text-small-weight, 400) var(--text-small-size)/var(--text-small-line-height) var(--text-small-family);
 }
 .page-coverage { font-weight: 600; }
 .page-organizer-status { min-height: var(--text-small-line-height); margin-bottom: var(--space-2); }
-.page-component-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-8) * 5)), 1fr)); gap: var(--space-5); }
 .page-component-group { min-width: 0; }
 .page-component-group h3 { font-size: var(--text-small-size); }
 .page-component-list { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--color-line); }
@@ -420,7 +402,9 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 .inline-text-row > :first-child { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .inline-text-value { color: var(--color-ink, #1c1a17); }
 .inline-text-edit { flex: none; opacity: 0; pointer-events: none; transition: opacity 160ms ease-out; }
-.inline-text-edit svg { width: var(--space-4, 16px); height: var(--space-4, 16px); fill: none; stroke: currentColor; stroke-width: 1.5; }
+.inline-text-edit svg, .page-edit-toggle svg, .page-organization-finish svg {
+  width: var(--space-4, 16px); height: var(--space-4, 16px); fill: none; stroke: currentColor; stroke-width: 1.5;
+}
 .inline-text-field:hover .inline-text-edit,
 .inline-text-field:focus-within .inline-text-edit { opacity: 1; pointer-events: auto; }
 .inline-text-edit:focus-visible { outline: 2px solid var(--color-accent, #b5502a); outline-offset: 2px; }
@@ -554,6 +538,11 @@ details.src pre { margin: 0; padding: 0 12px 12px; overflow: auto; font-size: 12
   .page-nav-description { display: none; }
   .page-editor-head { align-items: stretch; flex-direction: column; }
   .page-delete { align-self: flex-start; }
+  .organizing-components { --page-sidebar-width: min(208px, 35vw); }
+  .organizing-components .wrap { padding-left: calc(var(--page-sidebar-width) + var(--space-4, 16px)); }
+  .organizing-components .page-nav { position: fixed; width: var(--page-sidebar-width); max-height: none; border: 0; border-right: 1px solid var(--page-nav-line); }
+  .organizing-components .page-nav-list { grid-template-columns: minmax(0, 1fr); }
+  .organizing-components .page-nav-description { display: block; }
 }
 
 @media (prefers-reduced-motion: reduce) {

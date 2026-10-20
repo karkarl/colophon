@@ -536,36 +536,56 @@ async function shellBehavior(kind) {
     await waitFor(".page-nav-link");
     const registry = DSComp.componentNames(state.componentsDoc);
     const previews = () => [...document.querySelectorAll(".page-content .preview .cname")].map((node) => node.textContent);
-    const expectPreviews = (names, message) => check(JSON.stringify(previews()) === JSON.stringify(names), message);
+    const expectPreviews = async (names, message) => {
+      const organizing = !!state.organization;
+      if (organizing) await closeOrganizer();
+      check(JSON.stringify(previews()) === JSON.stringify(names), message);
+      if (organizing) await openOrganizer();
+    };
     const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
       .find((node) => node.querySelector(".page-nav-label")?.textContent === name);
     const editPage = async (editing = true) => {
-      if (!editing && document.querySelector("#page-organization-dialog")?.open) await closeOrganizer();
+      if (!editing && state.organization) await closeOrganizer();
       const button = document.querySelector(".page-edit-toggle");
       if (button.getAttribute("aria-expanded") === String(editing)) return;
       button.click();
       await waitUntil(() => document.querySelector(".page-edit-toggle")?.getAttribute("aria-expanded") === String(editing),
         "page edit mode changes");
+      const toggle = document.querySelector(".page-edit-toggle");
+      check(!toggle.textContent && toggle.querySelector('svg[aria-hidden="true"] path')?.getAttribute("d") ===
+        (editing ? "m5 12 4 4L19 6" : "m16 3 5 5-12 12-6 1 1-6ZM14 5l5 5"), "page edit action uses pencil and checkmark SVG icons");
+      check(toggle.title === toggle.getAttribute("aria-label") &&
+        toggle.title === (editing ? "Finish editing page" : "Edit page"), "icon buttons keep their accessible names and tooltips");
+      check(getComputedStyle(toggle.querySelector("svg")).width === getComputedStyle(document.body).getPropertyValue("--space-4").trim(),
+        "page edit icons use the same spacing token as Brand");
       if (!editing) check(document.activeElement === document.querySelector(".page-edit-toggle"), "Done restores focus to Edit");
     };
     const openOrganizer = async () => {
+      if (state.organization) return;
       await editPage();
-      if (document.querySelector("#page-organization-dialog")?.open) return;
       document.querySelector(".page-organize-btn").click();
-      await waitUntil(() => document.querySelector("#page-organization-dialog")?.open, "organizer opens separately from page editing");
-      check(document.activeElement === document.querySelector(".page-organization-close"), "modal initially focuses Close");
+      await waitUntil(() => !!document.querySelector(".page-organization"), "organizer opens separately from page editing");
+      check(document.activeElement === (document.querySelector(".page-component-move") || document.querySelector(".page-organization-finish")),
+        "organizing focuses its first control or Finish when empty");
     };
-    const closeOrganizer = async (escape = false) => {
-      const dialog = document.querySelector("#page-organization-dialog");
-      if (escape) dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
-      else dialog.querySelector(".page-organization-close").click();
-      await waitUntil(() => !dialog.isConnected, "closing removes the modal");
-      check(document.activeElement === document.querySelector(".page-organize-btn"), "closing restores focus to the current organizer button");
+    const closeOrganizer = async () => {
+      document.querySelector(".page-organization-finish").click();
+      await waitUntil(() => !document.querySelector(".page-organization") &&
+        document.activeElement === document.querySelector(".page-organize-btn"),
+        "finishing returns to page editing and restores focus to the current organizer button");
       check(state.editingPage === state.page, "closing the organizer leaves the page in edit mode");
+    };
+    const showGroup = async (id) => {
+      await openOrganizer();
+      const link = pageNavigationButton(id);
+      check(!!link, `sidebar contains ${id ?? "Unassigned"}`);
+      link.click();
+      await waitUntil(() => state.organization?.pageId === id &&
+        document.querySelector(".page-component-group")?.dataset.pageId === (id ?? ""), "sidebar selects one component list");
     };
     pageButton("Components").click();
     await waitFor(".page-content .preview");
-    expectPreviews(["Badge", "Button"], "built-in previews follow selection order, not registry order");
+    await expectPreviews(["Badge", "Button"], "built-in previews follow selection order, not registry order");
     check(document.querySelectorAll(".page-nav-link").length === 3, "built-in configuration does not create a duplicate page");
     check(!document.querySelector(".page-editor"), "built-in selection does not expose custom-page editors");
     check(!document.querySelector(".page-organization") && !document.querySelector(".page-delete") &&
@@ -580,62 +600,71 @@ async function shellBehavior(kind) {
     check(document.activeElement === document.querySelector(".page-organize-btn") &&
       !document.querySelector(".page-organization"), "Components edit focuses the organizer button without opening its lists");
     await openOrganizer();
-    const initialDialog = document.querySelector("#page-organization-dialog");
-    check(initialDialog.matches(":modal") && !document.querySelector(".page-content .page-organization"), "organization is modal, not inline page content");
-    check(initialDialog.getAttribute("aria-labelledby") === "page-organization-title" &&
-      document.querySelector("#page-organization-title").textContent === "Re-organize components", "modal has an accessible title");
-    document.querySelector(".page-edit-toggle").focus();
-    check(initialDialog.contains(document.activeElement), "modal prevents background focus");
+    check(!document.querySelector("dialog") && document.querySelector(".page-content .page-organization"), "organization uses the canvas rather than a modal");
+    check(document.querySelectorAll(".page-nav").length === 1 && document.querySelectorAll(".page-component-group").length === 1,
+      "organizing uses the existing sidebar and only the selected page's list");
+    const finish = document.querySelector(".page-organization-finish");
+    check(!finish.textContent && finish.querySelector("path")?.getAttribute("d") === "m5 12 4 4L19 6" &&
+      finish.getAttribute("aria-label") === "Finish organizing", "organizing has an accessible checkmark to finish");
+    pageNavigationButton("publishing").focus();
+    check(document.activeElement === pageNavigationButton("publishing"), "sidebar stays accessible while organizing");
     openPageComponentOrganization();
-    check(document.querySelectorAll("#page-organization-dialog").length === 1, "reopening does not duplicate the modal");
-    await closeOrganizer(true);
-    check(!state.dirty, "Escape without changes does not dirty the document");
+    check(document.querySelectorAll(".page-organization").length === 1, "reopening does not duplicate the organizer");
+    await closeOrganizer();
+    check(!state.dirty, "finishing without changes does not dirty the document");
     await editPage(false);
     check(!state.dirty && document.querySelector("#save-btn").disabled && !document.querySelector(".page-organization"),
       "entering and leaving edit mode alone does not dirty the document");
-    await openOrganizer();
     const buttonIndex = registry.indexOf("Button");
     check(document.querySelectorAll(".page-content .preview")[1].dataset.designPath === JSON.stringify(["components", buttonIndex]),
       "filtered previews retain original registry inspection paths");
+    await openOrganizer();
     const row = (name, pageId = state.page) => [...document.querySelectorAll(".page-component-row")]
       .find((node) => node.dataset.component === name && node.dataset.pageId === (pageId ?? ""));
     const group = (id) => [...document.querySelectorAll(".page-component-group")]
       .find((node) => node.dataset.pageId === (id ?? ""));
     const moveTo = async (name, from, to) => {
-      await openOrganizer();
-      const dialog = document.querySelector("#page-organization-dialog");
+      await showGroup(from);
       const select = row(name, from)?.querySelector(".page-component-move");
       check(!!select, `Move to exists for ${name} on ${from}`);
       select.value = JSON.stringify(to);
       select.dispatchEvent(new Event("change", { bubbles: true }));
-      await waitUntil(() => !select.isConnected && document.activeElement === row(name, to)?.querySelector(".page-component-move"),
+      await waitUntil(() => !select.isConnected && document.activeElement ===
+        (from === to ? row(name, to)?.querySelector(".page-component-move") : pageNavigationButton(to)),
         `moving ${name} rerenders and focuses its new placement`);
-      check(dialog.isConnected && dialog.matches(":modal"), "placement updates keep the same modal open");
+      check(state.organization?.pageId === from, "moving keeps the source page selected for batch organization");
     };
     const toggle = async (name) => {
       await openOrganizer();
-      const from = row(name) ? state.page : PageComponents.snapshot(state.tokens, registry).homes.get(name)?.[0] ?? null;
-      await moveTo(name, from, from === state.page ? null : state.page);
+      const target = state.page;
+      const homes = PageComponents.snapshot(state.tokens, registry).homes.get(name) || [];
+      const from = homes.includes(target) ? target : homes[0] ?? null;
+      await moveTo(name, from, from === target ? null : target);
+      await showGroup(target);
     };
     const builtin = () => state.tokens.pages.find((page) => page.id === "components");
     const customBefore = JSON.stringify(state.tokens.pages.find((page) => page.id === "publishing"));
-    check(document.querySelectorAll(".page-component-row").length === registry.length, "organizer accounts for the full registry");
+    check([...document.querySelectorAll(".page-nav-link[data-page-drop-target] .page-nav-description")]
+      .reduce((sum, node) => sum + parseInt(node.textContent), 0) === registry.length, "sidebar counts account for the full registry");
     check(registry.every((name) => !!row(name) === ["Badge", "Button"].includes(name)), "page groups reflect configured selection");
-    check(group(null).textContent.includes("ToggleSwitch"), "unassigned components have a visible home in the organizer");
+    await showGroup(null);
+    check(group(null).textContent.includes("ToggleSwitch"), "Unassigned in the sidebar shows unplaced components");
+    await showGroup("components");
     check(!document.querySelector('.page-organization input[type="checkbox"]'), "organizer replaces the checkbox picker");
     check(!state.dirty && document.querySelector("#save-btn").disabled, "viewing configured Components does not dirty tokens");
     await toggle("ToggleSwitch");
-    expectPreviews(["Badge", "Button", "ToggleSwitch"], "new selections append without reordering authored names");
+    await expectPreviews(["Badge", "Button", "ToggleSwitch"], "new selections append without reordering authored names");
     await toggle("Button");
-    expectPreviews(["Badge", "ToggleSwitch"], "unassigning hides that top-level preview");
+    await expectPreviews(["Badge", "ToggleSwitch"], "unassigning hides that top-level preview");
     check(state.dirty && !document.querySelector("#save-btn").disabled, "placement changes enable Save to repo");
     await editPage(false);
-    expectPreviews(["Badge", "ToggleSwitch"], "Done retains draft preview selection");
+    await expectPreviews(["Badge", "ToggleSwitch"], "Done retains draft preview selection");
     check(state.dirty && !document.querySelector(".page-organization"), "Done hides controls without saving or discarding");
     check(JSON.stringify(state.tokens.pages.find((page) => page.id === "publishing")) === customBefore, "built-in picker does not alter custom pages");
     await toggle("Badge");
     await toggle("ToggleSwitch");
-    expectPreviews([], "unassigning every control shows no previews");
+    await closeOrganizer();
+    await expectPreviews([], "unassigning every control shows no previews");
     check(document.querySelector(".page-content").textContent.includes("No components selected for this page."), "empty selection has an explicit message");
     await doSave();
     await load();
@@ -645,7 +674,7 @@ async function shellBehavior(kind) {
       registry.every((name) => !row(name)), "empty selection saves and reloads as empty");
     await toggle("Badge");
     await toggle("Button");
-    expectPreviews(["Badge", "Button"], "controls can be reselected from an empty page");
+    await expectPreviews(["Badge", "Button"], "controls can be reselected from an empty page");
 
     for (const selection of [{}, { components: [] }, { components: ["Badge", "Button"] }]) {
       state.tokens.pages[0] = { id: "components", name: "Components", ...selection };
@@ -655,7 +684,7 @@ async function shellBehavior(kind) {
       await load();
       check(JSON.stringify(state.tokens.pages[0]) === JSON.stringify({ id: "components", name: "Components", ...selection }),
         "page configuration survives canvas reload");
-      expectPreviews(selection.components ?? registry, "absent and explicit empty selections remain distinct after reload");
+      await expectPreviews(selection.components ?? registry, "absent and explicit empty selections remain distinct after reload");
       check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "save/reload never filters definitions");
     }
     const configuredPages = structuredClone(state.tokens.pages);
@@ -671,34 +700,41 @@ async function shellBehavior(kind) {
     check(JSON.stringify(state.tokens) === beforeOpening && !state.dirty, "opening the board does not resolve existing duplicates");
     check(document.querySelector(".page-coverage").textContent.includes("2 on multiple pages"), "coverage explicitly counts duplicate components");
     check(row("Button").textContent.includes("Components, Publishing"), "duplicate rows identify every existing home");
-    check(group("workspace").textContent.includes("Drop a component here"), "empty pages remain visible drop targets");
+    check(pageNavigationButton("workspace").hasAttribute("data-page-drop-target") &&
+      pageNavigationButton("workspace").textContent.includes("0 previews"), "empty pages remain visible sidebar drop targets");
     const reorderButton = row("Button").querySelector('button[aria-label="Move Button up on Components"]');
     reorderButton.click();
     await waitUntil(() => !reorderButton.isConnected, "Up reorders without dragging");
-    expectPreviews(["Button", "Badge", "Field"], "Up changes the preview order");
+    await expectPreviews(["Button", "Badge", "Field"], "Up changes the preview order");
     check(PageComponents.snapshot(state.tokens, registry).duplicates.length === 2, "reordering keeps existing duplicate placements");
 
     const dragTo = async (name, from, to, anchor = null, after = false) => {
+      await showGroup(from);
       const source = row(name, from);
       const transfer = new DataTransfer();
       source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: transfer }));
-      const target = anchor ? row(anchor, to) : group(to).querySelector(".page-component-list");
+      const target = from !== to ? pageNavigationButton(to)
+        : anchor ? row(anchor, to) : group(to).querySelector(".page-component-list");
       const rect = target.getBoundingClientRect();
       const options = { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: rect.top + rect.height * (after ? .9 : .1) };
       const over = new DragEvent("dragover", options);
       target.dispatchEvent(over);
-      check(over.defaultPrevented && document.querySelector(".page-organization [data-drop]"), "drag shows an insertion cue and accepts a move");
+      check(over.defaultPrevented && document.querySelector("[data-drop]"), "drag shows a sidebar or insertion cue and accepts a move");
       check(document.querySelector(".page-organizer-status").textContent.includes(name), "drag feedback names the moving component");
       target.dispatchEvent(new DragEvent("drop", options));
       source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
-      await waitUntil(() => !source.isConnected && !!row(name, to), "drop renders the new placement");
-      check(!document.querySelector(".page-organization [data-drop]"), "drop clears insertion feedback");
+      await waitUntil(() => !source.isConnected && (to === null
+        ? PageComponents.snapshot(state.tokens, registry).unassigned.includes(name)
+        : PageComponents.snapshot(state.tokens, registry).homes.get(name)?.includes(to)), "drop updates the placement");
+      check(state.organization?.pageId === from, "sidebar drops do not navigate away from the source");
+      check(!document.querySelector("[data-drop]"), "drop clears insertion feedback");
     };
     await dragTo("Button", "components", "workspace");
     check(PageComponents.snapshot(state.tokens, registry).homes.get("Button").join() === "workspace", "cross-page drag moves instead of copies and resolves only that component");
     check(PageComponents.snapshot(state.tokens, registry).duplicates.join() === "Field", "unrelated duplicates stay unresolved");
-    await dragTo("Button", "workspace", "publishing", "ExampleScreen");
-    check(state.tokens.pages[1].components.join() === "Button,ExampleScreen,Field", "cross-page drop honors its insertion position");
+    await dragTo("Button", "workspace", "publishing");
+    check(state.tokens.pages[1].components.join() === "ExampleScreen,Field,Button", "sidebar drop appends to the destination");
+    await dragTo("Button", "publishing", "publishing", "ExampleScreen");
     await dragTo("Field", "publishing", "publishing", "Button");
     check(state.tokens.pages[1].components.join() === "Field,Button,ExampleScreen" &&
       PageComponents.snapshot(state.tokens, registry).duplicates.join() === "Field", "same-page drag reorders without deduplicating");
@@ -707,72 +743,88 @@ async function shellBehavior(kind) {
     await moveTo("Field", "publishing", "publishing");
     check(!PageComponents.snapshot(state.tokens, registry).duplicates.length &&
       state.tokens.pages[1].components.join() === "Button,ExampleScreen,Field", "Keep only on this page resolves duplicates without reordering");
+    await showGroup("workspace");
+    check(document.querySelector(".page-component-empty").textContent.includes("No components on this page"),
+      "an empty page offers explicit placement guidance");
+    await showGroup("publishing");
 
     const beforeCancel = JSON.stringify(state.tokens);
     const transfer = new DataTransfer();
+    for (const id of ["brand", "publishing"]) {
+      row("Button", "publishing").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+      const target = pageNavigationButton(id);
+      const over = new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer });
+      target.dispatchEvent(over);
+      check(!over.defaultPrevented && !target.hasAttribute("data-drop"), "Brand and the current sidebar page are not drop destinations");
+      target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      row("Button", "publishing").dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+      check(JSON.stringify(state.tokens) === beforeCancel, "invalid and same-page sidebar drops leave placement unchanged");
+    }
     row("Button", "publishing").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
-    const emptyTarget = group("workspace").querySelector(".page-component-list");
+    const emptyTarget = pageNavigationButton("workspace");
     emptyTarget.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     const cancelDrag = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
     document.querySelector(".page-organization").dispatchEvent(cancelDrag);
     emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     check(JSON.stringify(state.tokens) === beforeCancel && !document.querySelector("[data-drop]") &&
-      cancelDrag.defaultPrevented && document.querySelector("#page-organization-dialog").open, "Escape cancels drag without closing the modal or changing placements");
-    document.querySelector(".page-organization-close").focus();
+      cancelDrag.defaultPrevented && state.organization, "Escape cancels drag without leaving organization or changing placements");
+    pageNavigationButton("workspace").focus();
     row("Button", "publishing").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
     emptyTarget.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    document.querySelector("#page-organization-dialog").dispatchEvent(new Event("cancel", { cancelable: true }));
+    pageNavigationButton("workspace").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
     check(JSON.stringify(state.tokens) === beforeCancel && !document.querySelector("[data-drop]") &&
-      document.querySelector("#page-organization-dialog").open, "modal cancellation also cancels a drag when focus is outside the lists");
+      state.organization, "Escape also cancels a drag when focus is in the sidebar");
     emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
     check(JSON.stringify(state.tokens) === beforeCancel, "external drops cannot mutate page assignments");
+    pageNavigationButton("workspace").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    check(state.organization, "Escape without a drag does not leave organizing");
     await moveTo("Button", "publishing", null);
+    await showGroup(null);
     check(row("Button", null) && document.querySelector(".page-coverage").textContent.includes("unassigned"), "unassigning exposes the coverage gap");
     await dragTo("Button", null, "workspace");
+    await dragTo("Button", "workspace", null);
+    await dragTo("Button", null, "workspace");
     await moveTo("SubtlePicker", null, "workspace");
+    await showGroup("workspace");
     const down = row("Button", "workspace").querySelector('button[aria-label="Move Button down on Workspace"]');
     down.click();
     await waitUntil(() => !down.isConnected, "Down works without dragging");
     check(state.tokens.pages[2].components.join() === "SubtlePicker,Button", "Down preserves page ordering");
     check(document.documentElement.scrollWidth <= innerWidth, "organizer fits the desktop and narrow viewport");
-    const dialog = document.querySelector("#page-organization-dialog");
-    const bounds = dialog.getBoundingClientRect();
-    const body = dialog.querySelector(".page-organization-body");
-    check(bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 && bounds.bottom <= innerHeight,
-      "modal fits the viewport in both dimensions");
-    check(body.scrollWidth <= body.clientWidth && body.scrollHeight > body.clientHeight, "long organizer scrolls internally without horizontal overflow");
-    const headerTop = dialog.querySelector(".page-organization-header").getBoundingClientRect().top;
-    body.scrollTop = 100;
-    check(dialog.querySelector(".page-organization-header").getBoundingClientRect().top === headerTop, "Close stays visible when lists scroll");
+    const sidebar = document.querySelector(".page-nav").getBoundingClientRect();
+    const listBounds = document.querySelector(".page-component-list").getBoundingClientRect();
+    check(sidebar.left === 0 && sidebar.right <= listBounds.left, "Pages remains on the left on desktop and narrow canvases");
+    check(getComputedStyle(document.querySelector(".page-nav")).position === "fixed", "page targets remain reachable while the list scrolls");
     const assignments = JSON.stringify(state.tokens.pages);
-    await closeOrganizer(true);
-    check(JSON.stringify(state.tokens.pages) === assignments && state.dirty, "Escape keeps placement drafts");
+    await closeOrganizer();
+    check(JSON.stringify(state.tokens.pages) === assignments && state.dirty, "finishing keeps placement drafts");
     await openOrganizer();
     check(JSON.stringify(state.tokens.pages) === assignments, "reopening retains placement drafts");
     await doSave();
     await load();
-    check(!document.querySelector("#page-organization-dialog"), "reload closes the modal and does not reopen it");
+    check(!state.organization && !document.querySelector(".page-organization"), "reload leaves organization mode");
     check(JSON.stringify(state.tokens.pages) === assignments, "cross-page moves and order persist through save/reload");
     check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "organizing preserves every definition");
     state.tokens.pages = structuredClone(configuredPages);
+    state.page = "components";
     markDirty();
     await doSave();
     await load();
     state.tokens.pages = structuredClone(configuredPages.slice(1));
     await render();
-    expectPreviews(registry, "no built-in entry retains all-components behavior");
+    await expectPreviews(registry, "no built-in entry retains all-components behavior");
     await openOrganizer();
     check(!state.dirty && state.tokens.pages.length === 1 && registry.every((name) => row(name)),
       "viewing an unconfigured organizer keeps default-all without creating configuration");
     await toggle("SubtlePicker");
-    expectPreviews(registry.filter((name) => name !== "SubtlePicker"), "first edit creates selection from default all");
+    await expectPreviews(registry.filter((name) => name !== "SubtlePicker"), "first edit creates selection from default all");
     await toggle("Button");
     check(state.tokens.pages.filter((page) => page.id === "components").length === 1, "subsequent edits reuse the same built-in entry");
     check(state.tokens.pages[0].components.join() === "ExampleScreen", "unassigning removes the chosen component from all pages");
     await doSave();
     await load();
-    expectPreviews(registry.filter((name) => !["SubtlePicker", "Button"].includes(name)), "UI-created entry survives save/reload");
+    await expectPreviews(registry.filter((name) => !["SubtlePicker", "Button"].includes(name)), "UI-created entry survives save/reload");
     state.tokens.pages = structuredClone(configuredPages);
     markDirty();
     await doSave();
@@ -780,24 +832,26 @@ async function shellBehavior(kind) {
     state.tokens.pages = structuredClone(configuredPages);
     state.tokens.pages[0].components = ["Missing", "Button"];
     await render();
-    expectPreviews(["Button"], "unknown names do not cause unrelated previews to appear");
+    await expectPreviews(["Button"], "unknown names do not cause unrelated previews to appear");
     check(document.querySelector(".page-content .banner.warn")?.textContent.includes("Missing"), "unknown name is reported on the page");
     await toggle("Badge");
     check(builtin().components.join("|") === "Missing|Button|Badge", "organizer edits preserve unknown selections for diagnosis");
     state.tokens.pages[0].components = null;
     await render();
-    expectPreviews([], "malformed selection never falls back to all components");
+    await expectPreviews([], "malformed selection never falls back to all components");
     check(document.querySelector(".page-content .err")?.textContent.includes("array"), "malformed selection has a visible diagnostic");
     check(!document.querySelector(".page-component-move"), "malformed selections block organizing rather than silently replacing them");
     state.tokens.pages = configuredPages;
     state.dirty = false;
     await render();
+    await closeOrganizer();
+    await editPage(false);
 
     pageButton("Publishing").click();
     await waitUntil(() => document.querySelector(".page-title")?.textContent === "Publishing", "custom page opens");
     check(!document.querySelector(".page-editor") && !document.querySelector(".page-organization") &&
       !document.querySelector(".page-delete"), "navigating to a custom page hides all editing controls");
-    expectPreviews(["ExampleScreen", "SubtlePicker"], "omitted feature previews still render on their custom page");
+    await expectPreviews(["ExampleScreen", "SubtlePicker"], "omitted feature previews still render on their custom page");
     await editPage();
     check(document.activeElement === document.querySelector(".page-title-input"), "custom edit mode focuses its title field");
     check(!document.querySelector(".page-organization") && document.querySelector(".page-organize-btn"),
@@ -822,18 +876,19 @@ async function shellBehavior(kind) {
       document.querySelector(".page-notes-input").value === "Draft publishing notes", "reentering edit mode retains text drafts");
     setField(".page-title-input", "Publishing");
     await toggle("ExampleScreen");
+    await closeOrganizer();
     check(document.querySelector(".page-description-input").value === "Publishing guidance" &&
-      document.querySelector(".page-notes-input").value === "Draft publishing notes", "modal moves retain page text drafts behind the dialog");
-    expectPreviews(["SubtlePicker"], "custom pages reuse the organizer");
+      document.querySelector(".page-notes-input").value === "Draft publishing notes", "organizing retains page text drafts");
+    await expectPreviews(["SubtlePicker"], "custom pages reuse the organizer");
     await toggle("ExampleScreen");
-    expectPreviews(["SubtlePicker", "ExampleScreen"], "custom selections retain order and append reselected names");
+    await expectPreviews(["SubtlePicker", "ExampleScreen"], "custom selections retain order and append reselected names");
     await toggle("SubtlePicker");
     await toggle("SubtlePicker");
-    expectPreviews(["ExampleScreen", "SubtlePicker"], "custom picker can restore the authored selection");
+    await expectPreviews(["ExampleScreen", "SubtlePicker"], "custom picker can restore the authored selection");
     check(builtin().components.join("|") === "Badge|Button", "custom placement edits preserve unrelated built-in selections");
     await doSave();
     await load();
-    expectPreviews(["ExampleScreen", "SubtlePicker"], "custom placements also survive save/reload");
+    await expectPreviews(["ExampleScreen", "SubtlePicker"], "custom placements also survive save/reload");
     check(!document.querySelector(".page-editor") && !document.querySelector(".page-organization"), "custom page reload hides its editors");
     check(state.tokens.pages.find((page) => page.id === "publishing").content === "Draft publishing notes", "hidden custom notes persist after saving");
     check(!!document.querySelector('[data-ds-node-id="example-screen-field"] input') &&
@@ -846,11 +901,12 @@ async function shellBehavior(kind) {
     flyout.querySelector('input[value="essay"]').click();
     check(!document.querySelector(".ds-flyout"), "omitted flyout interactions remain live");
 
+    await openOrganizer();
     document.querySelector(".page-add").click();
     await waitFor(".page-title-input");
     check(document.querySelector(".page-edit-toggle").getAttribute("aria-expanded") === "true" &&
       document.querySelector(".page-delete") && document.querySelector(".page-organize-btn") &&
-      !document.querySelector(".page-organization"), "new pages start in text edit mode with the organizer closed");
+      !state.organization && !document.querySelector(".page-organization"), "adding a page leaves organization and starts in text edit mode");
     const newPageId = state.page;
     check(!state.tokens.pages.find((page) => page.id === newPageId).components.length, "new pages start empty instead of duplicating the registry");
     await moveTo("Field", null, newPageId);
@@ -870,8 +926,11 @@ async function shellBehavior(kind) {
     pageButton("Components").click();
     await waitFor(".page-edit-toggle");
     await openOrganizer();
-    pageButton("Publishing").click();
-    await waitUntil(() => state.page === "publishing" && !document.querySelector("#page-organization-dialog"), "navigation closes the organizer");
+    await showGroup("publishing");
+    check(state.organization && document.querySelectorAll(".page-component-group").length === 1, "page navigation keeps organizing active");
+    pageButton("Brand").click();
+    await waitFor("#brand-name");
+    check(!state.organization && !document.querySelector(".page-organization"), "Brand exits organization mode");
     pageButton("Components").click();
     await waitFor(".page-edit-toggle");
     await openOrganizer();
@@ -889,7 +948,7 @@ async function shellBehavior(kind) {
     document.querySelector("#inspect-json").value = JSON.stringify(draft);
     document.querySelector("#inspect-apply-btn").click();
     await waitUntil(() => selectedComponentNode()?.attrs?.title === "Edited omitted field", "omitted definition remains editable");
-    expectPreviews(["Badge", "Button"], "editing an omitted definition does not add it to the gallery");
+    await expectPreviews(["Badge", "Button"], "editing an omitted definition does not add it to the gallery");
     document.querySelector("#layers-undo-btn").click();
     await waitUntil(() => !selectedComponentNode()?.attrs?.title, "omitted definition edit supports undo");
     check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "full registry survives inspection and editing");
