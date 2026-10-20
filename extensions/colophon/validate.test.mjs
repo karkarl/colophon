@@ -47,6 +47,15 @@ test("pages reject duplicate IDs and invalid editor fields", () => {
   assert.match(result.errors.join("\n"), /duplicate names/);
 });
 
+test("Brand cannot be configured as a preview page", () => {
+  const tokens = { ...base, pages: [{ id: "brand", name: "Brand", components: [] }] };
+  const before = structuredClone(tokens);
+  const validation = validateTokens(tokens);
+  assert.equal(validation.ok, false);
+  assert.match(validation.errors.join("\n"), /"brand" is reserved/);
+  assert.deepEqual(tokens, before);
+});
+
 test("built-in Components selection uses the page contract without filtering registry validation", () => {
   for (const selection of [{}, { components: [] }, { components: ["Badge", "Button"] }]) {
     const tokens = { ...base, pages: [{ id: "components", name: "Components", ...selection }] };

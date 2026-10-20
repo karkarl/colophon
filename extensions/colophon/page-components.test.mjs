@@ -108,3 +108,21 @@ test("invalid and stale moves fail atomically instead of losing placements", () 
   assert.throws(() => snapshot({ pages: [null] }, names), /stable id/);
   assert.throws(() => snapshot({ pages: [fixture().pages[0], fixture().pages[0]] }, names), /Duplicate page id/);
 });
+
+test("Brand is reserved and cannot accept or hide standalone placements", () => {
+  const tokens = fixture();
+  const before = structuredClone(tokens);
+  assert.throws(() => assign(tokens, names, "Button", "brand"), /destination page/);
+  assert.deepEqual(tokens, before);
+  tokens.pages.push({ id: "brand", name: "Brand", components: [] });
+  const invalid = structuredClone(tokens);
+  for (const attempt of [
+    () => snapshot(tokens, names),
+    () => assign(tokens, names, "Button", "brand"),
+    () => assign(tokens, names, "Button", "setup"),
+    () => reorder(tokens, names, "Button", "components"),
+  ]) {
+    assert.throws(attempt, /"brand" is reserved/);
+    assert.deepEqual(tokens, invalid);
+  }
+});

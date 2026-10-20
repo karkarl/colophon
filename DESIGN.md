@@ -263,7 +263,8 @@ box, rather than aligning the icon to the text baseline or top edge.
 Keep accessible labels and tooltips for both actions.
 Edit reveals a Re-organize components button and, for custom pages, the title field,
 description, notes, and Delete page action. These controls are absent in viewing
-mode. Editing page text does not open the organizer.
+mode. Editing page text does not open the organizer. Keep the heading and sidebar
+label in sync with the title draft while typing.
 
 Re-organize components switches the canvas into organization mode, not a
 modal. Reuse the existing Pages sidebar as the destination list. Select a page
@@ -275,6 +276,9 @@ Keep the sidebar on the left even on narrow canvases, capped at 35% of the
 viewport and its usual 208px width, with a single column of page links.
 Retain the sidebar's neutral chrome; valid drops alone use a `selection` outline
 and textual destination feedback.
+When a repository omits these editor tokens, retain Northlight's documented
+spacing, small type, radii, and semantic colors as CSS fallbacks; selection
+feedback falls back to `selection` blue (#0969da), never an invisible outline.
 
 Show coverage and duplicate counts above the selected page's ordered list.
 Use `small` typography, spacing `1`-`3` for rows and controls, `sm` control radii, and `line`
@@ -298,12 +302,18 @@ all drafts. Escape only cancels an active drag; it does not leave organization.
 
 Placement changes update page previews without altering nested references or
 flyouts. The checkmark returns to viewing without discarding drafts; Save to repo is still the
-persistence action and remains available while organizing. Page navigation
+persistence action and remains available while organizing. Notifications for the
+just-saved content retain the current page and editing mode; external document
+changes still reload when there is no local draft. Page navigation
 stays in organization mode. Brand, reload, and Inspect leave it; adding a page
-returns to text editing for the new page. No organization state is persisted.
+leaves Inspect and focuses text editing for the new page. No organization state is persisted.
 New pages start empty in edit mode, avoiding automatic duplicates. Deleting a
 page leaves components Unassigned if they have no other home. The built-in page
 retains its fixed title and has no delete action.
+The `brand` page ID is reserved, not a configurable preview destination; report
+collisions without changing their content. In Inspect, Components renders the
+full registry so every layer has visual editing geometry. Leaving Inspect
+restores the configured preview selection without changing placement.
 
 ### Inspect workspace
 

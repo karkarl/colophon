@@ -1386,7 +1386,7 @@ const BUILTIN_PAGES = Object.freeze([
 
 function userPages() {
   return Array.isArray(state.tokens?.pages)
-    ? state.tokens.pages.filter((page) => page && typeof page === "object" && typeof page.id === "string" && page.id && page.id !== "components" && typeof page.name === "string")
+    ? state.tokens.pages.filter((page) => page && typeof page === "object" && typeof page.id === "string" && page.id && page.id !== "components" && page.id !== "brand" && typeof page.name === "string")
     : [];
 }
 
@@ -1641,7 +1641,7 @@ function renderComponentsPage(t) {
   const editing = state.editingPage === page.id && !state.inspectMode;
   content.append(renderPageHeader(page));
   content.append(renderComponents(t, state.componentsDoc || null, {
-    names: page.components,
+    names: state.inspectMode ? undefined : page.components,
     heading: editing ? "Selected previews" : null,
   }));
   return content;
@@ -1652,7 +1652,8 @@ function pageId() {
   return `page-${suffix}`;
 }
 
-function createPage() {
+async function createPage() {
+  if (state.inspectMode) await setInspectMode(false);
   const pages = Array.isArray(state.tokens.pages) ? state.tokens.pages : (state.tokens.pages = []);
   const existing = new Set(pages.map((page) => page?.id));
   let id = pageId();
@@ -1669,7 +1670,8 @@ function createPage() {
   state.organization = null;
   state.editingPage = id;
   markDirty();
-  render();
+  await render();
+  $(".page-title-input")?.focus({ preventScroll: true });
 }
 
 function deletePage(page) {
@@ -1684,10 +1686,12 @@ function deletePage(page) {
   render();
 }
 
-function updateCurrentPageNavigation(page) {
+function updateCurrentPageLabels(page) {
   const link = $(".page-nav-link.is-active");
   const label = $(".page-nav-label", link);
   const description = $(".page-nav-description", link);
+  const heading = $(".page-header .page-title");
+  if (heading) heading.textContent = page.name || "Untitled page";
   if (label) label.textContent = page.name || "Untitled page";
   if (description) description.textContent = page.description || "Custom design-system page";
 }
@@ -1711,7 +1715,7 @@ function renderPageNavigation(organization = null) {
     },
     el("span", { class: "page-nav-label" }, page.label),
     el("span", { class: "page-nav-description" }, group ? `${group.components.length} previews` : page.description));
-    if (group) {
+    if (group && page.id !== "brand") {
       link.dataset.pageDropTarget = "";
       organization.bindDrop(link, group, () => ({ before: null, node: link, edge: "inside" }), true);
     }
@@ -1745,14 +1749,14 @@ function renderUserPageEditor(page) {
     class: "page-title-input",
     value: page.name || "",
     "aria-label": "Page title",
-    oninput: (event) => { page.name = event.target.value; updateCurrentPageNavigation(page); markDirty(); },
+    oninput: (event) => { page.name = event.target.value; updateCurrentPageLabels(page); markDirty(); },
   });
   const description = el("textarea", {
     class: "page-description-input",
     rows: "2",
     "aria-label": "Page description",
     placeholder: "Describe what this page helps the team understand.",
-    oninput: (event) => { page.description = event.target.value; updateCurrentPageNavigation(page); markDirty(); },
+    oninput: (event) => { page.description = event.target.value; updateCurrentPageLabels(page); markDirty(); },
   });
   description.value = page.description || "";
   const notes = el("textarea", {
@@ -2115,14 +2119,30 @@ function updateSourcePill() {
   pill.textContent = state.design.source === "repo" ? (state.design.file || ".agents/design/") : "starter (not saved)";
 }
 
-async function load() {
-  window.InspectWorkspace?.cancel();
-  cancelFreeformDrag();
+async function load({ onlyIfChanged = false } = {}) {
+  if (!onlyIfChanged) {
+    window.InspectWorkspace?.cancel();
+    cancelFreeformDrag();
+  }
   const data = await api("/api/design");
   await whenDSComp();
+  const componentsDoc = data.design.componentsDoc || { meta: { version: 1 }, components: [] };
+  if (onlyIfChanged) {
+    if (state.dirty || state.componentsDirty) return;
+    if (state.design?.revision === data.design.revision &&
+        state.design?.componentsError === data.design.componentsError &&
+        JSON.stringify(state.componentsDoc) === JSON.stringify(componentsDoc)) {
+      state.design = data.design;
+      return;
+    }
+  }
+  if (onlyIfChanged) {
+    window.InspectWorkspace?.cancel();
+    cancelFreeformDrag();
+  }
   state.design = data.design;
   state.tokens = JSON.parse(JSON.stringify(data.design.tokens || {}));
-  state.componentsDoc = JSON.parse(JSON.stringify(data.design.componentsDoc || { meta: { version: 1 }, components: [] }));
+  state.componentsDoc = JSON.parse(JSON.stringify(componentsDoc));
   if (!pageRegistry().some((page) => page.id === state.page)) state.page = "brand";
   state.dirty = false;
   state.componentsDirty = false;
@@ -2141,8 +2161,49 @@ async function load() {
 function connectEvents() {
   try {
     const es = new EventSource("/events");
-    es.addEventListener("changed", () => { if (!state.dirty && !state.componentsDirty) load(); });
+    es.addEventListener("changed", () => {
+      if (!state.dirty && !state.componentsDirty) {
+        return load({ onlyIfChanged: true }).catch((error) => alert("Reload failed: " + error.message));
+      }
+    });
   } catch { /* SSE optional */ }
+}
+
+async function setInspectMode(enabled) {
+  window.InspectWorkspace?.cancel();
+  cancelFreeformDrag();
+  const wasPageEditing = state.editingPage !== null || state.organization !== null;
+  state.inspectMode = enabled;
+  if (enabled) { state.editingPage = null; state.organization = null; }
+  if (enabled && document.activeElement?.matches(".inline-text-input")) document.activeElement.blur();
+  window.DSInteractions?.resetTree($("#app"));
+  for (const select of document.querySelectorAll(".preview-state select")) {
+    select.value = "live";
+    select.disabled = enabled;
+  }
+  $("#inspect-btn").classList.toggle("is-active", enabled);
+  $("#inspect-btn").setAttribute("aria-pressed", String(enabled));
+  $("#design-inspector").hidden = !enabled;
+  $("#component-layers").hidden = !enabled;
+  document.body.classList.toggle("inspect-mode", enabled);
+  document.body.classList.toggle("inspect-open", enabled);
+  window.InspectWorkspace?.refreshBounds();
+  const selectFirst = enabled && !state.selection && state.componentsDoc?.components?.[0]?.root;
+  if (selectFirst) {
+    state.page = "components";
+    state.selection = {
+      file: "components.jsonc",
+      path: ["components", 0, "root"],
+      label: componentLayerLabel(selectFirst).detail,
+      value: selectFirst,
+    };
+  }
+  const filteredComponents = state.page === "components" && Array.isArray(state.tokens.pages) &&
+    state.tokens.pages.some((page) => page?.id === "components" && page.components !== undefined);
+  if (selectFirst || wasPageEditing || filteredComponents) await render();
+  else renderInspector();
+  if (selectFirst) postDesignSelection();
+  positionValidationSlot();
 }
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -2155,41 +2216,7 @@ window.addEventListener("DOMContentLoaded", () => {
   $("#save-btn").addEventListener("click", doSave);
   $("#reload-btn").addEventListener("click", () => load());
   $("#validate-btn")?.addEventListener("click", doValidate);
-  $("#inspect-btn")?.addEventListener("click", async () => {
-    window.InspectWorkspace?.cancel();
-    cancelFreeformDrag();
-    state.inspectMode = !state.inspectMode;
-    const wasPageEditing = state.editingPage !== null || state.organization !== null;
-    if (state.inspectMode) { state.editingPage = null; state.organization = null; }
-    if (state.inspectMode && document.activeElement?.matches(".inline-text-input")) document.activeElement.blur();
-    window.DSInteractions?.resetTree($("#app"));
-    for (const select of document.querySelectorAll(".preview-state select")) {
-      select.value = "live";
-      select.disabled = state.inspectMode;
-    }
-    $("#inspect-btn").classList.toggle("is-active", state.inspectMode);
-    $("#inspect-btn").setAttribute("aria-pressed", String(state.inspectMode));
-    $("#design-inspector").hidden = !state.inspectMode;
-    $("#component-layers").hidden = !state.inspectMode;
-    document.body.classList.toggle("inspect-mode", state.inspectMode);
-    document.body.classList.toggle("inspect-open", state.inspectMode);
-    if (state.inspectMode && !state.selection && state.componentsDoc?.components?.[0]?.root) {
-      state.page = "components";
-      const node = state.componentsDoc.components[0].root;
-      state.selection = {
-        file: "components.jsonc",
-        path: ["components", 0, "root"],
-        label: componentLayerLabel(node).detail,
-        value: node,
-      };
-      await render();
-      postDesignSelection();
-    } else {
-      if (wasPageEditing) await render();
-      else renderInspector();
-    }
-    positionValidationSlot();
-  });
+  $("#inspect-btn")?.addEventListener("click", () => setInspectMode(!state.inspectMode));
   const app = $("#app");
   app.addEventListener("pointerdown", beginFreeformDrag, true);
   window.addEventListener("pointermove", moveFreeformDrag, true);

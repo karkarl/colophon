@@ -112,8 +112,10 @@ The **Finish organizing** checkmark returns to page editing without losing
 changes. Escape cancels an active drag without leaving organization mode.
 The page's **Finish editing page** checkmark hides its editing controls without
 discarding changes. Page navigation stays in organization mode; Brand, reload,
-and Inspect leave it. New pages start in text edit mode.
+and Inspect leave it. Adding a page leaves Inspect and focuses its title field.
 Changes appear immediately; **Save to repo** remains available to persist them.
+Saving keeps the current editing mode, including Unassigned; its file-change
+notification does not close the organizer.
 Definitions stay in `.agents/design/components.jsonc` for reuse.
 
 The organizer shows the selected page's ordered components. The existing left
@@ -168,10 +170,13 @@ automatic migration when opening the organizer.
 - `components: []`: show no previews.
 
 Selections must be arrays of unique, non-empty component names; `null` is not an
-empty selection. Validation rejects malformed selections and duplicate page IDs,
+empty selection. Validation rejects malformed selections, duplicate page IDs,
+and the reserved `brand` ID, which cannot be a preview destination,
 and warns about names absent from the registry. Missing names also appear as a
 warning on the page. Unselected definitions remain available to custom pages,
 nested component references, flyouts, Inspect, and editing.
+While inspecting, Components temporarily renders every definition for visual
+selection and resizing. Leaving Inspect restores the configured previews.
 
 Token saves and reloads preserve the selection in the active document format.
 Standalone prototype exports (including the artifact used by Publish) preserve

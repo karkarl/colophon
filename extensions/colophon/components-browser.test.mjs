@@ -674,6 +674,25 @@ async function shellBehavior(kind) {
       await showGroup(target);
     };
     const builtin = () => state.tokens.pages.find((page) => page.id === "components");
+    const authoredTokens = state.tokens;
+    try {
+      state.tokens = { ...state.tokens, colors: [], typography: {}, spacing: {}, radii: [] };
+      applyVars();
+      const destination = pageNavigationButton(null);
+      destination.dataset.drop = "inside";
+      row("Button").dataset.drop = "before";
+      check(getComputedStyle(destination).outlineStyle === "solid" && getComputedStyle(destination).outlineWidth === "2px" &&
+        getComputedStyle(destination).outlineColor === "rgb(9, 105, 218)", "missing selection token retains a visible sidebar drop cue");
+      check(getComputedStyle(row("Button"), "::after").backgroundColor === "rgb(9, 105, 218)",
+        "missing selection token retains the insertion line");
+      const order = row("Button").querySelector(".page-component-order");
+      check(getComputedStyle(order).width === "32px" && getComputedStyle(order).height === "32px" &&
+        getComputedStyle(order.querySelector("svg")).width === "16px", "missing spacing tokens retain usable ordering controls");
+      check(getComputedStyle(document.querySelector(".page-organization")).fontSize === "14px" &&
+        getComputedStyle(row("Button")).paddingTop === "12px", "missing type and spacing tokens retain readable controls");
+      delete destination.dataset.drop;
+      delete row("Button").dataset.drop;
+    } finally { state.tokens = authoredTokens; applyVars(); }
     const customBefore = JSON.stringify(state.tokens.pages.find((page) => page.id === "publishing"));
     check([...document.querySelectorAll(".page-nav-link[data-page-drop-target] .page-nav-description")]
       .reduce((sum, node) => sum + parseInt(node.textContent), 0) === registry.length, "sidebar counts account for the full registry");
@@ -832,7 +851,42 @@ async function shellBehavior(kind) {
     check(JSON.stringify(state.tokens.pages) === assignments && state.dirty, "finishing keeps placement drafts");
     await openOrganizer();
     check(JSON.stringify(state.tokens.pages) === assignments, "reopening retains placement drafts");
+    await showGroup(null);
     await doSave();
+    const savedOrganization = state.organization;
+    const savedOrganizer = document.querySelector(".page-organization");
+    const nativeEventSource = window.EventSource;
+    let changed;
+    try {
+      window.EventSource = class {
+        addEventListener(type, handler) { if (type === "changed") changed = handler; }
+      };
+      connectEvents();
+    } finally { window.EventSource = nativeEventSource; }
+    await changed();
+    check(state.organization === savedOrganization && state.organization.pageId === null &&
+      document.querySelector(".page-organization") === savedOrganizer && state.editingPage === state.page,
+      "a delayed own-save notification keeps Unassigned and text editing without rerendering");
+    const originalApi = api;
+    try {
+      api = async (...args) => {
+        const result = await originalApi(...args);
+        if (args[0] === "/api/design") markDirty();
+        return result;
+      };
+      await changed();
+      check(state.dirty && state.organization === savedOrganization, "a draft started during automatic reload is not discarded");
+    } finally { api = originalApi; state.dirty = false; }
+    try {
+      api = async (...args) => {
+        const result = await originalApi(...args);
+        if (args[0] === "/api/design") result.design.componentsDoc.components[0].root.attrs = { title: "External registry edit" };
+        return result;
+      };
+      await changed();
+      check(!state.organization && state.componentsDoc.components[0].root.attrs.title === "External registry edit",
+        "an external registry edit with the same token revision still reloads");
+    } finally { api = originalApi; }
     await load();
     check(!state.organization && !document.querySelector(".page-organization"), "reload leaves organization mode");
     check(JSON.stringify(state.tokens.pages) === assignments, "cross-page moves and order persist through save/reload");
@@ -872,6 +926,16 @@ async function shellBehavior(kind) {
     await expectPreviews([], "malformed selection never falls back to all components");
     check(document.querySelector(".page-content .err")?.textContent.includes("array"), "malformed selection has a visible diagnostic");
     check(!document.querySelector(".page-component-move"), "malformed selections block organizing rather than silently replacing them");
+    state.tokens.pages = [...structuredClone(configuredPages), { id: "brand", name: "Brand", components: [] }];
+    const reservedPages = JSON.stringify(state.tokens.pages);
+    await render();
+    check(document.querySelector(".page-organization .err")?.textContent.includes('"brand" is reserved') &&
+      !document.querySelector(".page-component-move") &&
+      !pageNavigationButton("brand").hasAttribute("data-page-drop-target"), "reserved Brand entry blocks moves with a visible diagnostic");
+    pageNavigationButton("brand").dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+    check(JSON.stringify(state.tokens.pages) === reservedPages &&
+      document.querySelectorAll('.page-nav-link[data-page-id="brand"]').length === 1,
+      "invalid Brand configuration remains unchanged without a duplicate navigation entry");
     state.tokens.pages = configuredPages;
     state.dirty = false;
     await render();
@@ -894,6 +958,8 @@ async function shellBehavior(kind) {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     };
     setField(".page-title-input", "Publishing guide");
+    check(document.querySelector(".page-title").textContent === "Publishing guide" && pageButton("Publishing guide"),
+      "the heading and sidebar follow the title draft before finishing editing");
     setField(".page-description-input", "Publishing guidance");
     setField(".page-notes-input", "Draft publishing notes");
     await editPage(false);
@@ -973,22 +1039,42 @@ async function shellBehavior(kind) {
       .find((group) => group.querySelector(".component-layer-name").textContent === "Field");
     fieldGroup.querySelector(".component-layer-row button").click();
     await waitUntil(() => state.selection?.path?.[1] === registry.indexOf("Field"), "omitted definition is selectable in Inspect");
+    const selectedPreview = [...document.querySelectorAll("#app [data-ds-node-path]")]
+      .find((node) => node.dataset.dsNodePath === JSON.stringify(state.selection.path));
+    check(!!selectedPreview, "omitted definition has a rendered node for visual editing");
+    selectedPreview.scrollIntoView({ block: "center" });
+    InspectWorkspace.refreshBounds();
+    check(!document.querySelector("#inspect-selection-box").hidden, "omitted definition exposes selection and resize geometry");
     document.querySelector("#json-tab").click();
     const draft = JSON.parse(document.querySelector("#inspect-json").value);
     draft.attrs = { ...draft.attrs, title: "Edited omitted field" };
     document.querySelector("#inspect-json").value = JSON.stringify(draft);
     document.querySelector("#inspect-apply-btn").click();
     await waitUntil(() => selectedComponentNode()?.attrs?.title === "Edited omitted field", "omitted definition remains editable");
-    await expectPreviews(["Badge", "Button"], "editing an omitted definition does not add it to the gallery");
+    await expectPreviews(registry, "Inspect renders the entire registry independently of preview placement");
+    check(builtin().components.join("|") === "Badge|Button", "visual editing never changes preview placement");
     document.querySelector("#layers-undo-btn").click();
     await waitUntil(() => !selectedComponentNode()?.attrs?.title, "omitted definition edit supports undo");
     check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "full registry survives inspection and editing");
     document.querySelector("#inspect-btn").click();
+    await waitUntil(() => previews().join("|") === "Badge|Button", "leaving Inspect restores the configured gallery");
     await openOrganizer();
     document.querySelector("#inspect-btn").click();
     await waitUntil(() => !document.querySelector(".page-organization"), "Inspect closes page editing with an existing layer selection too");
     document.querySelector("#inspect-btn").click();
+    await waitUntil(() => previews().join("|") === "Badge|Button", "leaving Inspect again restores the configured gallery");
     check(document.querySelector(".page-edit-toggle").getAttribute("aria-expanded") === "false", "leaving Inspect does not reopen page editing");
+    await selectPage("brand");
+    await setInspectMode(true);
+    check(state.page === "brand" && !document.querySelector(".page-add").hidden, "Brand remains reachable in Inspect with a retained selection");
+    document.querySelector(".page-add").click();
+    await waitUntil(() => document.activeElement === document.querySelector(".page-title-input") &&
+      !!document.querySelector(".page-title-input"), "Add page leaves Inspect and focuses its title");
+    check(!state.inspectMode && !document.body.classList.contains("inspect-mode") &&
+      document.querySelector("#design-inspector").hidden && document.querySelector("#component-layers").hidden &&
+      document.querySelector("#inspect-btn").getAttribute("aria-pressed") === "false",
+      "Add page completes the whole Inspect mode transition");
+    await load();
     return;
   }
   if (kind === "brand") {
