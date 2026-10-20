@@ -7,6 +7,23 @@ import test from "node:test";
 import { buildPrototypeExportHtml, writePrototypeExport } from "./prototypeexport.mjs";
 import { renderProtoShell, renderScreenNav } from "./proto-renderer.mjs";
 
+test("prototype exports retain page selections and all registered definitions", async () => {
+  const componentsDoc = { components: [
+    { name: "Button", root: { el: "button", children: ["Open"], on: { click: { open: "Options" } } } },
+    { name: "Options", root: { el: "div", children: ["Choices"] } },
+    { name: "Feature", root: { el: "div", children: [{ component: "Button" }] } },
+  ] };
+  for (const selection of [{ components: ["Button"] }, { components: [] }, {}]) {
+    const tokens = { pages: [{ id: "components", name: "Components", ...selection }] };
+    const proto = { doc: { screens: [{ id: "feature", root: { component: "Feature" } }] } };
+    const html = await buildPrototypeExportHtml({ design: { tokens, componentsDoc }, proto });
+    const data = JSON.parse(html.match(/window\.__COLOPHON_PROTOTYPE_EXPORT__ = (.*);<\/script>/)[1]);
+    assert.deepEqual(data.design.tokens.pages, tokens.pages);
+    assert.deepEqual(data.design.componentsDoc, componentsDoc);
+    assert.deepEqual(data.proto.doc, proto.doc);
+  }
+});
+
 test("prototype shell includes the shared screen menu before the preview", () => {
   const html = renderProtoShell();
   assert.ok(html.includes(renderScreenNav({ editable: true })));

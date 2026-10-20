@@ -69,12 +69,13 @@ export function validateTokens(tokens, { allowMissingColors = false } = {}) {
           continue;
         }
         if (typeof page.id !== "string" || !page.id.trim()) errors.push(`${where} needs a stable string id.`);
+        else if (page.id === "brand") errors.push('Page id "brand" is reserved for the built-in Brand page.');
         else if (ids.has(page.id)) errors.push(`Duplicate page id: "${page.id}".`);
         else ids.add(page.id);
         if (typeof page.name !== "string" || !page.name.trim()) errors.push(`${where} needs a non-empty name.`);
         if (page.description != null && typeof page.description !== "string") errors.push(`${where} description must be a string.`);
         if (page.content != null && typeof page.content !== "string") errors.push(`${where} content must be a string.`);
-        if (page.components != null) {
+        if (Object.hasOwn(page, "components")) {
           if (!Array.isArray(page.components) || page.components.some((name) => typeof name !== "string" || !name.trim())) {
             errors.push(`${where} components must be an array of component names.`);
           } else if (new Set(page.components).size !== page.components.length) {

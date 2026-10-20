@@ -532,6 +532,551 @@ async function shellBehavior(kind) {
     node.click();
     return node;
   };
+  if (kind === "component-pages") {
+    await waitFor(".page-nav-link");
+    const registry = DSComp.componentNames(state.componentsDoc);
+    const previews = () => [...document.querySelectorAll(".page-content .preview .cname")].map((node) => node.textContent);
+    const expectPreviews = async (names, message) => {
+      const organizing = !!state.organization;
+      if (organizing) await closeOrganizer();
+      check(JSON.stringify(previews()) === JSON.stringify(names), message);
+      if (organizing) await openOrganizer();
+    };
+    const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
+      .find((node) => node.querySelector(".page-nav-label")?.textContent === name);
+    const checkCenteredIcon = (button, title = null) => {
+      const bounds = button.getBoundingClientRect();
+      const icon = button.querySelector("svg").getBoundingClientRect();
+      check(Math.abs(bounds.left + bounds.width / 2 - icon.left - icon.width / 2) < .5 &&
+        Math.abs(bounds.top + bounds.height / 2 - icon.top - icon.height / 2) < .5,
+        "icon is centered inside its button");
+      if (title) {
+        const heading = title.getBoundingClientRect();
+        check(Math.abs(heading.top + heading.height / 2 - icon.top - icon.height / 2) < .5,
+          "title action is centered on the title line box");
+      }
+    };
+    const editPage = async (editing = true) => {
+      if (!editing && state.organization) await closeOrganizer();
+      const button = document.querySelector(".page-edit-toggle");
+      if (button.getAttribute("aria-expanded") === String(editing)) return;
+      button.click();
+      await waitUntil(() => document.querySelector(".page-edit-toggle")?.getAttribute("aria-expanded") === String(editing),
+        "page edit mode changes");
+      const toggle = document.querySelector(".page-edit-toggle");
+      check(!toggle.textContent && toggle.querySelector('svg[aria-hidden="true"] path')?.getAttribute("d") ===
+        (editing ? "m5 12 4 4L19 6" : "m16 3 5 5-12 12-6 1 1-6ZM14 5l5 5"), "page edit action uses pencil and checkmark SVG icons");
+      check(toggle.title === toggle.getAttribute("aria-label") &&
+        toggle.title === (editing ? "Finish editing page" : "Edit page"), "icon buttons keep their accessible names and tooltips");
+      check(getComputedStyle(toggle.querySelector("svg")).width === getComputedStyle(document.body).getPropertyValue("--space-4").trim(),
+        "page edit icons use the same spacing token as Brand");
+      checkCenteredIcon(toggle, document.querySelector(".page-title"));
+      if (!editing) check(document.activeElement === document.querySelector(".page-edit-toggle"), "Done restores focus to Edit");
+    };
+    const openOrganizer = async () => {
+      if (state.organization) return;
+      await editPage();
+      document.querySelector(".page-organize-btn").click();
+      await waitUntil(() => !!document.querySelector(".page-organization"), "organizer opens separately from page editing");
+      check(document.activeElement === (document.querySelector(".page-component-move") || document.querySelector(".page-organization-finish")),
+        "organizing focuses its first control or Finish when empty");
+      checkCenteredIcon(document.querySelector(".page-organization-finish"), document.querySelector(".page-title"));
+    };
+    const closeOrganizer = async () => {
+      document.querySelector(".page-organization-finish").click();
+      await waitUntil(() => !document.querySelector(".page-organization") &&
+        document.activeElement === document.querySelector(".page-organize-btn"),
+        "finishing returns to page editing and restores focus to the current organizer button");
+      check(state.editingPage === state.page, "closing the organizer leaves the page in edit mode");
+    };
+    const showGroup = async (id) => {
+      await openOrganizer();
+      const link = pageNavigationButton(id);
+      check(!!link, `sidebar contains ${id ?? "Unassigned"}`);
+      link.click();
+      await waitUntil(() => state.organization?.pageId === id &&
+        document.querySelector(".page-component-group")?.dataset.pageId === (id ?? ""), "sidebar selects one component list");
+    };
+    pageButton("Components").click();
+    await waitFor(".page-content .preview");
+    await expectPreviews(["Badge", "Button"], "built-in previews follow selection order, not registry order");
+    check(document.querySelectorAll(".page-nav-link").length === 3, "built-in configuration does not create a duplicate page");
+    check(!document.querySelector(".page-editor"), "built-in selection does not expose custom-page editors");
+    check(!document.querySelector(".page-organization") && !document.querySelector(".page-delete") &&
+      !document.querySelector(".page-organize-btn"), "Components starts with no editing controls");
+    check(document.querySelector(".page-title").textContent === "Components", "Components has a read-only title");
+    const edit = document.querySelector(".page-edit-toggle");
+    checkCenteredIcon(edit, document.querySelector(".page-title"));
+    edit.style.transition = "none";
+    check(getComputedStyle(edit).opacity === (matchMedia("(hover: none)").matches ? "1" : "0"), "page Edit is quiet at rest except on touch devices");
+    edit.focus();
+    check(getComputedStyle(edit).opacity === "1", "keyboard focus reveals page Edit");
+    await editPage();
+    check(document.activeElement === document.querySelector(".page-organize-btn") &&
+      !document.querySelector(".page-organization"), "Components edit focuses the organizer button without opening its lists");
+    await openOrganizer();
+    check(!document.querySelector("dialog") && document.querySelector(".page-content .page-organization"), "organization uses the canvas rather than a modal");
+    check(document.querySelectorAll(".page-nav").length === 1 && document.querySelectorAll(".page-component-group").length === 1,
+      "organizing uses the existing sidebar and only the selected page's list");
+    const finish = document.querySelector(".page-organization-finish");
+    check(!finish.textContent && finish.querySelector("path")?.getAttribute("d") === "m5 12 4 4L19 6" &&
+      finish.getAttribute("aria-label") === "Finish organizing", "organizing has an accessible checkmark to finish");
+    pageNavigationButton("publishing").focus();
+    check(document.activeElement === pageNavigationButton("publishing"), "sidebar stays accessible while organizing");
+    openPageComponentOrganization();
+    check(document.querySelectorAll(".page-organization").length === 1, "reopening does not duplicate the organizer");
+    await closeOrganizer();
+    check(!state.dirty, "finishing without changes does not dirty the document");
+    await editPage(false);
+    check(!state.dirty && document.querySelector("#save-btn").disabled && !document.querySelector(".page-organization"),
+      "entering and leaving edit mode alone does not dirty the document");
+    const buttonIndex = registry.indexOf("Button");
+    check(document.querySelectorAll(".page-content .preview")[1].dataset.designPath === JSON.stringify(["components", buttonIndex]),
+      "filtered previews retain original registry inspection paths");
+    await openOrganizer();
+    const row = (name, pageId = state.page) => [...document.querySelectorAll(".page-component-row")]
+      .find((node) => node.dataset.component === name && node.dataset.pageId === (pageId ?? ""));
+    for (const [index, name] of ["Badge", "Button"].entries()) {
+      const buttons = row(name).querySelectorAll(".page-component-order");
+      check(buttons.length === 2, "each placed component has two ordering icons");
+      for (const [direction, button] of [...buttons].entries()) {
+        check(!button.textContent && button.querySelector('svg[aria-hidden="true"] path')?.getAttribute("d") ===
+          (direction ? "M12 5v14m-7-7 7 7 7-7" : "M12 19V5m-7 7 7-7 7 7"), "ordering buttons show up/down arrow icons, not text");
+        check(button.title === (direction ? "Move down" : "Move up") &&
+          button.getAttribute("aria-label") === `Move ${name} ${direction ? "down" : "up"} on Components`,
+          "ordering icons retain tooltips and contextual accessible names");
+        check(button.disabled === (direction === index), "boundary ordering icons retain disabled states");
+        check(getComputedStyle(button).width === getComputedStyle(document.body).getPropertyValue("--space-6").trim() &&
+          getComputedStyle(button.querySelector("svg")).width === getComputedStyle(document.body).getPropertyValue("--space-4").trim(),
+          "ordering buttons and icons use the documented sizes");
+        checkCenteredIcon(button);
+      }
+    }
+    const group = (id) => [...document.querySelectorAll(".page-component-group")]
+      .find((node) => node.dataset.pageId === (id ?? ""));
+    const moveTo = async (name, from, to) => {
+      await showGroup(from);
+      const select = row(name, from)?.querySelector(".page-component-move");
+      check(!!select, `Move to exists for ${name} on ${from}`);
+      select.value = JSON.stringify(to);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitUntil(() => !select.isConnected && document.activeElement ===
+        (from === to ? row(name, to)?.querySelector(".page-component-move") : pageNavigationButton(to)),
+        `moving ${name} rerenders and focuses its new placement`);
+      check(state.organization?.pageId === from, "moving keeps the source page selected for batch organization");
+    };
+    const toggle = async (name) => {
+      await openOrganizer();
+      const target = state.page;
+      const homes = PageComponents.snapshot(state.tokens, registry).homes.get(name) || [];
+      const from = homes.includes(target) ? target : homes[0] ?? null;
+      await moveTo(name, from, from === target ? null : target);
+      await showGroup(target);
+    };
+    const builtin = () => state.tokens.pages.find((page) => page.id === "components");
+    const authoredTokens = state.tokens;
+    try {
+      state.tokens = { ...state.tokens, colors: [], typography: {}, spacing: {}, radii: [] };
+      applyVars();
+      const destination = pageNavigationButton(null);
+      destination.dataset.drop = "inside";
+      row("Button").dataset.drop = "before";
+      check(getComputedStyle(destination).outlineStyle === "solid" && getComputedStyle(destination).outlineWidth === "2px" &&
+        getComputedStyle(destination).outlineColor === "rgb(9, 105, 218)", "missing selection token retains a visible sidebar drop cue");
+      check(getComputedStyle(row("Button"), "::after").backgroundColor === "rgb(9, 105, 218)",
+        "missing selection token retains the insertion line");
+      const order = row("Button").querySelector(".page-component-order");
+      check(getComputedStyle(order).width === "32px" && getComputedStyle(order).height === "32px" &&
+        getComputedStyle(order.querySelector("svg")).width === "16px", "missing spacing tokens retain usable ordering controls");
+      check(getComputedStyle(document.querySelector(".page-organization")).fontSize === "14px" &&
+        getComputedStyle(row("Button")).paddingTop === "12px", "missing type and spacing tokens retain readable controls");
+      delete destination.dataset.drop;
+      delete row("Button").dataset.drop;
+    } finally { state.tokens = authoredTokens; applyVars(); }
+    const customBefore = JSON.stringify(state.tokens.pages.find((page) => page.id === "publishing"));
+    check([...document.querySelectorAll(".page-nav-link[data-page-drop-target] .page-nav-description")]
+      .reduce((sum, node) => sum + parseInt(node.textContent), 0) === registry.length, "sidebar counts account for the full registry");
+    check(registry.every((name) => !!row(name) === ["Badge", "Button"].includes(name)), "page groups reflect configured selection");
+    await showGroup(null);
+    check(group(null).textContent.includes("ToggleSwitch"), "Unassigned in the sidebar shows unplaced components");
+    await showGroup("components");
+    check(!document.querySelector('.page-organization input[type="checkbox"]'), "organizer replaces the checkbox picker");
+    check(!state.dirty && document.querySelector("#save-btn").disabled, "viewing configured Components does not dirty tokens");
+    await toggle("ToggleSwitch");
+    await expectPreviews(["Badge", "Button", "ToggleSwitch"], "new selections append without reordering authored names");
+    await toggle("Button");
+    await expectPreviews(["Badge", "ToggleSwitch"], "unassigning hides that top-level preview");
+    check(state.dirty && !document.querySelector("#save-btn").disabled, "placement changes enable Save to repo");
+    await editPage(false);
+    await expectPreviews(["Badge", "ToggleSwitch"], "Done retains draft preview selection");
+    check(state.dirty && !document.querySelector(".page-organization"), "Done hides controls without saving or discarding");
+    check(JSON.stringify(state.tokens.pages.find((page) => page.id === "publishing")) === customBefore, "built-in picker does not alter custom pages");
+    await toggle("Badge");
+    await toggle("ToggleSwitch");
+    await closeOrganizer();
+    await expectPreviews([], "unassigning every control shows no previews");
+    check(document.querySelector(".page-content").textContent.includes("No components selected for this page."), "empty selection has an explicit message");
+    await doSave();
+    await load();
+    check(!document.querySelector(".page-organization"), "reload returns to viewing mode");
+    await openOrganizer();
+    check(Array.isArray(builtin().components) && !builtin().components.length &&
+      registry.every((name) => !row(name)), "empty selection saves and reloads as empty");
+    await toggle("Badge");
+    await toggle("Button");
+    await expectPreviews(["Badge", "Button"], "controls can be reselected from an empty page");
+
+    for (const selection of [{}, { components: [] }, { components: ["Badge", "Button"] }]) {
+      state.tokens.pages[0] = { id: "components", name: "Components", ...selection };
+      markDirty();
+      await doSave();
+      check(!state.dirty, "page configuration saves through the canvas");
+      await load();
+      check(JSON.stringify(state.tokens.pages[0]) === JSON.stringify({ id: "components", name: "Components", ...selection }),
+        "page configuration survives canvas reload");
+      await expectPreviews(selection.components ?? registry, "absent and explicit empty selections remain distinct after reload");
+      check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "save/reload never filters definitions");
+    }
+    const configuredPages = structuredClone(state.tokens.pages);
+    state.tokens.pages = [
+      { id: "components", name: "Components", components: ["Badge", "Button", "Field"] },
+      { id: "publishing", name: "Publishing", components: ["ExampleScreen", "Button", "Field"] },
+      { id: "workspace", name: "Workspace", components: [] },
+    ];
+    state.dirty = false;
+    await render();
+    const beforeOpening = JSON.stringify(state.tokens);
+    await openOrganizer();
+    check(JSON.stringify(state.tokens) === beforeOpening && !state.dirty, "opening the board does not resolve existing duplicates");
+    check(document.querySelector(".page-coverage").textContent.includes("2 on multiple pages"), "coverage explicitly counts duplicate components");
+    check(row("Button").textContent.includes("Components, Publishing"), "duplicate rows identify every existing home");
+    check(pageNavigationButton("workspace").hasAttribute("data-page-drop-target") &&
+      pageNavigationButton("workspace").textContent.includes("0 previews"), "empty pages remain visible sidebar drop targets");
+    const reorderButton = row("Button").querySelector('button[aria-label="Move Button up on Components"]');
+    reorderButton.click();
+    await waitUntil(() => !reorderButton.isConnected, "Up reorders without dragging");
+    await expectPreviews(["Button", "Badge", "Field"], "Up changes the preview order");
+    check(PageComponents.snapshot(state.tokens, registry).duplicates.length === 2, "reordering keeps existing duplicate placements");
+
+    const dragTo = async (name, from, to, anchor = null, after = false) => {
+      await showGroup(from);
+      const source = row(name, from);
+      const transfer = new DataTransfer();
+      source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      const target = from !== to ? pageNavigationButton(to)
+        : anchor ? row(anchor, to) : group(to).querySelector(".page-component-list");
+      const rect = target.getBoundingClientRect();
+      const options = { bubbles: true, cancelable: true, dataTransfer: transfer, clientY: rect.top + rect.height * (after ? .9 : .1) };
+      const over = new DragEvent("dragover", options);
+      target.dispatchEvent(over);
+      check(over.defaultPrevented && document.querySelector("[data-drop]"), "drag shows a sidebar or insertion cue and accepts a move");
+      check(document.querySelector(".page-organizer-status").textContent.includes(name), "drag feedback names the moving component");
+      target.dispatchEvent(new DragEvent("drop", options));
+      source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+      await waitUntil(() => !source.isConnected && (to === null
+        ? PageComponents.snapshot(state.tokens, registry).unassigned.includes(name)
+        : PageComponents.snapshot(state.tokens, registry).homes.get(name)?.includes(to)), "drop updates the placement");
+      check(state.organization?.pageId === from, "sidebar drops do not navigate away from the source");
+      check(!document.querySelector("[data-drop]"), "drop clears insertion feedback");
+    };
+    await dragTo("Button", "components", "workspace");
+    check(PageComponents.snapshot(state.tokens, registry).homes.get("Button").join() === "workspace", "cross-page drag moves instead of copies and resolves only that component");
+    check(PageComponents.snapshot(state.tokens, registry).duplicates.join() === "Field", "unrelated duplicates stay unresolved");
+    await dragTo("Button", "workspace", "publishing");
+    check(state.tokens.pages[1].components.join() === "ExampleScreen,Field,Button", "sidebar drop appends to the destination");
+    await dragTo("Button", "publishing", "publishing", "ExampleScreen");
+    await dragTo("Field", "publishing", "publishing", "Button");
+    check(state.tokens.pages[1].components.join() === "Field,Button,ExampleScreen" &&
+      PageComponents.snapshot(state.tokens, registry).duplicates.join() === "Field", "same-page drag reorders without deduplicating");
+    await dragTo("Field", "publishing", "publishing", "ExampleScreen", true);
+    check(state.tokens.pages[1].components.join() === "Button,ExampleScreen,Field", "lower-half drop inserts after a row");
+    await moveTo("Field", "publishing", "publishing");
+    check(!PageComponents.snapshot(state.tokens, registry).duplicates.length &&
+      state.tokens.pages[1].components.join() === "Button,ExampleScreen,Field", "Keep only on this page resolves duplicates without reordering");
+    await showGroup("workspace");
+    check(document.querySelector(".page-component-empty").textContent.includes("No components on this page"),
+      "an empty page offers explicit placement guidance");
+    await showGroup("publishing");
+
+    const beforeCancel = JSON.stringify(state.tokens);
+    const transfer = new DataTransfer();
+    for (const id of ["brand", "publishing"]) {
+      row("Button", "publishing").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+      const target = pageNavigationButton(id);
+      const over = new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer });
+      target.dispatchEvent(over);
+      check(!over.defaultPrevented && !target.hasAttribute("data-drop"), "Brand and the current sidebar page are not drop destinations");
+      target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      row("Button", "publishing").dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+      check(JSON.stringify(state.tokens) === beforeCancel, "invalid and same-page sidebar drops leave placement unchanged");
+    }
+    row("Button", "publishing").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+    const emptyTarget = pageNavigationButton("workspace");
+    emptyTarget.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    const cancelDrag = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.querySelector(".page-organization").dispatchEvent(cancelDrag);
+    emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    check(JSON.stringify(state.tokens) === beforeCancel && !document.querySelector("[data-drop]") &&
+      cancelDrag.defaultPrevented && state.organization, "Escape cancels drag without leaving organization or changing placements");
+    pageNavigationButton("workspace").focus();
+    row("Button", "publishing").dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+    emptyTarget.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    pageNavigationButton("workspace").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    check(JSON.stringify(state.tokens) === beforeCancel && !document.querySelector("[data-drop]") &&
+      state.organization, "Escape also cancels a drag when focus is in the sidebar");
+    emptyTarget.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+    check(JSON.stringify(state.tokens) === beforeCancel, "external drops cannot mutate page assignments");
+    pageNavigationButton("workspace").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    check(state.organization, "Escape without a drag does not leave organizing");
+    await moveTo("Button", "publishing", null);
+    await showGroup(null);
+    check(row("Button", null) && document.querySelector(".page-coverage").textContent.includes("unassigned"), "unassigning exposes the coverage gap");
+    await dragTo("Button", null, "workspace");
+    await dragTo("Button", "workspace", null);
+    await dragTo("Button", null, "workspace");
+    await moveTo("SubtlePicker", null, "workspace");
+    await showGroup("workspace");
+    const down = row("Button", "workspace").querySelector('button[aria-label="Move Button down on Workspace"]');
+    down.click();
+    await waitUntil(() => !down.isConnected, "Down works without dragging");
+    check(state.tokens.pages[2].components.join() === "SubtlePicker,Button", "Down preserves page ordering");
+    check(document.documentElement.scrollWidth <= innerWidth, "organizer fits the desktop and narrow viewport");
+    const sidebar = document.querySelector(".page-nav").getBoundingClientRect();
+    const listBounds = document.querySelector(".page-component-list").getBoundingClientRect();
+    check(sidebar.left === 0 && sidebar.right <= listBounds.left, "Pages remains on the left on desktop and narrow canvases");
+    check(getComputedStyle(document.querySelector(".page-nav")).position === "fixed", "page targets remain reachable while the list scrolls");
+    const assignments = JSON.stringify(state.tokens.pages);
+    await closeOrganizer();
+    check(JSON.stringify(state.tokens.pages) === assignments && state.dirty, "finishing keeps placement drafts");
+    await openOrganizer();
+    check(JSON.stringify(state.tokens.pages) === assignments, "reopening retains placement drafts");
+    await showGroup(null);
+    await doSave();
+    const savedOrganization = state.organization;
+    const savedOrganizer = document.querySelector(".page-organization");
+    const nativeEventSource = window.EventSource;
+    let changed;
+    try {
+      window.EventSource = class {
+        addEventListener(type, handler) { if (type === "changed") changed = handler; }
+      };
+      connectEvents();
+    } finally { window.EventSource = nativeEventSource; }
+    await changed();
+    check(state.organization === savedOrganization && state.organization.pageId === null &&
+      document.querySelector(".page-organization") === savedOrganizer && state.editingPage === state.page,
+      "a delayed own-save notification keeps Unassigned and text editing without rerendering");
+    const originalApi = api;
+    try {
+      api = async (...args) => {
+        const result = await originalApi(...args);
+        if (args[0] === "/api/design") markDirty();
+        return result;
+      };
+      await changed();
+      check(state.dirty && state.organization === savedOrganization, "a draft started during automatic reload is not discarded");
+    } finally { api = originalApi; state.dirty = false; }
+    try {
+      api = async (...args) => {
+        const result = await originalApi(...args);
+        if (args[0] === "/api/design") result.design.componentsDoc.components[0].root.attrs = { title: "External registry edit" };
+        return result;
+      };
+      await changed();
+      check(!state.organization && state.componentsDoc.components[0].root.attrs.title === "External registry edit",
+        "an external registry edit with the same token revision still reloads");
+    } finally { api = originalApi; }
+    await load();
+    check(!state.organization && !document.querySelector(".page-organization"), "reload leaves organization mode");
+    check(JSON.stringify(state.tokens.pages) === assignments, "cross-page moves and order persist through save/reload");
+    check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "organizing preserves every definition");
+    state.tokens.pages = structuredClone(configuredPages);
+    state.page = "components";
+    markDirty();
+    await doSave();
+    await load();
+    state.tokens.pages = structuredClone(configuredPages.slice(1));
+    await render();
+    await expectPreviews(registry, "no built-in entry retains all-components behavior");
+    await openOrganizer();
+    check(!state.dirty && state.tokens.pages.length === 1 && registry.every((name) => row(name)),
+      "viewing an unconfigured organizer keeps default-all without creating configuration");
+    await toggle("SubtlePicker");
+    await expectPreviews(registry.filter((name) => name !== "SubtlePicker"), "first edit creates selection from default all");
+    await toggle("Button");
+    check(state.tokens.pages.filter((page) => page.id === "components").length === 1, "subsequent edits reuse the same built-in entry");
+    check(state.tokens.pages[0].components.join() === "ExampleScreen", "unassigning removes the chosen component from all pages");
+    await doSave();
+    await load();
+    await expectPreviews(registry.filter((name) => !["SubtlePicker", "Button"].includes(name)), "UI-created entry survives save/reload");
+    state.tokens.pages = structuredClone(configuredPages);
+    markDirty();
+    await doSave();
+    await load();
+    state.tokens.pages = structuredClone(configuredPages);
+    state.tokens.pages[0].components = ["Missing", "Button"];
+    await render();
+    await expectPreviews(["Button"], "unknown names do not cause unrelated previews to appear");
+    check(document.querySelector(".page-content .banner.warn")?.textContent.includes("Missing"), "unknown name is reported on the page");
+    await toggle("Badge");
+    check(builtin().components.join("|") === "Missing|Button|Badge", "organizer edits preserve unknown selections for diagnosis");
+    state.tokens.pages[0].components = null;
+    await render();
+    await expectPreviews([], "malformed selection never falls back to all components");
+    check(document.querySelector(".page-content .err")?.textContent.includes("array"), "malformed selection has a visible diagnostic");
+    check(!document.querySelector(".page-component-move"), "malformed selections block organizing rather than silently replacing them");
+    state.tokens.pages = [...structuredClone(configuredPages), { id: "brand", name: "Brand", components: [] }];
+    const reservedPages = JSON.stringify(state.tokens.pages);
+    await render();
+    check(document.querySelector(".page-organization .err")?.textContent.includes('"brand" is reserved') &&
+      !document.querySelector(".page-component-move") &&
+      !pageNavigationButton("brand").hasAttribute("data-page-drop-target"), "reserved Brand entry blocks moves with a visible diagnostic");
+    pageNavigationButton("brand").dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+    check(JSON.stringify(state.tokens.pages) === reservedPages &&
+      document.querySelectorAll('.page-nav-link[data-page-id="brand"]').length === 1,
+      "invalid Brand configuration remains unchanged without a duplicate navigation entry");
+    state.tokens.pages = configuredPages;
+    state.dirty = false;
+    await render();
+    await closeOrganizer();
+    await editPage(false);
+
+    pageButton("Publishing").click();
+    await waitUntil(() => document.querySelector(".page-title")?.textContent === "Publishing", "custom page opens");
+    check(!document.querySelector(".page-editor") && !document.querySelector(".page-organization") &&
+      !document.querySelector(".page-delete"), "navigating to a custom page hides all editing controls");
+    await expectPreviews(["ExampleScreen", "SubtlePicker"], "omitted feature previews still render on their custom page");
+    await editPage();
+    check(document.activeElement === document.querySelector(".page-title-input"), "custom edit mode focuses its title field");
+    check(!document.querySelector(".page-organization") && document.querySelector(".page-organize-btn"),
+      "custom Edit exposes text editing and a separate organizer button");
+    check(!!document.querySelector(".page-delete"), "Delete page is available only in custom edit mode");
+    const setField = (selector, value) => {
+      const input = document.querySelector(selector);
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    setField(".page-title-input", "Publishing guide");
+    check(document.querySelector(".page-title").textContent === "Publishing guide" && pageButton("Publishing guide"),
+      "the heading and sidebar follow the title draft before finishing editing");
+    setField(".page-description-input", "Publishing guidance");
+    setField(".page-notes-input", "Draft publishing notes");
+    await editPage(false);
+    check(document.querySelector(".page-title").textContent === "Publishing guide" &&
+      pageButton("Publishing guide") && state.dirty, "Done updates the title and navigation without losing drafts");
+    check(!document.querySelector(".page-editor") && !document.querySelector(".page-organization") &&
+      !document.querySelector(".page-delete") && !document.querySelector(".page-content").textContent.includes("Draft publishing notes"),
+      "custom title field, description, notes, Delete, and organizer are absent in viewing mode");
+    await editPage();
+    check(document.querySelector(".page-description-input").value === "Publishing guidance" &&
+      document.querySelector(".page-notes-input").value === "Draft publishing notes", "reentering edit mode retains text drafts");
+    setField(".page-title-input", "Publishing");
+    await toggle("ExampleScreen");
+    await closeOrganizer();
+    check(document.querySelector(".page-description-input").value === "Publishing guidance" &&
+      document.querySelector(".page-notes-input").value === "Draft publishing notes", "organizing retains page text drafts");
+    await expectPreviews(["SubtlePicker"], "custom pages reuse the organizer");
+    await toggle("ExampleScreen");
+    await expectPreviews(["SubtlePicker", "ExampleScreen"], "custom selections retain order and append reselected names");
+    await toggle("SubtlePicker");
+    await toggle("SubtlePicker");
+    await expectPreviews(["ExampleScreen", "SubtlePicker"], "custom picker can restore the authored selection");
+    check(builtin().components.join("|") === "Badge|Button", "custom placement edits preserve unrelated built-in selections");
+    await doSave();
+    await load();
+    await expectPreviews(["ExampleScreen", "SubtlePicker"], "custom placements also survive save/reload");
+    check(!document.querySelector(".page-editor") && !document.querySelector(".page-organization"), "custom page reload hides its editors");
+    check(state.tokens.pages.find((page) => page.id === "publishing").content === "Draft publishing notes", "hidden custom notes persist after saving");
+    check(!!document.querySelector('[data-ds-node-id="example-screen-field"] input') &&
+      document.querySelector('[data-ds-node-id="example-screen-deploys"]')?.textContent.includes("Deploys"), "nested references resolve omitted controls");
+    check(document.querySelector('[data-ds-node-id="example-screen-submit"]')?.textContent === "Send invite", "shared controls still render inside compositions");
+    const picker = await waitFor('[data-ds-node-id="subtle-picker"]');
+    picker.click();
+    const flyout = await waitFor(".ds-flyout");
+    check(!!flyout.querySelector('[data-ds-node-id="picker-options"]'), "flyout resolves an omitted registry definition");
+    flyout.querySelector('input[value="essay"]').click();
+    check(!document.querySelector(".ds-flyout"), "omitted flyout interactions remain live");
+
+    await openOrganizer();
+    document.querySelector(".page-add").click();
+    await waitFor(".page-title-input");
+    check(document.querySelector(".page-edit-toggle").getAttribute("aria-expanded") === "true" &&
+      document.querySelector(".page-delete") && document.querySelector(".page-organize-btn") &&
+      !state.organization && !document.querySelector(".page-organization"), "adding a page leaves organization and starts in text edit mode");
+    const newPageId = state.page;
+    check(!state.tokens.pages.find((page) => page.id === newPageId).components.length, "new pages start empty instead of duplicating the registry");
+    await moveTo("Field", null, newPageId);
+    await closeOrganizer();
+    const confirm = window.confirm;
+    try {
+      window.confirm = () => false;
+      document.querySelector(".page-delete").click();
+      check(state.tokens.pages.length === 3, "canceling deletion keeps the page and edit mode");
+      window.confirm = () => true;
+      document.querySelector(".page-delete").click();
+      await waitFor("#brand-name");
+      check(state.tokens.pages.length === 2 && !state.editingPage, "deleting a page exits edit mode");
+      check(PageComponents.snapshot(state.tokens, registry).unassigned.includes("Field"), "deleting a component's only page makes it unassigned without deleting the definition");
+    } finally { window.confirm = confirm; }
+    await doSave();
+    pageButton("Components").click();
+    await waitFor(".page-edit-toggle");
+    await openOrganizer();
+    await showGroup("publishing");
+    check(state.organization && document.querySelectorAll(".page-component-group").length === 1, "page navigation keeps organizing active");
+    pageButton("Brand").click();
+    await waitFor("#brand-name");
+    check(!state.organization && !document.querySelector(".page-organization"), "Brand exits organization mode");
+    pageButton("Components").click();
+    await waitFor(".page-edit-toggle");
+    await openOrganizer();
+    document.querySelector("#inspect-btn").click();
+    await waitFor(".component-layer-group");
+    check(!document.querySelector(".page-organization") && !state.editingPage, "entering Inspect closes page editing");
+    check(document.querySelectorAll(".component-layer-group").length === registry.length, "Inspect retains the entire registry");
+    const fieldGroup = [...document.querySelectorAll(".component-layer-group")]
+      .find((group) => group.querySelector(".component-layer-name").textContent === "Field");
+    fieldGroup.querySelector(".component-layer-row button").click();
+    await waitUntil(() => state.selection?.path?.[1] === registry.indexOf("Field"), "omitted definition is selectable in Inspect");
+    const selectedPreview = [...document.querySelectorAll("#app [data-ds-node-path]")]
+      .find((node) => node.dataset.dsNodePath === JSON.stringify(state.selection.path));
+    check(!!selectedPreview, "omitted definition has a rendered node for visual editing");
+    selectedPreview.scrollIntoView({ block: "center" });
+    InspectWorkspace.refreshBounds();
+    check(!document.querySelector("#inspect-selection-box").hidden, "omitted definition exposes selection and resize geometry");
+    document.querySelector("#json-tab").click();
+    const draft = JSON.parse(document.querySelector("#inspect-json").value);
+    draft.attrs = { ...draft.attrs, title: "Edited omitted field" };
+    document.querySelector("#inspect-json").value = JSON.stringify(draft);
+    document.querySelector("#inspect-apply-btn").click();
+    await waitUntil(() => selectedComponentNode()?.attrs?.title === "Edited omitted field", "omitted definition remains editable");
+    await expectPreviews(registry, "Inspect renders the entire registry independently of preview placement");
+    check(builtin().components.join("|") === "Badge|Button", "visual editing never changes preview placement");
+    document.querySelector("#layers-undo-btn").click();
+    await waitUntil(() => !selectedComponentNode()?.attrs?.title, "omitted definition edit supports undo");
+    check(JSON.stringify(DSComp.componentNames(state.componentsDoc)) === JSON.stringify(registry), "full registry survives inspection and editing");
+    document.querySelector("#inspect-btn").click();
+    await waitUntil(() => previews().join("|") === "Badge|Button", "leaving Inspect restores the configured gallery");
+    await openOrganizer();
+    document.querySelector("#inspect-btn").click();
+    await waitUntil(() => !document.querySelector(".page-organization"), "Inspect closes page editing with an existing layer selection too");
+    document.querySelector("#inspect-btn").click();
+    await waitUntil(() => previews().join("|") === "Badge|Button", "leaving Inspect again restores the configured gallery");
+    check(document.querySelector(".page-edit-toggle").getAttribute("aria-expanded") === "false", "leaving Inspect does not reopen page editing");
+    await selectPage("brand");
+    await setInspectMode(true);
+    check(state.page === "brand" && !document.querySelector(".page-add").hidden, "Brand remains reachable in Inspect with a retained selection");
+    document.querySelector(".page-add").click();
+    await waitUntil(() => document.activeElement === document.querySelector(".page-title-input") &&
+      !!document.querySelector(".page-title-input"), "Add page leaves Inspect and focuses its title");
+    check(!state.inspectMode && !document.body.classList.contains("inspect-mode") &&
+      document.querySelector("#design-inspector").hidden && document.querySelector("#component-layers").hidden &&
+      document.querySelector("#inspect-btn").getAttribute("aria-pressed") === "false",
+      "Add page completes the whole Inspect mode transition");
+    await load();
+    return;
+  }
   if (kind === "brand") {
     await waitFor("#brand-name");
     const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
@@ -1136,6 +1681,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   const resources = new Map([
     ["/", ["text/html", inject(renderShell(), "gallery")]],
     ["/brand", ["text/html", inject(renderShell(), "brand")]],
+    ["/component-pages", ["text/html", inject(renderShell(), "component-pages")]],
     ["/inspect", ["text/html", inject(renderShell(), "inspect")]],
     ["/prototype", ["text/html", inject(renderProtoShell(), "prototype")]],
     ["/compact", ["text/html", inject(renderProtoShell(), "compact")]],
@@ -1145,7 +1691,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ["/api/design/select", ["application/json", "{}"]],
     ["/events", ["text/event-stream", ": connected\n\n"]],
   ]);
-  for (const name of ["client.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "inspect-browser-scenario.mjs", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
+  for (const name of ["client.js", "page-components.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "inspect-browser-scenario.mjs", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
     resources.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   let prototypeWorkspace;
@@ -1216,7 +1762,10 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   });
   try {
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const exported = inject(await buildPrototypeExportHtml(bundle), "export").replace("<body>", `<body><script>
+    const exportBundle = { ...bundle, design: { ...bundle.design, tokens: {
+      ...tokens, pages: [{ id: "components", name: "Components", components: [] }],
+    } } };
+    const exported = inject(await buildPrototypeExportHtml(exportBundle), "export").replace("<body>", `<body><script>
       window.addEventListener("error", event => document.body.dataset.testError = event.message);
       window.addEventListener("unhandledrejection", event => document.body.dataset.testError = String(event.reason));
       </script>`);
@@ -1226,6 +1775,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ["brand", `http://127.0.0.1:${server.address().port}/brand`],
       ["brand-narrow", `http://127.0.0.1:${server.address().port}/brand`],
       ["gallery", `http://127.0.0.1:${server.address().port}`],
+      ["component-pages", `http://127.0.0.1:${server.address().port}/component-pages`],
+      ["component-pages-narrow", `http://127.0.0.1:${server.address().port}/component-pages`],
       ["inspect", `http://127.0.0.1:${server.address().port}/inspect`],
       ["inspect-narrow", `http://127.0.0.1:${server.address().port}/inspect`],
       ["prototype", `http://127.0.0.1:${server.address().port}/prototype`],
@@ -1243,9 +1794,14 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
       let design = structuredClone(bundle.design);
-      if (name.startsWith("brand")) {
+      if (name.startsWith("brand") || name.startsWith("component-pages")) {
         brandWorkspace = prototypeWorkspace;
-        await saveTokens(brandWorkspace, tokens);
+        const initialTokens = structuredClone(tokens);
+        if (name.startsWith("component-pages")) initialTokens.pages = [
+          { id: "components", name: "Components", components: ["Badge", "Button"] },
+          { id: "publishing", name: "Publishing", components: ["ExampleScreen", "SubtlePicker"] },
+        ];
+        await saveTokens(brandWorkspace, initialTokens);
         design = await loadDesign(brandWorkspace);
       }
       savedPrototype = false;
@@ -1266,6 +1822,14 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ], { timeout: 25000, maxBuffer: 4 * 1024 * 1024 });
       const result = stdout.match(/<pre id="browser-result">([\s\S]*?)<\/pre>/)?.[1];
       assert.equal(result, "PASS", `${name}: ${result}; ${stdout.match(/<body[^>]*>/)?.[0]}`);
+      if (name.startsWith("component-pages")) {
+        const persisted = await loadDesign(brandWorkspace);
+        assert.deepEqual(persisted.tokens.pages, [
+          { id: "components", name: "Components", components: ["Badge", "Button"] },
+          { id: "publishing", name: "Publishing", components: ["ExampleScreen", "SubtlePicker"], description: "Publishing guidance", content: "Draft publishing notes" },
+        ]);
+        assert.deepEqual(persisted.componentsDoc, componentsDoc);
+      }
       if (name.startsWith("brand")) {
         const persisted = await loadDesign(brandWorkspace);
         assert.equal(persisted.format, "markdown");

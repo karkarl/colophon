@@ -251,6 +251,70 @@ fully rounded ends and a 4px leading inset. Reserve 16px of leading row padding
 in every state so labels do not shift on selection.
 Keep Northlight tokens in the authored preview.
 
+### Page preview selection
+
+The built-in Components page and custom pages show a title and previews by
+default. Use the `title` typography and spacing `5` below the heading. Reveal a
+subtle pencil icon beside the title on hover or keyboard focus, reusing the
+Brand page's `panel-icon-btn` and `inline-text-edit`; keep it visible on touch
+devices. Use the same spacing-4 SVG size for the pencil and the checkmark that
+finishes editing. Center the button and its SVG vertically on the title's line
+box, rather than aligning the icon to the text baseline or top edge.
+Keep accessible labels and tooltips for both actions.
+Edit reveals a Re-organize components button and, for custom pages, the title field,
+description, notes, and Delete page action. These controls are absent in viewing
+mode. Editing page text does not open the organizer. Keep the heading and sidebar
+label in sync with the title draft while typing.
+
+Re-organize components switches the canvas into organization mode, not a
+modal. Reuse the existing Pages sidebar as the destination list. Select a page
+to show only its ordered components in the main area; drag a row onto another
+page in the sidebar to move it there. Keep the source page selected so several
+components can be moved in succession. Add Unassigned and per-page preview
+counts to the sidebar while organizing. Brand is not a drop destination.
+Keep the sidebar on the left even on narrow canvases, capped at 35% of the
+viewport and its usual 208px width, with a single column of page links.
+Retain the sidebar's neutral chrome; valid drops alone use a `selection` outline
+and textual destination feedback.
+When a repository omits these editor tokens, retain Northlight's documented
+spacing, small type, radii, and semantic colors as CSS fallbacks; selection
+feedback falls back to `selection` blue (#0969da), never an invisible outline.
+
+Show coverage and duplicate counts above the selected page's ordered list.
+Use `small` typography, spacing `1`-`3` for rows and controls, `sm` control radii, and `line`
+dividers rather than nested cards. Reuse subtle Button and Field patterns for
+Move to and Up/Down. Render Up/Down as spacing-4 arrow icons centered in
+spacing-6 square buttons, retaining accessible names, tooltips, and disabled
+states at the ends of the list. Pair `warning` text with explicit missing/duplicate labels.
+Show all existing homes for duplicates; never silently choose one.
+
+Dropping onto a different sidebar page appends and chooses one standalone home.
+Dropping on the current sidebar page does nothing. Dragging within a page
+only reorders; it does not resolve duplicates elsewhere. Move to includes
+Keep only on this page for explicit resolution, plus Unassigned for removing
+standalone placement without deleting the definition. Use `selection` insertion
+lines with textual destination feedback. Escape cancels a drag. Move to and
+Up/Down are keyboard and touch alternatives. Focus follows a reordered row or
+the destination's sidebar link after a cross-page move; an aria-live status
+announces the destination. A visible checkmark labeled Finish organizing
+returns to page editing and restores focus to Re-organize components, keeping
+all drafts. Escape only cancels an active drag; it does not leave organization.
+
+Placement changes update page previews without altering nested references or
+flyouts. The checkmark returns to viewing without discarding drafts; Save to repo is still the
+persistence action and remains available while organizing. Notifications for the
+just-saved content retain the current page and editing mode; external document
+changes still reload when there is no local draft. Page navigation
+stays in organization mode. Brand, reload, and Inspect leave it; adding a page
+leaves Inspect and focuses text editing for the new page. No organization state is persisted.
+New pages start empty in edit mode, avoiding automatic duplicates. Deleting a
+page leaves components Unassigned if they have no other home. The built-in page
+retains its fixed title and has no delete action.
+The `brand` page ID is reserved, not a configurable preview destination; report
+collisions without changing their content. In Inspect, Components renders the
+full registry so every layer has visual editing geometry. Leaving Inspect
+restores the configured preview selection without changing placement.
+
 ### Inspect workspace
 
 Both Colophon and Prototype Inspect use a Layers rail of four spacing-8 units and a Properties
