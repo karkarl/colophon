@@ -47,12 +47,12 @@ test("pages reject duplicate IDs and invalid editor fields", () => {
   assert.match(result.errors.join("\n"), /duplicate names/);
 });
 
-test("Brand cannot be configured as a preview page", () => {
-  const tokens = { ...base, pages: [{ id: "brand", name: "Brand", components: [] }] };
+for (const reserved of ["brand", "configuration"]) test(`${reserved} cannot be configured as a preview page`, () => {
+  const tokens = { ...base, pages: [{ id: reserved, name: reserved, components: [] }] };
   const before = structuredClone(tokens);
   const validation = validateTokens(tokens);
   assert.equal(validation.ok, false);
-  assert.match(validation.errors.join("\n"), /"brand" is reserved/);
+  assert.match(validation.errors.join("\n"), new RegExp(`"${reserved}" is reserved`));
   assert.deepEqual(tokens, before);
 });
 
