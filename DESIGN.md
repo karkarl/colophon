@@ -251,6 +251,42 @@ fully rounded ends and a 4px leading inset. Reserve 16px of leading row padding
 in every state so labels do not shift on selection.
 Keep Northlight tokens in the authored preview.
 
+Configuration is a fixed page at the bottom of the Pages list, after custom
+pages and Unassigned when organizing. Keep design authority, default port
+targets, implementation ownership, sync process, and per-area overrides here,
+not on Brand. Reuse the authority fields and inline pencil editing pattern.
+Configuration is not a component placement destination; selecting it leaves
+organization mode. Its `configuration` page ID is reserved, like `brand`.
+
+### Brand hero and foundation pages
+
+Hero content and foundation placement are optional template metadata, authored
+in the design document, not configuration forms on Brand or custom pages.
+Do not add a Brand page-edit action for these options. Keep the hero above the identity
+text, with spacing `5` below it and `md` corners. Its editable height defaults
+to 240 document pixels (80-1200), content geometry rather than a spacing token.
+The hero is optional: no HTML means no banner or empty placeholder.
+
+Render authored HTML, CSS, SVG, media, and inline scripts in a sandboxed iframe
+without same-origin permission, editor access, forms, popups, or top navigation.
+Pass the active preview's CSS variables into the frame, never host credentials
+or editor state. HTTPS media, styles, fonts, and child embeds are allowed;
+network requests and external scripts are not. Provide an accessible iframe
+name and a Hide hero/Show hero control that unloads/reloads the frame, stopping
+motion and scripts when hidden. CSS honors reduced motion; authored scripts
+must honor `prefers-reduced-motion` too. Reuse a subtle Button for Hide/Show.
+Persist it as `brand.hero: { html, title, height }` in Colophon metadata.
+
+Color, Typography, Spacing, Radii, Shadows, and Principles each have one page
+home. Unassigned sections stay on Brand; moving one never copies or changes
+its tokens. Author placement with `pages[].sections` in the design document;
+omit a section from custom pages to leave it on Brand. Foundation-only
+pages should set `components: []`. Custom pages may combine ordered
+`sections` IDs with component previews; deleting a page returns its sections
+to Brand. Components and Configuration are not foundation destinations.
+Token saves must preserve hero and placement metadata in DESIGN.md and legacy
+JSON without changing authored prose.
+
 ### Page preview selection
 
 The built-in Components page and custom pages show a title and previews by

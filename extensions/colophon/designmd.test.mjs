@@ -23,6 +23,22 @@ test("Northlight seed round-trips every token and richer metadata without a seco
   assert.match(source, /bind their mapped `resource`/);
 });
 
+test("hero markup and foundation placement round-trip without resolving CSS braces as token references", () => {
+  const tokens = structuredClone(sample);
+  tokens.brand.hero = {
+    title: "Northlight animation",
+    height: 320,
+    html: '<style>.hero{color:var(--color-ink)}@keyframes reveal{from{opacity:0}to{opacity:1}}</style><div class="hero">Hello</div><script>window.x={ready:true}</script>',
+  };
+  tokens.pages = [{ id: "foundations", name: "Foundations", sections: ["colors", "spacing"], components: [] }];
+  const source = seedDesignMarkdown(tokens);
+  assert.deepEqual(parseDesignMarkdown(source).tokens, tokens);
+  tokens.brand.hero.height = 400;
+  const next = updateDesignMarkdown(source, tokens);
+  assert.deepEqual(parseDesignMarkdown(next).tokens, tokens);
+  assert.equal(parseDesignMarkdown(next).body, parseDesignMarkdown(source).body);
+});
+
 test("editing front matter retains CRLF, Unicode, comments, unknown keys, and exact prose", () => {
   const source = [
     "---", "name: Test", "# Keep this comment", "colors:",

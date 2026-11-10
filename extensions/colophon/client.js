@@ -35,6 +35,9 @@ async function api(path, opts) {
 const THEMES = ["light", "dark", "highContrast"];
 const THEME_LABEL = { light: "Light", dark: "Dark", highContrast: "High contrast" };
 const APPEARANCE_NONE = "$none";
+let BrandLayout;
+const brandLayoutReady = import("/brand-layout.mjs").then((module) => { BrandLayout = module; });
+let heroHidden = false;
 
 function colorList(tokens) {
   const c = tokens?.colors;
@@ -1167,7 +1170,7 @@ function renderBrand(t) {
     return inlineTextField(label, input, { preview, showLabel: !id });
   };
   return inspectable(el("section", { class: "block" },
-    el("h2", {}, "Brand"),
+    renderBrandHero(t),
     el("div", { class: "brand" },
       text("name", "Brand name", "name", { id: "brand-name" }),
       text("tagline", "Tagline", "tagline", { id: "brand-tag" }),
@@ -1176,8 +1179,14 @@ function renderBrand(t) {
       text("voice", "Voice", "muted", { multiline: true }),
       text("antiReferences", "Avoid (one per line)", "muted", { multiline: true, list: true }),
     ),
-    renderAuthority(t),
   ), "design.json", ["brand"], "Brand");
+}
+
+function renderConfigurationPage(t) {
+  return inspectable(el("section", { class: "block" },
+    el("h2", { class: "page-title" }, "Configuration"),
+    renderAuthority(t),
+  ), "design.json", ["authority"], "Authority");
 }
 
 function renderColors(t) {
@@ -1245,17 +1254,20 @@ function renderTypography(t) {
   return inspectable(el("section", { class: "block" }, el("h2", {}, "Typography"), facesWrap, scaleWrap), "design.json", ["typography"], "Typography");
 }
 
-function renderScales(t) {
+function renderScales(t, kind) {
   const sp = el("div", { class: "scale-strip" });
   for (const [index, s] of (t.spacing?.scale || []).entries()) sp.append(inspectable(el("div", { class: "space-demo" }, el("div", { class: "bar", style: `width:${s.value}` }), el("span", { class: "tag mono" }, `${s.name}·${s.value}`)), "design.json", ["spacing", "scale", index], `Spacing: ${s.name}`));
   const rad = el("div", { class: "scale-strip" });
   for (const [index, r] of (t.radii || []).entries()) rad.append(inspectable(el("div", { class: "radius-demo" }, el("div", { class: "box", style: `border-radius:${r.value}` }), el("span", { class: "tag mono" }, `${r.name}·${r.value}`)), "design.json", ["radii", index], `Radius: ${r.name}`));
   const sh = el("div", { class: "scale-strip" });
   for (const [index, s] of (t.shadows || []).entries()) sh.append(inspectable(el("div", { class: "shadow-demo" }, el("div", { class: "box", style: `box-shadow:${s.value}` }), el("span", { class: "tag mono" }, s.name)), "design.json", ["shadows", index], `Shadow: ${s.name}`));
-  return el("section", { class: "block" },
-    inspectable(el("div", {}, el("h2", {}, "Spacing"), sp), "design.json", ["spacing"], "Spacing"),
-    inspectable(el("div", {}, el("h2", { style: "margin-top:22px" }, "Radii"), rad), "design.json", ["radii"], "Radii"),
-    inspectable(el("div", {}, el("h2", { style: "margin-top:22px" }, "Shadows"), sh), "design.json", ["shadows"], "Shadows"));
+  const sections = {
+    spacing: ["Spacing", sp],
+    radii: ["Radii", rad],
+    shadows: ["Shadows", sh],
+  };
+  const [label, strip] = sections[kind];
+  return inspectable(el("section", { class: "block" }, el("h2", {}, label), strip), "design.json", [kind], label);
 }
 
 function renderPrinciples(t) {
@@ -1360,13 +1372,59 @@ function renderBrandPage(t) {
   for (const warning of state.design.warnings || []) page.append(el("div", { class: "banner warn" }, warning));
   if (state.mode === "proposal") page.append(proposalBar());
   else if (state.design.source === "sample") page.append(onboarding());
-  page.append(renderBrand(t), renderColors(t), renderTypography(t), renderScales(t), renderPrinciples(t));
+  page.append(renderBrand(t), renderFoundationSections(t, "brand"));
   if (state.design.format === "markdown" && state.design.principlesMarkdown) {
     page.append(el("details", { class: "src" },
       el("summary", {}, "DESIGN.md rationale (edit in the file; preserved when saving tokens)"),
       el("pre", {}, state.design.principlesMarkdown)));
   }
   return page;
+}
+
+function renderFoundationSections(t, pageId) {
+  const content = el("div", { class: "foundation-sections" });
+  const errors = BrandLayout.validateBrandLayout(t);
+  if (errors.length) {
+    content.append(el("div", { class: "err", role: "alert" }, errors.join(" ")));
+    return content;
+  }
+  for (const id of BrandLayout.foundationSectionsForPage(t, pageId)) {
+    const renderers = { colors: renderColors, typography: renderTypography, principles: renderPrinciples };
+    content.append(el("div", { "data-foundation-section": id },
+      renderers[id] ? renderers[id](t) : renderScales(t, id)));
+  }
+  return content;
+}
+
+function renderBrandHero(t) {
+  const hero = t.brand?.hero;
+  if (!hero || typeof hero.html !== "string" || !hero.html.trim()) return "";
+  const errors = BrandLayout.validateBrandLayout({ brand: { hero } });
+  if (errors.length) return el("div", { class: "err", role: "alert" }, errors.join(" "));
+  const wrap = el("div", { class: "brand-hero" });
+  const preview = el("div", { class: "brand-hero-preview" });
+  const update = () => {
+    preview.replaceChildren();
+    if (heroHidden) preview.append(el("p", { class: "muted" }, "Hero hidden. Animation and scripts are stopped."));
+    else preview.append(el("iframe", {
+      class: "brand-hero-frame", title: hero.title || "Brand hero banner",
+      sandbox: "allow-scripts", referrerpolicy: "no-referrer",
+      style: `height:${hero.height ?? 240}px`,
+      srcdoc: BrandLayout.heroDocument(hero.html, cssVarsFromTokens(t, state.theme)),
+    }));
+  };
+  const toggle = el("button", {
+    type: "button", class: "btn hero-visibility", "aria-pressed": String(heroHidden),
+    onclick: () => {
+      heroHidden = !heroHidden;
+      toggle.textContent = heroHidden ? "Show hero" : "Hide hero";
+      toggle.setAttribute("aria-pressed", String(heroHidden));
+      update();
+    },
+  }, heroHidden ? "Show hero" : "Hide hero");
+  update();
+  wrap.append(toggle, preview);
+  return wrap;
 }
 
 const BUILTIN_PAGES = Object.freeze([
@@ -1382,23 +1440,30 @@ const BUILTIN_PAGES = Object.freeze([
     description: "Live patterns and definitions",
     render: (tokens) => renderComponentsPage(tokens),
   },
+  {
+    id: "configuration",
+    label: "Configuration",
+    description: "Design authority and port targets",
+    render: (tokens) => renderConfigurationPage(tokens),
+  },
 ]);
 
 function userPages() {
   return Array.isArray(state.tokens?.pages)
-    ? state.tokens.pages.filter((page) => page && typeof page === "object" && typeof page.id === "string" && page.id && page.id !== "components" && page.id !== "brand" && typeof page.name === "string")
+    ? state.tokens.pages.filter((page) => page && typeof page === "object" && typeof page.id === "string" && page.id && !BUILTIN_PAGES.some((builtin) => builtin.id === page.id) && typeof page.name === "string")
     : [];
 }
 
 function pageRegistry() {
   return [
-    ...BUILTIN_PAGES,
+    ...BUILTIN_PAGES.filter((page) => page.id !== "configuration"),
     ...userPages().map((page) => ({
       id: page.id,
       label: page.name || "Untitled page",
       description: page.description || "Custom design-system page",
       render: (tokens) => renderUserPage(tokens, page),
     })),
+    BUILTIN_PAGES.find((page) => page.id === "configuration"),
   ];
 }
 
@@ -1414,7 +1479,7 @@ async function selectPage(id) {
   if (id === null ? !state.organization : !pageRegistry().some((page) => page.id === id)) return;
   if ((state.organization ? state.organization.pageId : state.page) === id) return;
   if (id !== null) state.page = id;
-  if (id === "brand") state.organization = null;
+  if (id === "brand" || id === "configuration") state.organization = null;
   if (state.organization) state.organization.pageId = id;
   state.editingPage = state.organization ? state.page : null;
   await render();
@@ -1440,7 +1505,7 @@ function renderPageHeader(page) {
         focus?.focus({ preventScroll: true });
       },
     }, pageActionIcon(editing ? "done" : "edit")),
-    editing ? el("button", {
+    editing && page.id !== "brand" ? el("button", {
       type: "button", class: "btn page-organize-btn",
       onclick: openPageComponentOrganization,
     }, "Re-organize components") : null,
@@ -1702,7 +1767,7 @@ function renderPageNavigation(organization = null) {
     el("div", { class: "page-nav-list" }));
   const list = $(".page-nav-list", nav);
   const pages = pageRegistry();
-  if (state.organization) pages.push({ id: null, label: "Unassigned", description: "No standalone page placement" });
+  if (state.organization) pages.splice(pages.length - 1, 0, { id: null, label: "Unassigned", description: "No standalone page placement" });
   for (const page of pages) {
     const active = page.id === (state.organization ? state.organization.pageId : state.page);
     const group = organization?.groups.find((group) => group.id === page.id);
@@ -1736,10 +1801,13 @@ function renderUserPage(t, page) {
   if (editing) {
     content.append(renderUserPageEditor(page));
   }
-  content.append(renderComponents(t, state.componentsDoc || null, {
-    names: page.components,
-    heading: editing ? "Selected previews" : null,
-  }));
+  content.append(renderFoundationSections(t, page.id));
+  if (editing || !page.sections?.length || page.components?.length || page.components === undefined) {
+    content.append(renderComponents(t, state.componentsDoc || null, {
+      names: page.components,
+      heading: editing ? "Selected previews" : null,
+    }));
+  }
   return content;
 }
 
@@ -2125,7 +2193,7 @@ async function load({ onlyIfChanged = false } = {}) {
     cancelFreeformDrag();
   }
   const data = await api("/api/design");
-  await whenDSComp();
+  await Promise.all([whenDSComp(), brandLayoutReady]);
   const componentsDoc = data.design.componentsDoc || { meta: { version: 1 }, components: [] };
   if (onlyIfChanged) {
     if (state.dirty || state.componentsDirty) return;
@@ -2188,6 +2256,10 @@ async function setInspectMode(enabled) {
   document.body.classList.toggle("inspect-mode", enabled);
   document.body.classList.toggle("inspect-open", enabled);
   window.InspectWorkspace?.refreshBounds();
+  if (enabled && !state.selection && userPages().some((page) => page.id === state.page)) {
+    const section = BrandLayout.foundationSectionsForPage(state.tokens, state.page)[0];
+    if (section) selectDesignPath(state.design.format === "markdown" ? "DESIGN.md" : "design.json", [section], section);
+  }
   const selectFirst = enabled && !state.selection && state.componentsDoc?.components?.[0]?.root;
   if (selectFirst) {
     state.page = "components";

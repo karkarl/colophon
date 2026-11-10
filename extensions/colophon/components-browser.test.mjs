@@ -506,8 +506,8 @@ async function shellBehavior(kind) {
     }
     throw new Error(`Never rendered ${selector}`);
   };
-  const waitUntil = async (predicate, message) => {
-    for (let count = 0; count < 150; count++) {
+  const waitUntil = async (predicate, message, attempts = 150) => {
+    for (let count = 0; count < attempts; count++) {
       if (predicate()) return;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
@@ -600,7 +600,8 @@ async function shellBehavior(kind) {
     pageButton("Components").click();
     await waitFor(".page-content .preview");
     await expectPreviews(["Badge", "Button"], "built-in previews follow selection order, not registry order");
-    check(document.querySelectorAll(".page-nav-link").length === 3, "built-in configuration does not create a duplicate page");
+    check(document.querySelectorAll(".page-nav-link").length === 4, "built-in configuration does not create a duplicate page");
+    check(document.querySelector(".page-nav-link:last-child").dataset.pageId === "configuration", "Configuration follows custom pages");
     check(!document.querySelector(".page-editor"), "built-in selection does not expose custom-page editors");
     check(!document.querySelector(".page-organization") && !document.querySelector(".page-delete") &&
       !document.querySelector(".page-organize-btn"), "Components starts with no editing controls");
@@ -699,6 +700,13 @@ async function shellBehavior(kind) {
     check(registry.every((name) => !!row(name) === ["Badge", "Button"].includes(name)), "page groups reflect configured selection");
     await showGroup(null);
     check(group(null).textContent.includes("ToggleSwitch"), "Unassigned in the sidebar shows unplaced components");
+    check(document.querySelector(".page-nav-link:last-child").dataset.pageId === "configuration" &&
+      !pageNavigationButton("configuration").hasAttribute("data-page-drop-target"), "Configuration stays last and cannot accept component drops");
+    pageNavigationButton("configuration").click();
+    await waitFor(".authority");
+    check(!state.organization && !document.querySelector(".page-organize-btn"), "Configuration exits organization without exposing preview controls");
+    pageButton("Components").click();
+    await waitFor(".page-edit-toggle");
     await showGroup("components");
     check(!document.querySelector('.page-organization input[type="checkbox"]'), "organizer replaces the checkbox picker");
     check(!state.dirty && document.querySelector("#save-btn").disabled, "viewing configured Components does not dirty tokens");
@@ -1077,6 +1085,160 @@ async function shellBehavior(kind) {
     await load();
     return;
   }
+  if (kind === "brand-layout") {
+    await waitFor("#brand-name");
+    const sectionIds = ["colors", "typography", "spacing", "radii", "shadows", "principles"];
+    const hasSection = (id) => !!document.querySelector(`[data-foundation-section="${id}"]`);
+    const navigate = async (id) => {
+      await selectPage(id);
+      check(state.page === id, `navigates to ${id}`);
+    };
+    const editPage = async () => {
+      document.querySelector(".page-edit-toggle").click();
+      await waitFor(".page-editor");
+    };
+    const move = async (id, value) => {
+      if (value === "$new") {
+        value = `foundation-${id}`;
+        if (!state.tokens.pages) state.tokens.pages = [];
+        state.tokens.pages.push({ id: value, name: id, components: [], sections: [] });
+      }
+      BrandLayout.moveFoundationSection(state.tokens, id, value);
+      markDirty();
+      await render();
+    };
+    check(sectionIds.every(hasSection) && !document.querySelector("iframe"), "existing Brand layout is unchanged without a hero");
+    check(!state.dirty && !document.querySelector(".hero-editor") && !document.querySelector(".foundation-layout-editor"), "viewing does not create metadata or expose configuration");
+    check(!document.querySelector(".page-edit-toggle") && !state.tokens.brand.hero && !state.tokens.pages,
+      "Brand has no page configuration action or generated metadata");
+    const heroMessages = [];
+    window.addEventListener("message", (event) => {
+      if (event.source === document.querySelector(".brand-hero-frame")?.contentWindow && event.data?.kind === "hero-test") heroMessages.push(event.data);
+    });
+    const html = `<style>@keyframes glow{from{opacity:.5}to{opacity:1}}.hero{animation:glow 2s infinite;color:var(--color-ink);padding:var(--space-4)}</style>
+      <div class="hero">A living brand</div><script>
+      let isolated=false;try{parent.document.body.dataset.heroEscaped="yes"}catch{isolated=true}
+      const content=document.querySelector(".hero");
+      parent.postMessage({kind:"hero-test",isolated,color:getComputedStyle(content).color,animation:getComputedStyle(content).animationName},"*");
+      fetch("/api/design").then(()=>parent.postMessage({kind:"hero-test",fetchBlocked:false},"*")).catch(()=>parent.postMessage({kind:"hero-test",fetchBlocked:true},"*"));
+      <\/script>`;
+    state.tokens.brand.hero = { html, title: "Northlight animated hero", height: 320 };
+    markDirty();
+    await render();
+    await waitFor(".brand-hero-frame");
+    const frame = document.querySelector(".brand-hero-frame");
+    check(frame.title === "Northlight animated hero" && frame.style.height === "320px" &&
+      frame.getAttribute("sandbox") === "allow-scripts" && frame.referrerPolicy === "no-referrer", "hero uses an accessible isolated sandbox and authored geometry");
+    try {
+      await waitUntil(() => heroMessages.some((message) => message.isolated) && heroMessages.some((message) => message.fetchBlocked), "inline animation runs but cannot reach editor DOM or API", 500);
+    } catch (error) { throw new Error(`${error.message}: ${JSON.stringify(heroMessages)}`); }
+    check(!document.body.dataset.heroEscaped && heroMessages.some((message) => message.color === "rgb(28, 26, 23)"), "hero inherits design tokens without editor access");
+    const motionReduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    check(heroMessages.some((message) => message.animation === (motionReduced ? "none" : "glow")), "hero CSS respects reduced motion");
+    document.querySelector(".hero-visibility").click();
+    check(!document.querySelector(".brand-hero-frame") && document.querySelector(".hero-visibility").textContent === "Show hero", "hiding unloads scripts and animation");
+    document.querySelector(".hero-visibility").click();
+    await waitFor(".brand-hero-frame");
+    const destinations = new Map();
+    for (const id of sectionIds) {
+      await move(id, "$new");
+      const destination = state.tokens.pages.find((page) => page.sections?.includes(id));
+      destinations.set(id, destination.id);
+      check(destination.components.length === 0 && !hasSection(id) && state.page === "brand", `${id} moves to a new empty preview page without navigating`);
+      check(document.querySelector(".page-nav-link:last-child").dataset.pageId === "configuration", "Configuration remains last after section pages");
+    }
+    check(!sectionIds.some(hasSection), "all foundations can be removed from Brand independently");
+    await navigate(destinations.get("colors"));
+    check(hasSection("colors") && !hasSection("typography") && document.querySelector('input[type="color"]') &&
+      !document.querySelector(".preview"), "Color page renders live token controls without unrelated previews");
+    await editPage();
+    check(!document.querySelector(".foundation-layout-editor") && !document.querySelector('[aria-label="Hero HTML"]'),
+      "custom page editing has no hero or foundation configuration controls");
+    await move("spacing", destinations.get("colors"));
+    check(hasSection("spacing") && state.tokens.pages.find((page) => page.id === destinations.get("colors")).sections.join("|") === "colors|spacing",
+      "existing custom pages can combine ordered foundation sections");
+    await move("spacing", "brand");
+    check(!hasSection("spacing"), "custom page can return a section to Brand");
+    await navigate("brand");
+    check(hasSection("spacing") && !hasSection("colors"), "returned section renders on Brand");
+    const expectedHero = structuredClone(state.tokens.brand.hero);
+    const expectedPages = structuredClone(state.tokens.pages);
+    await doSave();
+    await load();
+    check(JSON.stringify(state.tokens.brand.hero) === JSON.stringify(expectedHero) &&
+      JSON.stringify(state.tokens.pages) === JSON.stringify(expectedPages), "hero HTML and placements persist through save and actual disk reload");
+    check(!document.querySelector(".hero-editor") && document.querySelector(".brand-hero-frame"), "reloaded Brand renders hero with editing controls hidden");
+    await navigate(destinations.get("typography"));
+    check(hasSection("typography") && !hasSection("colors"), "saved typography destination survives navigation");
+    await setInspectMode(true);
+    document.querySelector('[data-foundation-section="typography"] [data-design-inspect]').click();
+    check(state.selection.path[0] === "typography", "Inspect selects original token paths on custom foundation pages");
+    await setInspectMode(false);
+    await editPage();
+    const originalConfirm = window.confirm;
+    window.confirm = () => true;
+    document.querySelector(".page-delete").click();
+    window.confirm = originalConfirm;
+    await waitFor("#brand-name");
+    check(hasSection("typography") && !hasSection("colors"), "deleting a foundation page returns its section to Brand");
+    delete state.tokens.brand.hero;
+    markDirty();
+    await render();
+    await waitUntil(() => !document.querySelector(".brand-hero-frame"), "removing hero clears the banner");
+    check(!state.tokens.brand.hero && state.dirty, "hero removal is an explicit unsaved edit");
+    await load();
+    check(state.tokens.brand.hero.html === html && state.tokens.pages.some((page) => page.id === destinations.get("typography")), "reload restores saved hero and placement without losing prose");
+    if (innerWidth <= 720) check(document.documentElement.scrollWidth <= innerWidth, "Brand editing and hero fit a narrow viewport");
+    return;
+  }
+  if (kind === "configuration") {
+    await waitFor("#brand-name");
+    const navigate = async (id, selector) => {
+      document.querySelector(`.page-nav-link[data-page-id="${id}"]`).click();
+      await waitFor(selector);
+    };
+    const edit = (label, value, root = document) => {
+      root.querySelector(`button[aria-label="Edit ${label}"]`).click();
+      const input = root.querySelector(`.inline-text-input[aria-label="${label}"]`);
+      check(!input.hidden && document.activeElement === input, `${label} opens for editing`);
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      check(input.hidden && input.readOnly, `${label} returns to read-only`);
+    };
+    check(!document.querySelector(".authority"), "authority is absent from Brand");
+    await navigate("configuration", ".authority");
+    check(document.querySelector(".page-title").textContent === "Configuration" &&
+      document.querySelector(".page-nav-link:last-child").dataset.pageId === "configuration", "Configuration is the final fixed page");
+    check(!state.dirty && document.querySelector("#save-btn").disabled, "viewing Configuration does not dirty the document");
+    check(!document.querySelector(".page-delete") && !document.querySelector(".page-organize-btn"), "Configuration is not an editable preview page");
+    document.querySelector(".authority-toggle input").click();
+    await waitFor(".authority-port .inline-text-input");
+    edit("Authority source (ships as)", "Fluent Flex web fixtures and golden CSS Modules");
+    edit("Sync source (port reference/skill)", "dev/web/flex-fixtures/src and dev/web/flex-styles/src; plugins/components/skills/*/web");
+    edit("Helper agent (optional)", "Port helper");
+    edit("Owner (optional)", "Port owners");
+    edit("Implementation owner (optional)", "Fluent Flex source owners (.github/CODEOWNERS)");
+    edit("Sync process (optional)", "Change authored sources, rebuild flex-tokens, then run node scripts/colophon/seed.mjs. Review generated differences.");
+    [...document.querySelectorAll(".authority .btn")].find((button) => button.textContent === "Add area override").click();
+    await waitFor(".authority-override");
+    edit("Area", "Publishing");
+    edit("Components (comma-separated)", "Button, Badge");
+    edit("Authority source (ships as)", "Native publishing", document.querySelector(".authority-override"));
+    const expected = structuredClone(state.tokens.authority);
+    await navigate("brand", "#brand-name");
+    check(!document.querySelector(".authority"), "authority remains absent from Brand after editing");
+    await navigate("configuration", ".authority");
+    check(JSON.stringify(state.tokens.authority) === JSON.stringify(expected), "navigation preserves all authority drafts");
+    document.querySelector("#save-btn").click();
+    await waitUntil(() => !state.dirty && document.querySelector("#save-btn").disabled, "configuration saves");
+    const savedTokens = state.tokens;
+    document.querySelector("#reload-btn").click();
+    await waitUntil(() => state.tokens !== savedTokens && document.querySelector("#save-btn").textContent === "Saved" && !state.dirty, "configuration reloads");
+    check(state.page === "configuration" && JSON.stringify(state.tokens.authority) === JSON.stringify(expected), "reload preserves the page and saved authority");
+    check([...document.querySelectorAll(".authority .inline-text-input")].every((input) => input.hidden && input.readOnly), "saved settings return to read-only");
+    return;
+  }
   if (kind === "brand") {
     await waitFor("#brand-name");
     const pageButton = (name) => [...document.querySelectorAll(".page-nav-link")]
@@ -1095,6 +1257,7 @@ async function shellBehavior(kind) {
       check(input.hidden && input.readOnly && document.activeElement === editFor(label), `${label} finishes and restores edit-button focus`);
     };
     check(document.querySelector(".page-nav-title").textContent === "Pages", "sidebar is labeled Pages");
+    check(!document.querySelector(".authority"), "Brand does not contain authority configuration");
     check(document.querySelector("#save-btn").disabled, "viewing brand does not dirty the document");
     for (const input of document.querySelectorAll(".brand input, .brand textarea, .authority input[type=text]")) {
       check(input.hidden && input.readOnly && getComputedStyle(input).display === "none", "brand and authority inputs are hidden and read-only initially");
@@ -1255,8 +1418,28 @@ async function shellBehavior(kind) {
     check(document.activeElement === inputFor("Avoid (one per line)") && inputFor("Voice").hidden, "one pencil activation switches editors");
     finish(inputFor("Avoid (one per line)"), "Escape");
     editText("Avoid (one per line)", "noise\nclutter", "Enter", { ctrlKey: true });
+    pageButton("Configuration").click();
+    await waitFor(".authority");
+    check(document.querySelector(".page-title").textContent === "Configuration" &&
+      !document.querySelector(".page-delete"), "Configuration has a fixed title and cannot be deleted");
+    const portToggle = document.querySelector(".authority-toggle input");
+    portToggle.click();
+    await waitFor('.inline-text-input[aria-label="Authority source (ships as)"]');
+    editText("Authority source (ships as)", "Fluent Flex web fixtures and golden CSS Modules");
+    editText("Sync source (port reference/skill)", "dev/web/flex-fixtures/src");
+    editText("Helper agent (optional)", "Port helper");
+    editText("Owner (optional)", "Source owners");
+    const authorityButton = (text) => [...document.querySelectorAll(".authority .btn")].find((button) => button.textContent === text);
+    authorityButton("Add area override").click();
+    await waitFor(".authority-override");
+    editText("Area", "Publishing");
+    check(state.tokens.authority.portOverrides[0].area === "Publishing", "Configuration edits per-area overrides");
+    authorityButton("Remove override").click();
+    await waitUntil(() => !document.querySelector(".authority-override"), "Configuration removes overrides");
     editText("Implementation owner (optional)", "@northlight");
     editText("Sync process (optional)", "Review each release");
+    pageButton("Brand").click();
+    await waitFor("#brand-name");
     editFor("Tagline").click();
     const tagline = inputFor("Tagline");
     tagline.value = "";
@@ -1306,7 +1489,12 @@ async function shellBehavior(kind) {
     document.querySelector("#reload-btn").click();
     await waitUntil(() => state.tokens.brand.name === "Northlight notes" && document.querySelector("#save-btn").textContent === "Saved", "saved brand reloads");
     check(state.tokens.brand.description === "First line\nSecond line" && state.tokens.brand.antiReferences.join("|") === "noise|clutter", "multiline and list edits persist");
+    pageButton("Configuration").click();
+    await waitFor(".authority");
     check(state.tokens.authority.owner === "@northlight" && inputFor("Implementation owner (optional)").hidden, "authority edits persist in read-only mode");
+    check(state.tokens.authority.port.authoritySource === "Fluent Flex web fixtures and golden CSS Modules" &&
+      state.tokens.authority.port.syncSource === "dev/web/flex-fixtures/src" &&
+      state.tokens.authority.syncProcess === "Review each release", "port configuration persists after save and reload");
     return;
   }
   if (kind === "compact") {
@@ -1681,6 +1869,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
   const resources = new Map([
     ["/", ["text/html", inject(renderShell(), "gallery")]],
     ["/brand", ["text/html", inject(renderShell(), "brand")]],
+    ["/brand-layout", ["text/html", inject(renderShell(), "brand-layout")]],
+    ["/configuration", ["text/html", inject(renderShell(), "configuration")]],
     ["/component-pages", ["text/html", inject(renderShell(), "component-pages")]],
     ["/inspect", ["text/html", inject(renderShell(), "inspect")]],
     ["/prototype", ["text/html", inject(renderProtoShell(), "prototype")]],
@@ -1691,7 +1881,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ["/api/design/select", ["application/json", "{}"]],
     ["/events", ["text/event-stream", ": connected\n\n"]],
   ]);
-  for (const name of ["client.js", "page-components.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "inspect-browser-scenario.mjs", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
+  for (const name of ["client.js", "brand-layout.mjs", "page-components.js", "styles.css", "inspect-workspace.js", "inspect-workspace.css", "editor-workspace.js", "editor-geometry.js", "shape-geometry.js", "inspect-browser-scenario.mjs", "creation-toolbar-scenario.mjs", "proto-editor-model.js", "proto-workspace.js", "property-controls.js", "property-controls.css", "components-render.mjs", "componentsio.mjs", "components-interactions.js", "components-interactions.css", "proto.css", "proto-client.js", "proto-layout.js", "proto-render.js", "proto-properties.js", "components-runtime.js"]) {
     resources.set(`/${name}`, [name.endsWith(".css") ? "text/css" : "text/javascript", await asset(name)]);
   }
   let prototypeWorkspace;
@@ -1772,6 +1962,11 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     await writeFile(path.join(dir, "export.html"), exported);
     await writeFile(path.join(dir, "compact-export.html"), inject(await buildPrototypeExportHtml(compactBundle(true)), "compact"));
     const scenarios = [
+      ["brand-layout", `http://127.0.0.1:${server.address().port}/brand-layout`],
+      ["brand-layout-narrow", `http://127.0.0.1:${server.address().port}/brand-layout`],
+      ["brand-layout-reduced-motion", `http://127.0.0.1:${server.address().port}/brand-layout`],
+      ["configuration", `http://127.0.0.1:${server.address().port}/configuration`],
+      ["configuration-narrow", `http://127.0.0.1:${server.address().port}/configuration`],
       ["brand", `http://127.0.0.1:${server.address().port}/brand`],
       ["brand-narrow", `http://127.0.0.1:${server.address().port}/brand`],
       ["gallery", `http://127.0.0.1:${server.address().port}`],
@@ -1794,7 +1989,7 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       resources.set("/api/prototypes", ["application/json", JSON.stringify(name.startsWith("compact") ? compactBundle(name !== "compact-flat") : bundle)]);
       prototypeWorkspace = path.join(dir, `${name}-repo`);
       let design = structuredClone(bundle.design);
-      if (name.startsWith("brand") || name.startsWith("component-pages")) {
+      if (name.startsWith("brand") || name.startsWith("configuration") || name.startsWith("component-pages")) {
         brandWorkspace = prototypeWorkspace;
         const initialTokens = structuredClone(tokens);
         if (name.startsWith("component-pages")) initialTokens.pages = [
@@ -1816,12 +2011,22 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       resources.set("/api/design", ["application/json", JSON.stringify({ design })]);
       const { stdout } = await promisify(execFile)(browser, [
         "--headless=new", "--disable-gpu", "--disable-extensions", "--disable-background-networking", "--no-first-run", "--no-default-browser-check",
-        ...(name === "export-reduced-motion" ? ["--force-prefers-reduced-motion=reduce"] : []),
+        ...(name.endsWith("-reduced-motion") ? ["--force-prefers-reduced-motion=reduce"] : []),
         `--window-size=${name.endsWith("-narrow") ? "700,900" : "1400,1000"}`,
         `--user-data-dir=${path.join(dir, name)}`, "--dump-dom", "--virtual-time-budget=8000", url,
       ], { timeout: 25000, maxBuffer: 4 * 1024 * 1024 });
       const result = stdout.match(/<pre id="browser-result">([\s\S]*?)<\/pre>/)?.[1];
       assert.equal(result, "PASS", `${name}: ${result}; ${stdout.match(/<body[^>]*>/)?.[0]}`);
+      if (name.startsWith("configuration")) {
+        const persisted = await loadDesign(brandWorkspace);
+        assert.equal(persisted.tokens.authority.port.authoritySource, "Fluent Flex web fixtures and golden CSS Modules");
+        assert.equal(persisted.tokens.authority.port.helperAgent, "Port helper");
+        assert.equal(persisted.tokens.authority.port.owner, "Port owners");
+        assert.equal(persisted.tokens.authority.owner, "Fluent Flex source owners (.github/CODEOWNERS)");
+        assert.deepEqual(persisted.tokens.authority.portOverrides, [{
+          area: "Publishing", components: ["Button", "Badge"], authoritySource: "Native publishing", syncSource: "", helperAgent: "",
+        }]);
+      }
       if (name.startsWith("component-pages")) {
         const persisted = await loadDesign(brandWorkspace);
         assert.deepEqual(persisted.tokens.pages, [
@@ -1830,7 +2035,12 @@ test("gallery, prototype shell and self-contained export wire interactions end t
         ]);
         assert.deepEqual(persisted.componentsDoc, componentsDoc);
       }
-      if (name.startsWith("brand")) {
+      if (name.startsWith("brand-layout")) {
+        const persisted = await loadDesign(brandWorkspace);
+        assert.equal(persisted.tokens.brand.hero.title, "Northlight animated hero");
+        assert.equal(persisted.tokens.brand.hero.height, 320);
+        assert.equal(persisted.tokens.pages.filter((page) => page.sections?.length).length, 5);
+      } else if (name.startsWith("brand")) {
         const persisted = await loadDesign(brandWorkspace);
         assert.equal(persisted.format, "markdown");
         assert.equal(persisted.tokens.brand.name, "Northlight notes");

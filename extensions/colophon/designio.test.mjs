@@ -82,6 +82,32 @@ test("legacy systems continue loading and saving without migration or replaced p
 });
 
 for (const format of ["markdown", "json"]) {
+  test(`${format} saves preserve rich heroes and foundation page assignments`, async (t) => {
+    const workspace = await workspaceFor(t);
+    const sample = await loadDesign(null);
+    if (format === "json") {
+      const dir = path.join(workspace, ".agents", "design");
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, "design.json"), JSON.stringify(sample.tokens));
+    } else await initDesign(workspace);
+    const loaded = await loadDesign(workspace);
+    const colors = structuredClone(loaded.tokens.colors);
+    const hero = {
+      html: '<style>.hero{color:var(--color-accent)}</style><svg aria-hidden="true"></svg><script>window.ready=true</script>',
+      title: "Animated brand",
+      height: 320,
+    };
+    const pages = [{ id: "foundations", name: "Foundations", components: [], sections: ["colors", "typography", "spacing"] }];
+    loaded.tokens.brand.hero = hero;
+    loaded.tokens.pages = pages;
+    await saveTokens(workspace, loaded.tokens, { revision: loaded.revision });
+    const reloaded = await loadDesign(workspace);
+    assert.deepEqual(reloaded.tokens.brand.hero, hero);
+    assert.deepEqual(reloaded.tokens.pages, pages);
+    assert.deepEqual(reloaded.tokens.colors, colors);
+    assert.equal((await validateDesignDir(workspace)).ok, true);
+  });
+
   test(`${format} saves and reloads preserve built-in preview selection and the full registry`, async (t) => {
     const workspace = await workspaceFor(t);
     const sample = await loadDesign(null);

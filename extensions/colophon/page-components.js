@@ -11,6 +11,7 @@
       }
       if (ids.has(page.id)) throw new Error(`Duplicate page id: "${page.id}".`);
       if (page.id === "brand") throw new Error('Page id "brand" is reserved for the built-in Brand page.');
+      if (page.id === "configuration") throw new Error('Page id "configuration" is reserved for the built-in Configuration page.');
       ids.add(page.id);
       if (Object.hasOwn(page, "components") &&
           (!Array.isArray(page.components) || page.components.some((name) => typeof name !== "string" || !name.trim()) ||

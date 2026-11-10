@@ -346,6 +346,9 @@ button.btn.danger { color: var(--color-critical, #8f2f2a); }
 }
 .page-delete { flex: none; color: var(--color-critical, #8f2f2a); border-color: color-mix(in srgb, var(--color-critical, #8f2f2a) 32%, var(--color-line, #e4ddd0)); }
 .page-delete:hover { background: color-mix(in srgb, var(--color-critical, #8f2f2a) 8%, var(--color-surface, #fff)); }
+.brand-hero { display: grid; gap: var(--space-2, 8px); margin-bottom: var(--space-5, 24px); }
+.hero-visibility { justify-self: end; }
+.brand-hero-frame { display: block; width: 100%; border: 0; border-radius: var(--radius-md, 8px); background: var(--color-paper, #f7f4ee); }
 .page-organization .btn, button.page-organize-btn {
   border-radius: var(--radius-sm, 4px); padding: var(--space-2, 8px) var(--space-3, 12px);
 }

@@ -19,6 +19,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { colorList, readAuthority, baseColorValue, THEMES, loadDesign } from "./designio.mjs";
 import { validateComponentsDoc } from "./componentsio.mjs";
+import { validateBrandLayout } from "./brand-layout.mjs";
 
 // ---- design.json -----------------------------------------------------------
 export function validateTokens(tokens, { allowMissingColors = false } = {}) {
@@ -30,6 +31,7 @@ export function validateTokens(tokens, { allowMissingColors = false } = {}) {
 
   const brand = tokens.brand || {};
   if (!brand.name) warnings.push("brand.name is empty — the system has no name.");
+  errors.push(...validateBrandLayout(tokens));
 
   const colors = colorList(tokens);
   if (!colors.length && !allowMissingColors) errors.push("No colors defined (colors[] is empty).");
@@ -70,6 +72,7 @@ export function validateTokens(tokens, { allowMissingColors = false } = {}) {
         }
         if (typeof page.id !== "string" || !page.id.trim()) errors.push(`${where} needs a stable string id.`);
         else if (page.id === "brand") errors.push('Page id "brand" is reserved for the built-in Brand page.');
+        else if (page.id === "configuration") errors.push('Page id "configuration" is reserved for the built-in Configuration page.');
         else if (ids.has(page.id)) errors.push(`Duplicate page id: "${page.id}".`);
         else ids.add(page.id);
         if (typeof page.name !== "string" || !page.name.trim()) errors.push(`${where} needs a non-empty name.`);
