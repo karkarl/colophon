@@ -1,9 +1,33 @@
 /* Token-backed controls shared by the design and prototype inspectors. */
+/* Capture host chrome before the body aliases authored preview tokens. */
+:root {
+  --property-ink: var(--text-color-default, #000000);
+  --property-muted: var(--text-color-muted, #656d76);
+  --property-line: var(--border-color-default, #d0d7de);
+  --property-surface: var(--background-color-default, #ffffff);
+}
+.design-inspector, .inspector {
+  --editor-accent: var(--property-ink);
+  --color-ink: var(--editor-accent);
+  --color-muted: var(--property-muted);
+  --color-line: var(--property-line);
+  --color-surface: var(--property-surface);
+  color: var(--color-ink);
+}
+.design-inspector .inspector-tabs button.is-active { border-bottom-color: var(--editor-accent); }
+.design-inspector .inspector-tabs button:focus-visible { outline: 2px solid var(--editor-accent); outline-offset: -2px; }
+.design-inspector .btn:not(.primary), .inspector .btn:not(.primary) {
+  border-color: var(--color-line); color: var(--color-ink);
+}
+.inspect-open .design-inspector { padding: var(--space-2, 8px); gap: var(--space-2, 8px); }
+.inspector .element-editor { padding: var(--space-2, 8px); gap: var(--space-2, 8px); }
 .properties-empty { padding: 20px 4px; color: var(--color-muted, #6b6459); font-size: 12px; line-height: 1.5; }
-.property-section { padding: 4px 0 14px; border-bottom: 1px solid var(--color-line, #e4ddd0); }
-.property-section + .property-section { padding-top: 14px; }
-.property-section-title { margin: 0 0 9px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--color-muted, #6b6459); }
-.property-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+.property-section { padding: var(--space-2, 8px) 0; border-bottom: 1px solid var(--color-line, #e4ddd0); }
+.property-section-title {
+  margin: 0 0 var(--space-2, 8px); color: var(--color-muted, #656d76);
+  font: var(--text-caption-weight, 500) var(--text-caption-size, 12px)/var(--text-caption-line-height, 16px) var(--font-body, sans-serif);
+}
+.property-section-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2, 8px); margin-bottom: var(--space-2, 8px); }
 .property-section-heading .property-section-title { margin: 0; }
 .snap-toggle {
   height: 24px; padding: 3px 8px; border: 1px solid var(--color-line, #e4ddd0);
@@ -16,35 +40,35 @@
   color: var(--editor-accent, var(--color-accent, #b5502a));
 }
 .snap-toggle:focus-visible { outline: 2px solid var(--editor-accent, var(--color-accent, #b5502a)); outline-offset: 1px; }
-.property-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.property-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-1, 4px) var(--space-2, 8px); }
 .property-field { display: grid; gap: 4px; min-width: 0; }
 .property-field.is-wide { grid-column: 1 / -1; }
-.property-field > label { color: var(--color-muted, #6b6459); font-size: 10px; }
+.property-field > label { color: var(--color-muted, #656d76); font-size: 10px; }
 .property-field input[type="text"],
 .property-field input[type="number"],
 .property-field textarea,
 .property-field select {
-  width: 100%; min-width: 0; height: 30px; padding: 4px 7px;
-  border: 1px solid var(--color-line, #e4ddd0); border-radius: var(--radius-sm, 4px);
+  width: 100%; min-width: 0; height: calc(var(--space-5, 24px) + var(--space-1, 4px)); padding: var(--space-1, 4px) var(--space-2, 8px);
+  border: 1px solid var(--color-line, #d0d7de); border-radius: var(--radius-sm, 4px);
   background: var(--color-surface, #fff); color: var(--color-ink, #1c1a17); font: 12px var(--font-body, sans-serif);
 }
 .property-field textarea { height: auto; min-height: var(--space-8, 64px); resize: vertical; line-height: 1.5; }
 .property-field input:focus-visible,
-.property-field textarea:focus-visible,
-.property-field select:focus-visible { outline: 2px solid var(--editor-accent, var(--color-accent, #b5502a)); outline-offset: 1px; }
+.property-field textarea:focus-visible { outline: 2px solid var(--editor-accent, var(--color-accent, #b5502a)); outline-offset: 1px; }
+.property-field select:focus-visible { outline: 2px solid var(--color-muted, #656d76); outline-offset: 1px; }
 .property-field [aria-invalid="true"] { border-color: var(--color-critical, #8f2f2a); }
 .property-picker {
-  position: relative; min-width: 0; border: 1px solid var(--color-line, #e4ddd0);
+  position: relative; min-width: 0; border: 1px solid var(--color-line, #d0d7de);
   border-radius: var(--radius-sm, 4px); background: var(--color-surface, #fff);
 }
-.property-picker[open] { z-index: 4; border-color: var(--editor-accent, var(--color-accent, #b5502a)); }
+.property-picker[open] { z-index: 4; border-color: var(--color-line, #d0d7de); }
 .property-picker > summary {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
-  min-width: 0; height: 30px; padding: 4px 7px; cursor: pointer; list-style: none;
+  min-width: 0; height: calc(var(--space-5, 24px) + var(--space-1, 4px)); padding: var(--space-1, 4px) var(--space-2, 8px); cursor: pointer; list-style: none;
   color: var(--color-ink, #1c1a17); font: 12px var(--font-body, sans-serif);
 }
 .property-picker > summary::-webkit-details-marker { display: none; }
-.property-picker > summary:focus-visible { outline: 2px solid var(--editor-accent, var(--color-accent, #b5502a)); outline-offset: 1px; }
+.property-picker > summary:focus-visible { outline: 2px solid var(--color-muted, #656d76); outline-offset: 1px; }
 .property-picker-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .property-picker-chevron {
   display: grid; place-items: center; flex: none; width: var(--space-3, 12px); height: var(--space-3, 12px);
@@ -62,7 +86,7 @@
 .property-picker-menu, .color-palette, .spacing-option-menu {
   position: fixed; z-index: 60; display: grid; gap: 3px; padding: 5px;
   overflow: auto; overscroll-behavior: contain;
-  border: 1px solid var(--color-line, #e4ddd0); border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--color-line, #d0d7de); border-radius: var(--radius-md, 8px);
   background: var(--color-surface, #fff);
   box-shadow: var(--shadow-md, 0 8px 24px color-mix(in srgb, var(--color-ink, #1c1a17) 16%, transparent));
 }
@@ -89,11 +113,9 @@
   background: color-mix(in srgb, var(--editor-accent, var(--color-accent, #b5502a)) 9%, transparent);
 }
 .property-picker-option.is-selected { border-color: color-mix(in srgb, var(--editor-accent, var(--color-accent, #b5502a)) 35%, transparent); }
-.type-option { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; }
-.type-option-sample { overflow: hidden; font-size: 20px; line-height: 24px; }
-.type-option-meta { display: grid; gap: 1px; min-width: 0; font: 10px/1.25 var(--font-body, sans-serif); }
-.type-option-meta strong { font-size: 11px; text-transform: capitalize; }
-.type-option-meta span { overflow: hidden; color: var(--color-muted, #6b6459); text-overflow: ellipsis; white-space: nowrap; }
+.property-picker-menu button:focus-visible, .color-palette button:focus-visible, .spacing-option-menu button:focus-visible {
+  outline: 2px solid var(--color-muted, #656d76); outline-offset: -2px;
+}
 .color-picker-summary { display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; }
 .color-picker-chip {
   flex: none; width: 16px; height: 16px; border: 1px solid color-mix(in srgb, var(--color-ink, #1c1a17) 18%, transparent);
@@ -170,12 +192,12 @@
 .layout-justify-icon.is-space-evenly { justify-content: space-evenly; }
 .spacing-combo { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 19px; }
 .property-field .spacing-combo input {
-  height: 32px; padding-right: 4px; border-radius: var(--radius-sm, 4px) 0 0 var(--radius-sm, 4px);
+  height: calc(var(--space-5, 24px) + var(--space-1, 4px)); padding-right: 4px; border-radius: var(--radius-sm, 4px) 0 0 var(--radius-sm, 4px);
   font-family: var(--font-mono, monospace); font-size: 10px;
 }
 .spacing-stepper { display: grid; grid-template-rows: 1fr 1fr; }
 .spacing-stepper button {
-  min-width: 19px; padding: 0; border: 1px solid var(--color-line, #e4ddd0); border-left: 0;
+  min-width: 19px; padding: 0; border: 1px solid var(--color-line, #d0d7de); border-left: 0;
   background: var(--color-surface, #fff); color: var(--color-muted, #6b6459);
   cursor: pointer; font: 7px/1 var(--font-body, sans-serif);
 }

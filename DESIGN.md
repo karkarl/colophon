@@ -359,6 +359,33 @@ units of canvas, stack the rails into one column. Editor controls reuse the
 small/caption type styles, spacing 1-4, and radius sm/md. Pointer hit areas use
 spacing 4; resize-handle glyphs use spacing 2.
 
+Group properties in reading order: Layer/content, Position when applicable,
+Layout, Appearance, Typography, Fill, Stroke, and Effects. Keep width/height,
+padding, and margin together in Layout; radius belongs in Appearance, text
+style/family/color/alignment in Typography, background in Fill, border controls
+in Stroke, and shadow in Effects. Omit inapplicable sections for lines and
+arrows. Use muted, sentence-case caption headings, spacing `2` below headings and
+around sections, with `line` dividers rather than nested cards.
+Text style, font family, and background fill pickers span the property grid so
+token names and family previews have room to read.
+Inspector chrome follows the neutral text and focus treatment of
+the seeded Fluent Flex reference, not the authored preview's orange accent.
+Resolve ink/surface/dividers through host text/background/border tokens, with
+black/white/neutral-line fallbacks. Keep authored swatches and preview typography
+unchanged. Use host border gray for control and flyout borders, matching the
+Align and Justify groups even when dropdowns are open. Use host muted text for
+section subtitles and field labels; retain ink values. Dropdown keyboard focus
+uses a two-pixel muted-gray outline, distinct from the lighter resting border.
+Use spacing `2` for rail insets, spacing `1` for field-row gaps, and
+spacing `5 + 1` for field height. Keep the panel concise: no explanatory paragraphs;
+retain field labels, tooltips, empty states, and validation errors.
+Text style and font family use native selects backed by design tokens, with the
+style metrics and actual font stack in option labels. Font choices must update
+the rendered layer, not just the control's label.
+Property flyouts keep focus and remain open while their own options scroll.
+Scrolling the surrounding inspector dismisses them. Escape dismisses and returns
+focus to the trigger; typography and color choices support arrow-key navigation.
+
 Prototype keeps device framing and Fit zoom. In Inspect, its existing Screens
 navigation lives in a collapsible section of the Layers rail; leaving Inspect
 restores the full screen menu. Reuse the same selection overlays, insertion

@@ -1598,6 +1598,23 @@ async function shellBehavior(kind) {
     picker.click();
     check(!document.querySelector(".ds-flyout"), "Inspect selects instead of opening");
     check(document.querySelector("#design-inspector").hidden === false, "inspector remains usable");
+    await (await import("/inspect-browser-scenario.mjs")).propertyPickerBehavior(document.querySelector("#inspect-properties"));
+    const initialTextStyle = selectedComponentNode().appearance?.textStyle;
+    const changeTypography = async (label, value) => {
+      const trigger = document.querySelector(`#inspect-properties [aria-label="${label}"]`);
+      trigger.value = value;
+      trigger.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitUntil(() => document.querySelector(`#inspect-properties [aria-label="${label}"]`) !== trigger, `${label} selection applies`);
+      return document.querySelector('[data-ds-node-id="subtle-picker"]');
+    };
+    let styledPicker = await changeTypography("Text style", "title");
+    check(selectedComponentNode().appearance.textStyle === "title" && getComputedStyle(styledPicker).fontSize === "28px", "text style selection updates the rendered font");
+    styledPicker = await changeTypography("Font family", "mono");
+    check(selectedComponentNode().appearance.fontFamily === "mono" && getComputedStyle(styledPicker).fontFamily.includes("Berkeley"), "font family selection updates the rendered font");
+    document.querySelector("#layers-undo-btn").click();
+    await waitUntil(() => !selectedComponentNode().appearance.fontFamily, "font family undo");
+    document.querySelector("#layers-undo-btn").click();
+    await waitUntil(() => selectedComponentNode().appearance?.textStyle === initialTextStyle, "text style undo");
     const borderInput = () => document.querySelector('#inspect-properties input[aria-label="Border thickness (px)"]');
     const editBorder = async (value) => {
       const input = borderInput();
@@ -1735,6 +1752,18 @@ async function shellBehavior(kind) {
       document.querySelector("#inspect-btn").click();
       document.querySelector('[data-ds-node-id="subtle-picker"]').click();
       check(!document.querySelector("#json-editor").disabled, "inspect selects a layer");
+      await (await import("/inspect-browser-scenario.mjs")).propertyPickerBehavior(document.querySelector("#proto-properties"));
+      for (const [label, value, property] of [["Text style", "title", "textStyle"], ["Font family", "mono", "fontFamily"]]) {
+        const select = document.querySelector(`#proto-properties select[aria-label="${label}"]`);
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        const selected = valueAtPath(state.proto.doc, state.selectedPath);
+        check(selected.appearance[property] === value, `prototype ${label} selection applies to the instance`);
+      }
+      const styledPicker = document.querySelector('[data-ds-node-id="subtle-picker"]');
+      check(getComputedStyle(styledPicker).fontSize === "28px" && getComputedStyle(styledPicker).fontFamily.includes("Berkeley"), "prototype font selections change the rendered layer");
+      document.querySelector("#layers-undo-btn").click();
+      document.querySelector("#layers-undo-btn").click();
       second.click();
       check(document.querySelector("#json-editor").disabled, "screen switch clears inspected selection");
       check(!!document.querySelector('#layers button[title="composer"]') && !document.querySelector('#layers button[title="picker"]'), "screen switch refreshes layers");

@@ -150,8 +150,6 @@
             selected.props[key] = value.value;
           }),
         }, "Add property"));
-      content.root.append(el("div", { class: "property-help" },
-        "These values belong to this instance only. Component definitions stay unchanged. Use JSON for object or array props."));
     } else if (own(node, "text")) {
       section("Content", inputField("Text", node.text, (selected, value) => { selected.text = value; }, { multiline: true, wide: true }));
     } else if (own(node, "image")) {
@@ -223,12 +221,11 @@
     if (checks.length) layout.grid.append(el("div", { class: "property-checks property-field is-wide" }, checks));
     // The image element and spacer have no content box to pad.
     if (!own(node, "image") && !own(node, "spacer")) layout.grid.append(box("Padding", "padding"));
-    layout.root.append(el("div", { class: "property-help" }, "Spacing uses design tokens or custom pixels. Dimensions accept hug, fill, pixels, or existing CSS lengths."));
     workspace?.appendScaleControl(layout.root, propertyField);
 
     if (parent?.layout === "freeform") {
       const position = node.position;
-      const positionSection = section("Freeform position",
+      const positionSection = section("Position",
         propertySelect("Position", position?.mode || "", [["", "Flow"], ["absolute", "Absolute"]],
           (event) => commit((selected) => {
             if (event.target.value === "absolute") selected.position = { mode: "absolute", x: position?.x ?? 0, y: position?.y ?? 0 };
@@ -242,12 +239,16 @@
             selected.position[axis] = value;
           }, { type: "number", step: "any", parse: numeric, "data-position-axis": axis }));
       }
-      positionSection.root.append(el("div", { class: "property-help" }, "Pixels relative to the direct freeform parent. Drag this layer in the preview to move it."));
+      slot.insertBefore(positionSection.root, layout.root);
     }
 
     const appearance = node.appearance || {};
     const linearShape = window.ShapeGeometry.linear(node);
-    const appearanceSection = section("Appearance overrides");
+    const appearanceSection = !linearShape && node.shape !== "ellipse" ? section("Appearance") : null;
+    const typographySection = !linearShape ? section("Typography") : null;
+    const fillSection = !linearShape ? section("Fill") : null;
+    const strokeSection = section("Stroke");
+    const effectsSection = !linearShape ? section("Effects") : null;
     const appearanceValue = (key) => appearance[key] || "";
     const updateAppearance = (key) => (selected, value) => {
       selected.appearance ||= {};
@@ -255,29 +256,26 @@
       if (!Object.keys(selected.appearance).length) delete selected.appearance;
     };
     const appearanceCommit = (key) => (value) => commit((selected) => updateAppearance(key)(selected, value));
-    if (!linearShape) appearanceSection.grid.append(
+    if (!linearShape) typographySection.grid.append(
       typographyPicker("Text style", appearanceValue("textStyle"), "textStyle", appearanceCommit("textStyle")),
       typographyPicker("Font family", appearanceValue("fontFamily"), "fontFamily", appearanceCommit("fontFamily")));
     for (const [label, key] of linearShape ? [["Stroke color", "borderColor"]] : [["Text color", "color"], ["Background", "background"], ["Border color", "borderColor"]]) {
-      appearanceSection.grid.append(colorPicker(label, appearanceValue(key), appearanceCommit(key), { gesture: gesture(updateAppearance(key)) }));
+      const target = key === "color" ? typographySection : key === "background" ? fillSection : strokeSection;
+      target.grid.append(colorPicker(label, appearanceValue(key), appearanceCommit(key), {
+        gesture: gesture(updateAppearance(key)), wide: key === "background",
+      }));
     }
-    appearanceSection.grid.append(pixelNumberbox(linearShape ? "Stroke thickness (px)" : "Border thickness (px)", appearance.borderWidth,
+    strokeSection.grid.append(pixelNumberbox(linearShape ? "Stroke thickness (px)" : "Border thickness (px)", appearance.borderWidth,
       appearanceCommit("borderWidth"), { gesture: gesture(updateAppearance("borderWidth")) }));
-    if (!linearShape) appearanceSection.grid.append(propertySelect("Text align", appearanceValue("textAlign"),
+    if (!linearShape) typographySection.grid.append(propertySelect("Text align", appearanceValue("textAlign"),
       inheritedOptions(["start", "center", "end", "left", "right", "justify"]), (event) => appearanceCommit("textAlign")(event.target.value)));
     for (const [label, key, group] of [["Radius", "radius", "radii"], ["Shadow", "shadow", "shadows"]]) {
       if (linearShape) continue;
-      if (key === "radius" && node.shape === "ellipse") {
-        appearanceSection.grid.append(el("div", { class: "property-help" }, "Ellipse geometry sets the corner radius."));
-        continue;
-      }
-      appearanceSection.grid.append(propertySelect(label, appearanceValue(key),
+      if (key === "radius" && node.shape === "ellipse") continue;
+      (key === "radius" ? appearanceSection : effectsSection).grid.append(propertySelect(label, appearanceValue(key),
         [...inheritedOptions((tokens?.[group] || []).map((token) => token.name).filter(Boolean)), [window.PropertyControls.NONE, "None"]],
         (event) => appearanceCommit(key)(event.target.value)));
     }
-    appearanceSection.root.append(el("div", { class: "property-help" },
-      linearShape ? "Stroke color and thickness apply to the line and arrowhead. Width/height resize its bounds; normalized endpoints preserve direction." :
-        "Inherit removes an override. None is explicit transparency, square corners, or no shadow. Legacy text style and colors remain the defaults."));
     const legacy = [["style", "textStyle", "Text style"], ["color", "color", "Text color"], ["background", "background", "Background"], ["radius", "radius", "Radius"]]
       .filter(([key]) => own(node, key) && !(node.shape === "ellipse" && key === "radius"));
     if (legacy.length) {
@@ -290,7 +288,7 @@
         else legacySection.grid.append(colorPicker(label, node[key], fieldCommit(key), { gesture: fieldGesture(key) }));
       }
     }
-    section("Outer spacing", box("Margin", "margin", { allowAuto: true }));
+    layout.grid.append(box("Margin", "margin", { allowAuto: true }));
   }
   window.ProtoProperties = { render };
 })();

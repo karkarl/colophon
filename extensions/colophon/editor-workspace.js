@@ -458,8 +458,10 @@ window.EditorWorkspace = { create(adapter) {
     const multiplier = el("input", { type: "number", min: "0.1", max: "10", step: "0.1", value: "1", "aria-label": "Geometry scale multiplier" });
     slot.append(el("div", { class: "geometry-scale" },
       propertyField("Geometry multiplier", multiplier),
-      el("button", { type: "button", class: "btn", onclick: () => scale(multiplier.valueAsNumber) }, "Scale geometry")),
-    el("p", { class: "property-help" }, "Scales fixed dimensions, child positions, and state geometry. Type, spacing, radii, and effects keep their tokens."));
+      el("button", {
+        type: "button", class: "btn", title: "Scale fixed geometry without changing design tokens",
+        onclick: () => scale(multiplier.valueAsNumber),
+      }, "Scale geometry")));
   }
 
   window.addEventListener("DOMContentLoaded", () => {
