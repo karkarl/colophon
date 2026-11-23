@@ -11,6 +11,7 @@
     return node;
   };
   const NONE = "$none";
+  const floatingMenuSelector = ".property-picker-menu, .color-palette, .spacing-option-menu";
   let floatingPickerEventsReady = false;
   function closePicker(button) { button.closest("details")?.removeAttribute("open"); }
   function closeFloatingPickers(except = null) {
@@ -39,7 +40,7 @@
     const height = Math.min(naturalHeight, available);
     Object.assign(menu.style, {
       left: `${left}px`, top: `${opensUp ? anchor.top - height - 4 : anchor.bottom + 4}px`,
-      width: `${width}px`, maxHeight: `${available}px`,
+      width: `${width}px`, maxHeight: `${height}px`,
     });
     menu.classList.toggle("opens-up", opensUp);
   }
@@ -51,10 +52,56 @@
       closeSpacingMenus(event.target.closest?.(".spacing-combo")?.querySelector(".spacing-option-menu"));
     });
     const close = () => { closeFloatingPickers(); closeSpacingMenus(); };
-    document.addEventListener("scroll", close, true);
+    document.addEventListener("scroll", (event) => {
+      const scroller = event.target;
+      if (scroller.closest?.(floatingMenuSelector)) return;
+      for (const picker of document.querySelectorAll(".property-picker[open], .spacing-option-menu.is-open")) {
+        if (scroller !== document && !scroller.contains?.(picker)) continue;
+        if (picker.matches(".property-picker")) picker.removeAttribute("open");
+        else picker.classList.remove("is-open");
+      }
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      const picker = event.target.closest?.(".property-picker[open]");
+      const combo = event.target.closest?.(".spacing-combo");
+      const menu = combo?.querySelector(".spacing-option-menu.is-open");
+      if (!picker && !menu) return;
+      event.preventDefault();
+      close();
+      if (!event.target.matches("input, textarea, select")) {
+        event.stopPropagation();
+        (picker?.querySelector(":scope > summary") || combo.querySelector("input"))?.focus({ preventScroll: true });
+      }
+      menu?.classList.remove("is-open");
+    }, true);
     window.addEventListener("resize", close);
   }
   function makeFloatingPicker(details, menu) {
+    details.addEventListener("keydown", (event) => {
+      if (event.target.matches("input, textarea, select")) return;
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      const buttons = [...menu.querySelectorAll("button:not(:disabled)")];
+      if (!buttons.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      details.open = true;
+      const index = buttons.indexOf(document.activeElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+        : index < 0 ? (event.key === "ArrowUp" ? buttons.length - 1 : 0)
+          : Math.max(0, Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+      positionFloatingMenu(details.querySelector(":scope > summary"), menu);
+      buttons[next].focus({ preventScroll: true });
+      const bounds = menu.getBoundingClientRect(), item = buttons[next].getBoundingClientRect();
+      if (item.top < bounds.top) menu.scrollTop -= bounds.top - item.top;
+      else if (item.bottom > bounds.bottom) menu.scrollTop += item.bottom - bounds.bottom;
+    });
+    details.addEventListener("focusout", (event) => {
+      if (details.contains(event.relatedTarget)) return;
+      queueMicrotask(() => {
+        if (!details.contains(document.activeElement)) details.open = false;
+      });
+    });
     details.addEventListener("toggle", () => {
       if (!details.open) return;
       closeFloatingPickers(details);
@@ -95,14 +142,6 @@
     details.append(summary, menu);
     makeFloatingPicker(details, menu);
     return propertyField(label, details, { wide });
-  }
-  function textStylePreview(style) {
-    if (!style?.name) return "";
-    return [
-      `font-family:var(--text-${style.name}-family,var(--font-${style.role || "body"}))`,
-      `font-size:var(--text-${style.name}-size)`, `line-height:var(--text-${style.name}-line-height)`,
-      `font-weight:var(--text-${style.name}-weight)`, `letter-spacing:var(--text-${style.name}-tracking,normal)`,
-    ].join(";");
   }
   function cssPixels(value) {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -181,30 +220,36 @@
         color?.value || color?.themes?.light || color?.themes?.dark || color?.themes?.highContrast || "";
     };
     function typographyPicker(label, value, kind, onchange) {
-      const inherited = { value: "", label: "Inherit / class", style: "" };
       const choices = kind === "textStyle"
-        ? [inherited, ...(tokens().typography?.scale || []).filter((style) => style?.name).map((style) => ({
-          value: style.name, label: style.name, style: textStylePreview(style),
-          preview: el("span", { class: "type-option" },
-            el("span", { class: "type-option-sample", style: textStylePreview(style) }, "Ag"),
-            el("span", { class: "type-option-meta" }, el("strong", {}, style.name),
-              el("span", {}, `${style.size || "Inherited"} / ${style.lineHeight || "normal"}`))),
-        }))]
-        : [inherited, ...["display", "body", "mono"].filter((role) => tokens().typography?.[role]?.family).map((role) => ({
-          value: role, label: role[0].toUpperCase() + role.slice(1), style: `font-family:var(--font-${role})`,
-          preview: el("span", { class: "type-option" },
-            el("span", { class: "type-option-sample", style: `font-family:var(--font-${role})` }, "Ag"),
-            el("span", { class: "type-option-meta" }, el("strong", {}, role[0].toUpperCase() + role.slice(1)),
-              el("span", {}, tokens().typography[role].family))),
-        }))];
-      return choicePicker(label, value, choices, onchange);
+        ? (tokens().typography?.scale || []).filter((style) => style?.name).map((style) => [
+          style.name, `${style.name}${style.size ? ` · ${style.size} / ${style.lineHeight || "normal"}` : ""}`,
+        ])
+        : ["display", "body", "mono"].filter((role) => tokens().typography?.[role]?.family).map((role) => [
+          role, `${role[0].toUpperCase() + role.slice(1)} · ${tokens().typography[role].family}`,
+        ]);
+      const missing = value && !choices.some(([token]) => token === value);
+      const field = propertySelect(label, value, [
+        ...(missing ? [[value, `Missing: ${value}`]] : []), ["", "Inherit / class"], ...choices,
+      ], async (event) => {
+        const select = event.target;
+        const inspector = select.closest(".design-inspector, .inspector");
+        const selector = `select[aria-label="${CSS.escape(label)}"]`;
+        const index = inspector ? [...inspector.querySelectorAll(selector)].indexOf(select) : -1;
+        const focused = document.activeElement === select;
+        await onchange(select.value);
+        if (focused && !select.isConnected && document.activeElement === document.body) {
+          inspector?.querySelectorAll(selector)[index]?.focus({ preventScroll: true });
+        }
+      }, { wide: true });
+      if (missing) field.querySelector("select").options[0].disabled = true;
+      return field;
     }
     function appearanceColorValue(value) {
       if (value === NONE) return "transparent";
       if (/^#[0-9a-f]{6}$/i.test(value || "")) return value;
       return colorValue(colors().find((color) => color.name === value)) || "transparent";
     }
-    function colorPicker(label, value, onchange, { gesture } = {}) {
+    function colorPicker(label, value, onchange, { gesture, wide = false } = {}) {
       const paletteColors = colors().filter((color) => color?.name);
       const selectedToken = paletteColors.find((color) => color.name === value);
       const selectedLabel = value === NONE ? "None / transparent" : (selectedToken?.name || value);
@@ -244,7 +289,7 @@
         el("span", { class: "spectrum-chip" }), el("span", {}, "Custom"), customInput));
       details.append(summary, palette);
       makeFloatingPicker(details, palette);
-      return propertyField(label, details);
+      return propertyField(label, details, { wide });
     }
     function spacingTokens() {
       const scale = (tokens().spacing?.scale || []).map((token) => ({

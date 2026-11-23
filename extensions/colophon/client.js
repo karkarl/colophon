@@ -557,10 +557,6 @@ function renderComponentProperties() {
   }
   layoutGrid.append(checks);
   layoutGrid.append(boxEditor("Padding", layout, "padding"));
-  layoutSection.append(el("div", { class: "property-help" },
-    state.spacingSnap
-      ? "Spacing follows design token increments. Dimensions accept hug, fill, or fixed pixels."
-      : "Spacing is unsnapped. Dimensions accept hug, fill, or fixed pixels."));
   window.InspectWorkspace?.appendScaleControl(layoutSection, propertyField);
 
   const parentPath = state.selection?.path?.slice(0, -2);
@@ -581,7 +577,7 @@ function renderComponentProperties() {
       }),
     }));
     positionSection = el("section", { class: "property-section" },
-      el("h3", { class: "property-section-title" }, "Freeform position"),
+      el("h3", { class: "property-section-title" }, "Position"),
       el("div", { class: "property-grid" },
         propertySelect("Mode", position.mode || "", [["", "Flow"], ["absolute", "Absolute"]], (event) => commitComponentMutation(() => {
           const selected = selectedComponentNode();
@@ -590,54 +586,54 @@ function renderComponentProperties() {
             selected.position = { mode: "absolute", x: position.x ?? 0, y: position.y ?? 0 };
           }
           else delete selected.position;
-        })),
-        ...(position.mode === "absolute" ? [coordinate("x"), coordinate("y")] : [])),
-      el("div", { class: "property-help" }, "Coordinates are pixels relative to the direct freeform parent."));
+        }), { wide: true }),
+        ...(position.mode === "absolute" ? [coordinate("x"), coordinate("y")] : [])));
   }
 
   const appearance = node.appearance || {};
   const linearShape = window.ShapeGeometry.linear(node);
   const radii = (state.tokens?.radii || []).map((token) => token?.name).filter(Boolean);
   const shadows = (state.tokens?.shadows || []).map((token) => token?.name).filter(Boolean);
-  const appearanceSection = el("section", { class: "property-section" },
-    el("h3", { class: "property-section-title" }, "Appearance overrides"),
-    el("div", { class: "property-grid" }));
+  const section = (title) => el("section", { class: "property-section" },
+    el("h3", { class: "property-section-title" }, title), el("div", { class: "property-grid" }));
+  const appearanceSection = section("Appearance");
+  const typographySection = section("Typography");
+  const fillSection = section("Fill");
+  const strokeSection = section("Stroke");
+  const effectsSection = section("Effects");
   const appearanceGrid = $(".property-grid", appearanceSection);
+  const typographyGrid = $(".property-grid", typographySection);
   const appearanceField = (label, key, options) => propertySelect(
     label,
     appearance[key] || "",
     options,
     (event) => commitComponentMutation(() => setAppearanceOverride(key, event.target.value)),
   );
-  if (!linearShape) appearanceGrid.append(
+  if (!linearShape) typographyGrid.append(
     typographyPicker("Text style", appearance.textStyle || "", "textStyle",
       (value) => commitComponentMutation(() => setAppearanceOverride("textStyle", value))),
     typographyPicker("Font family", appearance.fontFamily || "", "fontFamily",
       (value) => commitComponentMutation(() => setAppearanceOverride("fontFamily", value))),
     colorPicker("Text color", appearance.color || "",
       (value) => commitComponentMutation(() => setAppearanceOverride("color", value))),
+    appearanceField("Text align", "textAlign", inheritedOptions(["start", "center", "end", "left", "right"], (value) => value[0].toUpperCase() + value.slice(1))));
+  if (!linearShape) $(".property-grid", fillSection).append(
     colorPicker("Background", appearance.background || "",
-      (value) => commitComponentMutation(() => setAppearanceOverride("background", value))));
-  appearanceGrid.append(
+      (value) => commitComponentMutation(() => setAppearanceOverride("background", value)), { wide: true }));
+  $(".property-grid", strokeSection).append(
     colorPicker(linearShape ? "Stroke color" : "Border color", appearance.borderColor || "",
       (value) => commitComponentMutation(() => setAppearanceOverride("borderColor", value))),
     pixelNumberbox(linearShape ? "Stroke thickness (px)" : "Border thickness (px)", appearance.borderWidth,
       (value) => commitComponentMutation(() => setAppearanceOverride("borderWidth", value))));
-  if (!linearShape) appearanceGrid.append(
-    appearanceField("Text align", "textAlign", inheritedOptions(["start", "center", "end", "left", "right"], (value) => value[0].toUpperCase() + value.slice(1))),
-    ...(node.shape === "ellipse" ? [el("div", { class: "property-help" }, "Ellipse geometry sets the corner radius.")] :
-      [appearanceField("Radius", "radius", [...inheritedOptions(radii), [APPEARANCE_NONE, "None"]])]),
-    appearanceField("Shadow", "shadow", [...inheritedOptions(shadows), [APPEARANCE_NONE, "None"]]),
-  );
-  appearanceSection.append(el("div", { class: "property-help" },
-    linearShape ? "Stroke color and thickness apply to the line and arrowhead. Width/height resize its bounds; normalized endpoints preserve direction." :
-      "Inherit removes the override from components.jsonc. None writes an explicit transparent, square, or shadowless value. Token choices take precedence over parent or class styling."));
+  if (!linearShape && node.shape !== "ellipse") appearanceGrid.append(
+    appearanceField("Radius", "radius", [...inheritedOptions(radii), [APPEARANCE_NONE, "None"]]));
+  if (!linearShape) $(".property-grid", effectsSection).append(
+    appearanceField("Shadow", "shadow", [...inheritedOptions(shadows), [APPEARANCE_NONE, "None"]]));
 
-  const spacing = el("section", { class: "property-section" },
-    el("h3", { class: "property-section-title" }, "Outer spacing"),
-    el("div", { class: "property-grid" }, boxEditor("Margin", node, "margin", { allowAuto: true })),
-    el("div", { class: "property-help" }, "Values reference design-system spacing tokens. Changes update every preview of this component definition."));
-  slot.append(identity, layoutSection, ...(positionSection ? [positionSection] : []), appearanceSection, spacing);
+  layoutGrid.append(boxEditor("Margin", node, "margin", { allowAuto: true }));
+  slot.append(identity, ...(positionSection ? [positionSection] : []), layoutSection,
+    ...(!linearShape ? [...(node.shape !== "ellipse" ? [appearanceSection] : []), typographySection, fillSection] : []), strokeSection,
+    ...(!linearShape ? [effectsSection] : []));
 }
 
 function clearDropClasses() {

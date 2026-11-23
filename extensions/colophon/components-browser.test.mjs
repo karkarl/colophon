@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { createServer } from "node:http";
@@ -27,6 +27,142 @@ async function browserPath() {
     catch (error) { if (error.code !== "ENOENT") throw error; }
   }
   return null;
+}
+
+async function inspectorInputBehavior(browser, profile, url, prototype) {
+  const child = spawn(browser, [
+    "--headless=new", "--disable-gpu", "--disable-extensions", "--disable-background-networking",
+    "--no-first-run", "--no-default-browser-check", "--remote-debugging-pipe",
+    `--user-data-dir=${profile}`, "about:blank",
+  ], { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] });
+  let serial = 0, buffer = "";
+  const pending = new Map();
+  child.stdio[4].setEncoding("utf8");
+  child.stdio[4].on("data", (chunk) => {
+    buffer += chunk.toString();
+    let end;
+    while ((end = buffer.indexOf("\0")) >= 0) {
+      const message = JSON.parse(buffer.slice(0, end));
+      buffer = buffer.slice(end + 1);
+      const call = pending.get(message.id);
+      if (!call) continue;
+      pending.delete(message.id);
+      clearTimeout(call.timer);
+      if (message.error) call.reject(new Error(JSON.stringify(message.error)));
+      else call.resolve(message.result);
+    }
+  });
+  const failPending = (error) => {
+    for (const call of pending.values()) { clearTimeout(call.timer); call.reject(error); }
+    pending.clear();
+  };
+  child.on("error", failPending);
+  child.on("exit", () => failPending(new Error("Input-test browser exited")));
+  const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    const id = ++serial;
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`CDP timed out: ${method}`));
+    }, 10000);
+    pending.set(id, { resolve, reject, timer });
+    child.stdio[3].write(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }) + "\0");
+  });
+  try {
+    const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+    const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
+    const cdp = (method, params) => send(method, params, sessionId);
+    const evaluate = async (expression) => {
+      const response = await cdp("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+      assert.ok(!response.exceptionDetails, JSON.stringify(response.exceptionDetails));
+      return response.result.value;
+    };
+    await cdp("Emulation.setDeviceMetricsOverride", { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp("Page.navigate", { url });
+    await cdp("Page.bringToFront");
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (await evaluate(`!!document.querySelector(${JSON.stringify(prototype ? '[data-proto-node-id="picker"]' : '[data-ds-node-id="subtle-picker"]')})`)) break;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    const slot = prototype ? "#proto-properties" : "#inspect-properties";
+    await evaluate(`(async () => {
+      if (${prototype}) {
+        document.querySelector("#inspect-btn").click();
+        document.querySelector('[data-proto-node-id="picker"]').click();
+      } else {
+        await setInspectMode(true);
+        const row = [...document.querySelectorAll("[data-component-layer-path]")].find(e => e.querySelector('button[title="subtle-picker"]'));
+        row.querySelector("button").click();
+      }
+    })()`);
+    const chosen = prototype ? "valueAtPath(state.proto.doc, state.selectedPath)" : "selectedComponentNode()";
+    const click = async (selector) => {
+      const bounds = await evaluate(`(async () => {
+        const element = document.querySelector(${JSON.stringify(selector)});
+        if (!element) throw new Error("Missing input-test target");
+        element.scrollIntoView({ block: "center" });
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const rect = element.getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      })()`);
+      for (const type of ["mousePressed", "mouseReleased"]) {
+        await cdp("Input.dispatchMouseEvent", { type, ...bounds, button: "left", clickCount: 1 });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    };
+    const key = async (key, code, windowsVirtualKeyCode) => {
+      for (const type of ["keyDown", "keyUp"]) await cdp("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    };
+    await click(`${slot} summary[aria-label="Text color"]`);
+    await click(`${slot} .color-property-picker[open] button[title="paper: #f7f4ee"]`);
+    assert.equal(await evaluate(`${chosen}.appearance.color`), "paper", "real pointer applies color instead of prematurely closing the menu");
+    await evaluate(`(async () => {
+      const select = document.querySelector(${JSON.stringify(`${slot} select[aria-label="Text style"]`)});
+      select.value = "";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 120));
+      document.querySelector(${JSON.stringify(`${slot} select[aria-label="Text style"]`)}).focus({preventScroll:true});
+    })()`);
+    await key("ArrowDown", "ArrowDown", 40);
+    const firstStyle = await evaluate(`${chosen}.appearance.textStyle`);
+    assert.equal(await evaluate(`document.activeElement.getAttribute("aria-label")`), "Text style", "native selection retains focus after rerender");
+    await key("ArrowDown", "ArrowDown", 40);
+    assert.notEqual(await evaluate(`${chosen}.appearance.textStyle`), firstStyle, "consecutive native arrow keys select another token");
+    await evaluate(`(async () => {
+      ${chosen}.appearance.textStyle = "removed-token";
+      ${prototype ? "renderElementEditor()" : "renderComponentProperties()"};
+      const select = document.querySelector(${JSON.stringify(`${slot} select[aria-label="Text style"]`)});
+      if (select.selectedOptions[0].textContent !== "Missing: removed-token") throw new Error("Missing token must be explicit");
+      select.value = "";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 120));
+    })()`);
+    assert.equal(await evaluate(`${chosen}.appearance.textStyle ?? null`), null, "Inherit clears a missing typography token");
+    if (prototype) {
+      const original = await evaluate(`${chosen}.padding ?? null`);
+      const history = await evaluate("state.past.length");
+      await evaluate(`document.querySelector('#proto-properties input[aria-label="Padding All"]').focus({preventScroll:true})`);
+      await cdp("Input.insertText", { text: "8px" });
+      await key("Escape", "Escape", 27);
+      await key("Tab", "Tab", 9);
+      assert.deepEqual(await evaluate(`${chosen}.padding ?? null`), original, "one Escape cancels the spacing edit");
+      assert.equal(await evaluate("state.past.length"), history, "cancelled spacing adds no undo entry");
+      const colors = await evaluate(`(() => {
+        const button = getComputedStyle(document.querySelector("#attach-btn"));
+        const toolbar = getComputedStyle(document.querySelector("#outline-btn"));
+        return [button.color, toolbar.color, button.backgroundColor, toolbar.backgroundColor];
+      })()`);
+      assert.equal(colors[0], colors[1], "Prototype inspector keeps toolbar text color");
+      assert.equal(colors[2], colors[3], "Prototype inspector keeps toolbar surface");
+    }
+  } finally {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    if (child.exitCode === null) {
+      child.stdio[3].write(JSON.stringify({ id: ++serial, method: "Browser.close" }) + "\0");
+      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))]);
+      if (child.exitCode === null) child.kill();
+    }
+  }
 }
 
 async function switchBehavior(DS, doc, motionOnly = false) {
@@ -1598,6 +1734,23 @@ async function shellBehavior(kind) {
     picker.click();
     check(!document.querySelector(".ds-flyout"), "Inspect selects instead of opening");
     check(document.querySelector("#design-inspector").hidden === false, "inspector remains usable");
+    await (await import("/inspect-browser-scenario.mjs")).propertyPickerBehavior(document.querySelector("#inspect-properties"));
+    const initialTextStyle = selectedComponentNode().appearance?.textStyle;
+    const changeTypography = async (label, value) => {
+      const trigger = document.querySelector(`#inspect-properties [aria-label="${label}"]`);
+      trigger.value = value;
+      trigger.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitUntil(() => document.querySelector(`#inspect-properties [aria-label="${label}"]`) !== trigger, `${label} selection applies`);
+      return document.querySelector('[data-ds-node-id="subtle-picker"]');
+    };
+    let styledPicker = await changeTypography("Text style", "title");
+    check(selectedComponentNode().appearance.textStyle === "title" && getComputedStyle(styledPicker).fontSize === "28px", "text style selection updates the rendered font");
+    styledPicker = await changeTypography("Font family", "mono");
+    check(selectedComponentNode().appearance.fontFamily === "mono" && getComputedStyle(styledPicker).fontFamily.includes("Berkeley"), "font family selection updates the rendered font");
+    document.querySelector("#layers-undo-btn").click();
+    await waitUntil(() => !selectedComponentNode().appearance.fontFamily, "font family undo");
+    document.querySelector("#layers-undo-btn").click();
+    await waitUntil(() => selectedComponentNode().appearance?.textStyle === initialTextStyle, "text style undo");
     const borderInput = () => document.querySelector('#inspect-properties input[aria-label="Border thickness (px)"]');
     const editBorder = async (value) => {
       const input = borderInput();
@@ -1735,6 +1888,18 @@ async function shellBehavior(kind) {
       document.querySelector("#inspect-btn").click();
       document.querySelector('[data-ds-node-id="subtle-picker"]').click();
       check(!document.querySelector("#json-editor").disabled, "inspect selects a layer");
+      await (await import("/inspect-browser-scenario.mjs")).propertyPickerBehavior(document.querySelector("#proto-properties"));
+      for (const [label, value, property] of [["Text style", "title", "textStyle"], ["Font family", "mono", "fontFamily"]]) {
+        const select = document.querySelector(`#proto-properties select[aria-label="${label}"]`);
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        const selected = valueAtPath(state.proto.doc, state.selectedPath);
+        check(selected.appearance[property] === value, `prototype ${label} selection applies to the instance`);
+      }
+      const styledPicker = document.querySelector('[data-ds-node-id="subtle-picker"]');
+      check(getComputedStyle(styledPicker).fontSize === "28px" && getComputedStyle(styledPicker).fontFamily.includes("Berkeley"), "prototype font selections change the rendered layer");
+      document.querySelector("#layers-undo-btn").click();
+      document.querySelector("#layers-undo-btn").click();
       second.click();
       check(document.querySelector("#json-editor").disabled, "screen switch clears inspected selection");
       check(!!document.querySelector('#layers button[title="composer"]') && !document.querySelector('#layers button[title="picker"]'), "screen switch refreshes layers");
@@ -1874,6 +2039,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
     ["/component-pages", ["text/html", inject(renderShell(), "component-pages")]],
     ["/inspect", ["text/html", inject(renderShell(), "inspect")]],
     ["/prototype", ["text/html", inject(renderProtoShell(), "prototype")]],
+    ["/input-component", ["text/html", renderShell()]],
+    ["/input-prototype", ["text/html", renderProtoShell()]],
     ["/compact", ["text/html", inject(renderProtoShell(), "compact")]],
     ["/api/prototypes", ["application/json", JSON.stringify(bundle)]],
     ["/api/prototypes/select", ["application/json", "{}"]],
@@ -1976,6 +2143,8 @@ test("gallery, prototype shell and self-contained export wire interactions end t
       ["inspect-narrow", `http://127.0.0.1:${server.address().port}/inspect`],
       ["prototype", `http://127.0.0.1:${server.address().port}/prototype`],
       ["prototype-narrow", `http://127.0.0.1:${server.address().port}/prototype`],
+      ["input-component", `http://127.0.0.1:${server.address().port}/input-component`],
+      ["input-prototype", `http://127.0.0.1:${server.address().port}/input-prototype`],
       ["export", pathToFileURL(path.join(dir, "export.html")).href],
       ["export-reduced-motion", pathToFileURL(path.join(dir, "export.html")).href],
       ["compact-flat", `http://127.0.0.1:${server.address().port}/compact`],
@@ -2009,6 +2178,10 @@ test("gallery, prototype shell and self-contained export wire interactions end t
         ],
       } });
       resources.set("/api/design", ["application/json", JSON.stringify({ design })]);
+      if (name.startsWith("input-")) {
+        await inspectorInputBehavior(browser, path.join(dir, name), url, name === "input-prototype");
+        continue;
+      }
       const { stdout } = await promisify(execFile)(browser, [
         "--headless=new", "--disable-gpu", "--disable-extensions", "--disable-background-networking", "--no-first-run", "--no-default-browser-check",
         ...(name.endsWith("-reduced-motion") ? ["--force-prefers-reduced-motion=reduce"] : []),

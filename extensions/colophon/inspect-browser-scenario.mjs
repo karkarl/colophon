@@ -1,4 +1,125 @@
 // Shared by the headless suite and an interactive browser when diagnosing failures.
+export async function propertyPickerBehavior(slot) {
+  const check = (condition, message) => { if (!condition) throw new Error(message); };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
+  const key = (node, value) => node.dispatchEvent(new KeyboardEvent("keydown", {
+    key: value, bubbles: true, cancelable: true,
+  }));
+  const headings = [...slot.querySelectorAll(".property-section-title")].map((node) => node.textContent);
+  const ordered = ["Position", "Layout", "Appearance", "Typography", "Fill", "Stroke", "Effects"].filter((title) => headings.includes(title));
+  check(JSON.stringify(headings.filter((title) => ordered.includes(title))) === JSON.stringify(ordered), "properties follow the Figma section order");
+  const sectionFor = (label) => slot.querySelector(`[aria-label="${label}"]`)?.closest(".property-section").querySelector("h3").textContent;
+  for (const [label, title] of [["Width", "Layout"], ["Margin All", "Layout"], ["Text style", "Typography"],
+    ["Text color", "Typography"], ["Background", "Fill"], ["Border thickness (px)", "Stroke"], ["Shadow", "Effects"]]) {
+    check(sectionFor(label) === title, `${label} belongs in ${title}`);
+  }
+  check(!slot.querySelector(".property-help"), "inspector has no explanatory paragraphs");
+  const widthInput = slot.querySelector('[aria-label="Width"]');
+  const ink = getComputedStyle(slot).color;
+  check(ink === "rgb(0, 0, 0)", "default inspector chrome stays black instead of inheriting preview colors");
+  const subtitle = slot.querySelector(".property-section-title");
+  const muted = getComputedStyle(subtitle).color;
+  const alignment = slot.querySelector(".layout-icon-group");
+  const border = alignment ? getComputedStyle(alignment).borderTopColor
+    : getComputedStyle(subtitle.closest(".property-section")).borderBottomColor;
+  check(muted !== ink && getComputedStyle(widthInput).borderTopColor === border, "property borders match the lighter Align and Justify outlines");
+  check(getComputedStyle(widthInput).color === ink, "property values retain neutral ink");
+  check(getComputedStyle(slot.querySelector(".property-field > label")).color === muted, "field labels use muted gray");
+  check(widthInput.getBoundingClientRect().height <= 28, "compact field height");
+  for (const label of ["Text style", "Font family"]) {
+    const select = slot.querySelector(`select[aria-label="${label}"]`);
+    check(select, `${label} uses a native selector`);
+    select.focus({ preventScroll: true });
+    check(getComputedStyle(select).borderTopColor === border && getComputedStyle(select).outlineColor === muted,
+      `${label} matches alignment borders and retains visible gray focus`);
+  }
+  const fixture = document.createElement("div");
+  slot.prepend(fixture);
+  const scale = Array.from({ length: 40 }, (_, index) => ({ name: `option-${index}`, size: "16px", value: `${index * 4}px` }));
+  const controls = window.PropertyControls.create({ tokens: {
+    typography: { scale }, colors: scale.map((token) => ({ name: token.name, value: "#1c1a17" })),
+    spacing: { scale },
+  } });
+  let selected = null;
+  const choose = (value) => { selected = value; };
+  const style = controls.choicePicker("Test choices", "", [
+    { value: "", label: "Inherit / class" }, ...scale.map((token) => ({ value: token.name, label: token.name })),
+  ], choose);
+  const color = controls.colorPicker("Test color", "", choose);
+  const spacing = controls.spacingCombo("Test spacing", "", choose);
+  fixture.append(style, color, spacing);
+  const pointer = (node) => node.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  try {
+    for (const field of [style, color, spacing]) {
+      const details = field.querySelector("details");
+      const trigger = field.querySelector("summary, input");
+      const menu = field.querySelector(".property-picker-menu, .color-palette, .spacing-option-menu");
+      const isOpen = () => details ? details.open : menu.classList.contains("is-open");
+      trigger.scrollIntoView({ block: "center" });
+      await tick();
+      trigger.focus({ preventScroll: true });
+      trigger.click();
+      await tick();
+      check(isOpen(), "picker opens");
+      if (details) {
+        check(getComputedStyle(details).borderTopColor === border && getComputedStyle(trigger).outlineColor === muted,
+          "open dropdown borders match alignment controls and focus stays gray");
+      }
+      check(getComputedStyle(menu).borderTopColor === border, "flyout border matches alignment controls");
+      menu.style.maxHeight = "80px";
+      check(menu.scrollHeight > menu.clientHeight, "fixture has scrollable options");
+      pointer(menu);
+      menu.scrollTop = menu.scrollHeight;
+      menu.dispatchEvent(new Event("scroll"));
+      await tick();
+      check(isOpen() && menu.scrollTop > 0,
+        `internal scrolling and scrollbar interaction keep picker open: ${trigger.getAttribute("aria-label")}, open=${isOpen()}, scroll=${menu.scrollTop}`);
+      document.querySelector("#app, .stage").dispatchEvent(new Event("scroll"));
+      check(isOpen(), "unrelated preview scrolling does not dismiss a property picker");
+      const last = menu.querySelectorAll("button");
+      last[last.length - 1].focus({ preventScroll: true });
+      await tick();
+      check(isOpen(), "option focus keeps picker open");
+      key(document.activeElement, "Escape");
+      await tick();
+      check(!isOpen() && document.activeElement === trigger, "Escape closes and restores trigger focus");
+      if (details) {
+        key(trigger, "ArrowDown");
+        await tick();
+        key(document.activeElement, "End");
+        await tick();
+        check(isOpen() && menu.contains(document.activeElement) && menu.scrollTop > 0,
+          `keyboard can reach offscreen options: ${trigger.getAttribute("aria-label")}, open=${isOpen()}, active=${document.activeElement?.outerHTML}, scroll=${menu.scrollTop}`);
+        check(document.activeElement.getBoundingClientRect().bottom <= menu.getBoundingClientRect().bottom + 1, "focused option is visible");
+        key(document.activeElement, "Escape");
+      }
+      trigger.click();
+      await tick();
+      selected = null;
+      menu.querySelectorAll("button")[1].click();
+      await tick();
+      check(selected !== null && !isOpen(), "option selection applies and closes");
+      trigger.click();
+      await tick();
+      slot.dispatchEvent(new Event("scroll"));
+      check(!isOpen(), "surrounding inspector scroll dismisses picker");
+      trigger.click();
+      await tick();
+      pointer(slot);
+      check(!isOpen(), "outside pointer dismisses picker");
+      if (details) {
+        trigger.click();
+        await tick();
+        slot.querySelector('input[aria-label="Stable ID"]').focus({ preventScroll: true });
+        await tick();
+        check(!isOpen(), "leaving the disclosure with keyboard focus dismisses it");
+      }
+    }
+  } finally {
+    fixture.remove();
+  }
+}
+
 export async function inspectWorkspaceBehavior() {
   const check = (condition, message) => { if (!condition) throw new Error(message); };
   const wait = async (predicate, message) => {
