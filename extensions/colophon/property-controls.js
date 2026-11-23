@@ -68,9 +68,11 @@
       const menu = combo?.querySelector(".spacing-option-menu.is-open");
       if (!picker && !menu) return;
       event.preventDefault();
-      event.stopPropagation();
       close();
-      (picker?.querySelector(":scope > summary") || combo.querySelector("input"))?.focus({ preventScroll: true });
+      if (!event.target.matches("input, textarea, select")) {
+        event.stopPropagation();
+        (picker?.querySelector(":scope > summary") || combo.querySelector("input"))?.focus({ preventScroll: true });
+      }
       menu?.classList.remove("is-open");
     }, true);
     window.addEventListener("resize", close);
@@ -94,9 +96,12 @@
       if (item.top < bounds.top) menu.scrollTop -= bounds.top - item.top;
       else if (item.bottom > bounds.bottom) menu.scrollTop += item.bottom - bounds.bottom;
     });
-    details.addEventListener("focusout", () => queueMicrotask(() => {
-      if (!details.contains(document.activeElement)) details.open = false;
-    }));
+    details.addEventListener("focusout", (event) => {
+      if (details.contains(event.relatedTarget)) return;
+      queueMicrotask(() => {
+        if (!details.contains(document.activeElement)) details.open = false;
+      });
+    });
     details.addEventListener("toggle", () => {
       if (!details.open) return;
       closeFloatingPickers(details);
@@ -222,8 +227,22 @@
         : ["display", "body", "mono"].filter((role) => tokens().typography?.[role]?.family).map((role) => [
           role, `${role[0].toUpperCase() + role.slice(1)} · ${tokens().typography[role].family}`,
         ]);
-      return propertySelect(label, value, [["", "Inherit / class"], ...choices],
-        (event) => onchange(event.target.value), { wide: true });
+      const missing = value && !choices.some(([token]) => token === value);
+      const field = propertySelect(label, value, [
+        ...(missing ? [[value, `Missing: ${value}`]] : []), ["", "Inherit / class"], ...choices,
+      ], async (event) => {
+        const select = event.target;
+        const inspector = select.closest(".design-inspector, .inspector");
+        const selector = `select[aria-label="${CSS.escape(label)}"]`;
+        const index = inspector ? [...inspector.querySelectorAll(selector)].indexOf(select) : -1;
+        const focused = document.activeElement === select;
+        await onchange(select.value);
+        if (focused && !select.isConnected && document.activeElement === document.body) {
+          inspector?.querySelectorAll(selector)[index]?.focus({ preventScroll: true });
+        }
+      }, { wide: true });
+      if (missing) field.querySelector("select").options[0].disabled = true;
+      return field;
     }
     function appearanceColorValue(value) {
       if (value === NONE) return "transparent";

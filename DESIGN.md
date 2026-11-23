@@ -382,9 +382,14 @@ retain field labels, tooltips, empty states, and validation errors.
 Text style and font family use native selects backed by design tokens, with the
 style metrics and actual font stack in option labels. Font choices must update
 the rendered layer, not just the control's label.
+Keep keyboard focus on typography selectors after a change. Show removed token
+references as explicit missing options so Inherit can clear them.
+Prototype inspector buttons retain the toolbar's shared foreground and surface
+styling. Component inspector buttons use paired host foreground/surface tokens.
 Property flyouts keep focus and remain open while their own options scroll.
 Scrolling the surrounding inspector dismisses them. Escape dismisses and returns
-focus to the trigger; typography and color choices support arrow-key navigation.
+focus to the trigger; editable spacing/color fields also cancel their pending
+edit with the same Escape. Typography and color choices support arrow-key navigation.
 
 Prototype keeps device framing and Fit zoom. In Inspect, its existing Screens
 navigation lives in a collapsible section of the Layers rail; leaving Inspect
