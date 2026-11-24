@@ -41,6 +41,14 @@ Open the **Prototype** canvas when you are ready to create or preview a click-th
 flow. Commit `DESIGN.md`, `AGENTS.md`, and `.agents/design/` so the rest of the team
 works from the same system.
 
+For a fresh seed from an existing app, ask Copilot to use the **colophon** skill
+to analyze the app from styles to basic components, composite controls, and
+application pages. The skill combines source and available runtime evidence,
+preserves native resources and theme behavior, and organizes reusable previews
+into foundation, basic-control, composite, and app-page groups. A token scan
+alone is not a complete catalog; unsupported or unverified previews remain
+explicit, and seeding does not change the production UI.
+
 ## Slash commands
 
 | Command | What it does |
