@@ -6,7 +6,11 @@ description: >-
   contract before generating UI. Reuse its tokens, component patterns, rationale,
   voice, and anti-references. Colophon is an optional visual editor, not a
   requirement for reading the design. If no system exists, offer to seed
-  DESIGN.md, companion component patterns, and an AGENTS.md pointer.
+  DESIGN.md, companion component patterns, and an AGENTS.md pointer. To seed or
+  refresh a system from an existing app or a design-system source (tokens,
+  specifications, or a documentation site), follow its seeding.md playbook in
+  one pass: brand, foundations, basic components, composite controls, and pages,
+  verified against the source.
 ---
 
 # Colophon - seed and follow the repository's design system
@@ -45,14 +49,24 @@ Prose-only DESIGN.md files are valid guidance. Read them as such; do not invent 
 palette or silently fill missing tokens with Northlight. Propose concrete tokens
 only when the requested work needs them.
 
-## 2. Seed only when no design system exists
+## 2. Seed or refresh a system
 
-Choose an appropriate starting point with the user. Preserve the repository's
+Never re-initialize or overwrite an existing system.
+
+To seed a new system, or refresh an existing catalog, from an existing app or a
+design-system source (token packages, specifications, or a documentation site),
+read [seeding.md](seeding.md) in this skill's directory completely, then follow
+it in one pass. It inventories the source with evidence; builds brand,
+foundations, basic components, composite controls, and pages; and verifies the
+result against the source. A request that names the source approves writing the
+design files; the playbook lists the few cases that still need a question.
+
+For other starting points, choose with the user. Preserve the repository's
 identity instead of applying the bundled Northlight example to an unrelated app.
 
-- **Existing UI:** use the `colophon` tool with `scan: true` to propose tokens
-  from the codebase without writing files. Review and refine in the canvas before
-  Save to repo.
+- **Existing UI, quick look:** the `colophon` tool with `scan: true` proposes
+  tokens from the codebase without writing files. A scan is evidence for a seed,
+  not a complete one; use seeding.md for the full system.
 - **New identity:** use the Colophon canvas `init` action with `mode: "scratch"`
   and the project's name, tagline, and description, then refine the neutral
   skeleton with the user.

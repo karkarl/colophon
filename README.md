@@ -41,6 +41,16 @@ Open the **Prototype** canvas when you are ready to create or preview a click-th
 flow. Commit `DESIGN.md`, `AGENTS.md`, and `.agents/design/` so the rest of the team
 works from the same system.
 
+To seed from an existing app or a design-system source in one pass, ask Copilot to
+use the **colophon** skill and name the source, for example: *Use the colophon
+skill to seed this repository's design system from the app*, or *from the design
+system documented at https://example.com*. The skill's
+[seeding playbook](skills/colophon/seeding.md) inventories the source, then builds
+brand, foundations, basic components, composite controls, and pages, and checks
+them against the source until they match. It writes only `DESIGN.md`,
+`.agents/design/`, and the `AGENTS.md` pointer, and reports anything it could not
+verify. The same playbook refreshes an existing catalog after a UI redesign.
+
 ## Slash commands
 
 | Command | What it does |
@@ -554,7 +564,7 @@ Starter/scratch seed root `DESIGN.md`; JSON import/scan load an **unsaved propos
 When it seeds a repository, Colophon idempotently adds a managed `AGENTS.md` block—creating the file if needed—so agents read DESIGN.md (or the existing legacy system) before UI work. The block explains the optional Colophon workflow and direct-file fallback.
 
 ### 3. Copilot references it automatically (the skill + tool + hooks)
-- **`colophon` skill** — discovers the design authority before UI work, guides safe seeding, and generates UI from its tokens, component patterns, and rationale rather than ad-hoc styles.
+- **`colophon` skill** — discovers the design authority before UI work, guides safe seeding (including a one-pass playbook for seeding from an existing app or design-system source), and generates UI from its tokens, component patterns, and rationale rather than ad-hoc styles.
 - **`colophon` tool** — the agent calls it to get the system as text before UI work.`init=true` scaffolds `.agents/design/` from the starter; `scan=true` proposes one from the repo's existing UI when none exists yet.
 - **Hooks** — when a repository contains DESIGN.md or legacy `.agents/design/design.json`, `onSessionStart` announces it and `onUserPromptSubmitted` injects its guidance for UI-related prompts. Parse errors and conflicting sources are surfaced explicitly. Repositories without a system receive no injected design context; use the canvas or `colophon` tool to seed one.
 
@@ -665,6 +675,7 @@ group. Existing files without sections keep their flat list. Agent patches can u
 plugin.json                       plugin manifest (skills + extensions)
 .github/plugin/marketplace.json   makes this repo its own plugin marketplace
 skills/colophon/SKILL.md          design discovery, seeding, and on-system UI guidance
+skills/colophon/seeding.md        one-pass seeding playbook for apps and design-system sources
 extensions/colophon/              the canvas extension:
   extension.mjs   wiring: canvases + tools + hooks + loopback server + file IO
   designio.mjs    discover / seed / save DESIGN.md or legacy JSON; AGENTS.md pointer; token → CSS vars
