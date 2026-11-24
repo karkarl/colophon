@@ -6,10 +6,11 @@ description: >-
   contract before generating UI. Reuse its tokens, component patterns, rationale,
   voice, and anti-references. Colophon is an optional visual editor, not a
   requirement for reading the design. If no system exists, offer to seed
-  DESIGN.md, companion component patterns, and an AGENTS.md pointer.
-  For a fresh seed from an existing app, inspect its UI and sources, extract
-  styles, build basic components into composite controls, and organize previews
-  into foundation, component, and application-page groups.
+  DESIGN.md, companion component patterns, and an AGENTS.md pointer. To seed or
+  refresh a system from an existing app or a design-system source (tokens,
+  specifications, or a documentation site), follow its seeding.md playbook in
+  one pass: brand, foundations, basic components, composite controls, and pages,
+  verified against the source.
 ---
 
 # Colophon - seed and follow the repository's design system
@@ -48,15 +49,24 @@ Prose-only DESIGN.md files are valid guidance. Read them as such; do not invent 
 palette or silently fill missing tokens with Northlight. Propose concrete tokens
 only when the requested work needs them.
 
-## 2. Seed only when no design system exists
+## 2. Seed or refresh a system
 
-Choose an appropriate starting point with the user. Preserve the repository's
+Never re-initialize or overwrite an existing system.
+
+To seed a new system, or refresh an existing catalog, from an existing app or a
+design-system source (token packages, specifications, or a documentation site),
+read [seeding.md](seeding.md) in this skill's directory completely, then follow
+it in one pass. It inventories the source with evidence; builds brand,
+foundations, basic components, composite controls, and pages; and verifies the
+result against the source. A request that names the source approves writing the
+design files; the playbook lists the few cases that still need a question.
+
+For other starting points, choose with the user. Preserve the repository's
 identity instead of applying the bundled Northlight example to an unrelated app.
 
-- **Existing UI:** use the `colophon` tool with `scan: true` to propose tokens
-  from the codebase without writing files, then follow the app-first workflow
-  below. A token scan is evidence for a seed, not a complete component catalog.
-  Review and refine in the canvas before Save to repo.
+- **Existing UI, quick look:** the `colophon` tool with `scan: true` proposes
+  tokens from the codebase without writing files. A scan is evidence for a seed,
+  not a complete one; use seeding.md for the full system.
 - **New identity:** use the Colophon canvas `init` action with `mode: "scratch"`
   and the project's name, tagline, and description, then refine the neutral
   skeleton with the user.
@@ -76,120 +86,6 @@ The extension preserves existing systems when `init` is called. It does not
 create a competing `design.json`, seed legacy principles.md for a new system, or
 automatically migrate old files. Check the result's written/skipped files and
 AGENTS.md status; report pointer failures instead of claiming complete setup.
-
-### App-first seeding: styles -> basic components -> composites -> pages
-
-Use this workflow when seeding from an existing application, regardless of its
-framework. A fresh design-system seed does not mean redesigning the app. Capture
-its actual identity, visual rules, and controls rather than filling a starter
-gallery with unrelated examples. If a system already exists, use the same
-analysis to identify gaps and extend it without reinitializing.
-
-#### A. Establish scope and inspect the app
-
-Identify the app's technology, design references, production resources, and
-areas to cover from the request and repository. Ask only for consequential
-unknowns, one at a time: for example, whether to document the current UI or an
-explicitly requested new direction. Confirm the intended authority before
-writing the seed; do not assume Fluent, WinUI, or any other system merely because
-it was used in another project.
-
-Inventory routes, windows, setup/onboarding, the main workspace, settings,
-dialogs, menus, and other transient surfaces that actually exist. Walk through
-the running app when available and inspect the matching source, shared styles,
-resource dictionaries, templates, and assets. Exercise relevant states such as
-hover, pressed, focus, disabled, selected, expanded, validation, loading, empty,
-and error, plus supported themes and responsive layouts.
-
-Keep a compact evidence and coverage record in the working context. For each
-surface, record its source location, styles, basic controls, composites, and
-whether runtime behavior was observed or only inferred from source. Do not
-expose credentials or private user content in screenshots or preview fixtures.
-If runtime inspection is unavailable, continue with source evidence and state
-the limitation; never claim visual or pixel parity from source alone.
-
-#### B. Extract styles and foundations first
-
-Identify shared color roles, theme mappings, typography, spacing, radii, strokes,
-elevation, icons/assets, and motion before authoring components. Separate
-reusable style tokens from object/control geometry: an exact native thumb size
-or artwork bound is not an excuse to invent a spacing token.
-
-Trace values to their actual definitions and usage. Preserve resource names and
-light/dark/high-contrast behavior; mark unresolved platform values explicitly
-instead of guessing them. Record scoped overrides where an area intentionally
-differs from the shared style. Define portable tokens and rationale in DESIGN.md,
-with production mappings and authority in the existing Colophon metadata shape.
-When Fluent or another external system is the requested reference, consult its
-applicable specifications and the app's actual implementation. Distinguish
-upstream defaults from app-specific overrides.
-
-#### C. Catalog basic components
-
-Start with the smallest reusable controls and visual elements evidenced by the
-app: for example, buttons, labels, inputs, selection controls, glyph tiles, and
-status indicators. Search existing definitions before adding anything.
-Document anatomy, content slots, variants, sizes, state treatments, focus,
-keyboard behavior, accessible naming, and token/resource bindings as applicable.
-
-Treat a different label, icon, size, or style preset as a configuration or
-variant of the same component unless its structure or behavior genuinely
-requires a separate identity. Keep native names where useful for traceability.
-Use actual assets and configured geometry; do not substitute simplified
-artwork or approximate a known control without explicitly documenting the
-preview limitation. Support stateful previews only within the component
-runtime's documented capabilities; record unsupported behavior rather than
-inventing executable schema fields.
-
-#### D. Build composite controls bottom-up
-
-Compose the basic definitions into the recurring structures found in the app:
-for example, labeled fields, option rows, search/filter bars, settings groups,
-navigation, wizard footers, and dialogs. Then compose those into larger panels
-and shells. Define dependencies before their consumers and reference registered
-components by name rather than duplicating their trees.
-
-Keep shared controls separate from page-specific composition. Preserve layout,
-content hierarchy, states, and meaningful interaction details from the source.
-Use representative, non-sensitive fixtures for long text, empty/error states,
-and other evidenced cases. These graphs document design intent and previews;
-they do not replace canonical production code or application business logic.
-
-#### E. Arrange the catalog by foundations, controls, and app pages
-
-Organize the Colophon gallery in reading order: styles/foundations, basic
-components, composite controls, then the actual application areas or pages.
-Choose group names from the app rather than imposing a fixed sample sitemap.
-Application-page previews should assemble the same registered components, not
-introduce a second page-local library.
-
-Store gallery placement in `x-colophon.tokens.pages` for DESIGN.md-backed
-systems. Use ordered `sections` IDs (`colors`, `typography`, `spacing`, `radii`,
-`shadows`, `principles`) for foundations and ordered `components` names for
-previews. Foundation-only pages use `components: []`. Set the built-in
-`components` entry's selection explicitly when grouping definitions elsewhere,
-so its default all-components view does not duplicate the whole catalog.
-Give each foundation and standalone preview one intentional home; nested
-component reuse is not duplicate placement. Preserve unrelated metadata and
-avoid reserved `brand` and `configuration` page IDs.
-
-Gallery pages are not application routing. Create
-`.agents/design/prototypes.jsonc` only when a click-through flow is requested,
-reusing catalog components rather than copying them into screens.
-
-#### F. Verify coverage and persist the seed
-
-Compare the result with the surface inventory, not just a few attractive
-previews. Every in-scope surface should map to existing or newly documented
-patterns, or an explicit gap. Check token and component references, composition
-dependencies, gallery placement, and supported state/theme previews. Inspect
-source-matched renders when possible; call out approximation or unobserved
-behavior rather than claiming an exact match.
-
-After review and approval, save the contract and verify the files and AGENTS.md
-pointer as described below. Report covered areas, unresolved evidence, and
-preview limitations concisely. Do not silently expand seeding into production
-UI changes, automatic migration, or a new brand direction.
 
 ### Seeding without the extension
 
